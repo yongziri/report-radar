@@ -154,6 +154,11 @@ a:hover{text-decoration:underline}
 .tgt-new{color:var(--accent);font-size:9.5px;font-weight:700;margin-left:3px;letter-spacing:.3px}
 .gap-pos{color:var(--up);font-weight:600}
 .gap-neg{color:var(--down);font-weight:600}
+/* 현재가 아래 작게 붙는 실시간 등락률 */
+.chg{display:block;font-size:10.5px;font-weight:600;margin-top:1px;font-variant-numeric:tabular-nums}
+.chg-up{color:var(--up)}
+.chg-down{color:var(--down)}
+.chg-flat{color:var(--fg-faint)}
 .strong{font-weight:700}
 .muted{color:var(--fg-faint)}
 .toggle{
@@ -347,6 +352,205 @@ function shiftISO(iso, days){
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0,10);
 }
+function kstClock(ts){
+  // 브라우저 시간대와 무관하게 KST 시:분:초
+  return new Date(ts + 9*3600*1000).toISOString().slice(11,19);
+}
+function inMarketHours(){
+  // KST 평일 08:30~16:00 (장전 동시호가 포함)
+  var d = new Date(Date.now() + 9*3600*1000);
+  var day = d.getUTCDay();
+  if(day === 0 || day === 6) return false;
+  var min = d.getUTCHours()*60 + d.getUTCMinutes();
+  return min >= 8*60 + 30 && min <= 16*60;
+}
+
+/* ------------------------------------------------ JSONP (네이버)
+   fetch()는 CORS에 막히므로 script 태그로 받는다.
+   큐 + 요청 간 150ms + 8초 타임아웃. 응답은 EUC-KR. */
+var JSONP = (function(){
+  var seq = 0, queue = [], busy = false, lastAt = 0;
+  var GAP = 150, TIMEOUT = 8000;
+  function run(){
+    if(busy || !queue.length) return;
+    var wait = Math.max(0, GAP - (Date.now() - lastAt));
+    busy = true;
+    setTimeout(function(){
+      var job = queue.shift(); lastAt = Date.now();
+      exec(job, function(){ busy = false; run(); });
+    }, wait);
+  }
+  function exec(job, done){
+    var name = "__jsonp_cb_" + (++seq) + "_" + (Date.now() % 100000);
+    var script = document.createElement("script");
+    var timer = null, finished = false;
+    function cleanup(){
+      if(timer) clearTimeout(timer);
+      try{ delete window[name]; }catch(e){ window[name] = undefined; }
+      if(script.parentNode) script.parentNode.removeChild(script);
+    }
+    function finish(err, data){
+      if(finished) return;
+      finished = true; cleanup(); done();
+      if(err) job.reject(err); else job.resolve(data);
+    }
+    window[name] = function(data){ finish(null, data); };
+    script.src = job.url + (job.url.indexOf("?") < 0 ? "?" : "&") + "_callback=" + name;
+    script.charset = "EUC-KR";
+    script.onerror = function(){ finish(new Error("JSONP 요청 실패")); };
+    timer = setTimeout(function(){ finish(new Error("JSONP 타임아웃")); }, TIMEOUT);
+    document.head.appendChild(script);
+  }
+  return function(url){
+    return new Promise(function(resolve, reject){
+      queue.push({url:url, resolve:resolve, reject:reject}); run();
+    });
+  };
+})();
+
+/* ------------------------------------------------ 실시간 시세
+   데이터 파일의 price/gap 은 수집 시점 종가다. 표에 보이는 종목만 네이버에서
+   현재가를 받아 덮어쓴다. */
+var QUOTE_URL = "https://polling.finance.naver.com/api/realtime?query=";
+var QUOTE_CHUNK = 100;      // 한 요청에 담는 종목 수
+var LIVE_TTL = 60000;       // 캐시 유효 60초
+var QUOTE_INTERVAL = 60000; // 시세 재조회 주기
+var DATA_INTERVAL = 300000; // 리포트 갱신 확인 주기 (5분)
+
+var liveCache = Object.create(null);  // code -> {price, changePct, marketState, at}
+var inflight = Object.create(null);   // 같은 코드를 중복 요청하지 않게
+var live = {ok:false, at:0, fails:0, stopped:false};
+
+function effPrice(r){
+  return (typeof r.livePrice === "number" && r.livePrice > 0) ? r.livePrice : r.price;
+}
+function effGap(r){
+  if(typeof r.livePrice === "number" && r.livePrice > 0){
+    if(typeof r.target !== "number") return null;
+    return Math.round((r.target - r.livePrice) / r.livePrice * 10000) / 100;
+  }
+  return (r.gap === null || r.gap === undefined) ? null : r.gap;
+}
+
+function parseQuotes(data){
+  var areas = data && data.result && data.result.areas;
+  if(!areas || !areas.length) return 0;
+  var datas = areas[0].datas || [], got = 0;
+  for(var i=0;i<datas.length;i++){
+    var d = datas[i];
+    if(!d || !d.cd) continue;
+    var price = Number(d.nv);
+    if(!price) continue;
+    // cr(등락률)은 부호 없이 오고 rf 가 방향을 준다 (4=하한, 5=하락)
+    var rf = String(d.rf);
+    var cr = Math.abs(Number(d.cr) || 0);
+    liveCache[d.cd] = {
+      price: price,
+      changePct: (rf === "4" || rf === "5") ? -cr : cr,
+      marketState: d.ms || "",
+      at: Date.now()
+    };
+    got++;
+  }
+  return got;
+}
+
+function fetchQuotes(codes){
+  var jobs = [];
+  for(var i=0;i<codes.length;i+=QUOTE_CHUNK){
+    var q = "SERVICE_ITEM:" + codes.slice(i, i + QUOTE_CHUNK).join(",");
+    jobs.push(JSONP(QUOTE_URL + encodeURIComponent(q)));
+  }
+  return Promise.all(jobs);
+}
+
+function applyLive(){
+  for(var i=0;i<reports.length;i++){
+    var r = reports[i];
+    var e = r.code ? liveCache[r.code] : null;
+    if(!e) continue;
+    r.livePrice = e.price;
+    r.liveChangePct = e.changePct;
+    r.marketState = e.marketState;
+  }
+}
+
+/* 지금 표에 보이는 종목 중 캐시가 없거나 낡은 것만 조회한다 */
+function refreshQuotes(){
+  if(live.stopped || !reports.length) return;
+  var rows = filtered(), seen = Object.create(null), codes = [], now = Date.now();
+  for(var i=0;i<rows.length;i++){
+    var c = rows[i].code;
+    if(!c || seen[c]) continue;
+    seen[c] = 1;
+    if(inflight[c]) continue;
+    var e = liveCache[c];
+    if(e && now - e.at < LIVE_TTL) continue;
+    codes.push(c);
+  }
+  if(!codes.length) return;
+  codes.forEach(function(c){ inflight[c] = 1; });
+
+  fetchQuotes(codes).then(function(list){
+    codes.forEach(function(c){ delete inflight[c]; });
+    var got = 0;
+    list.forEach(function(d){ got += parseQuotes(d); });
+    live.fails = 0;
+    if(got){
+      live.ok = true;
+      live.at = Date.now();
+      applyLive();
+      renderKeepScroll();
+    }
+    renderUpdated();
+  }).catch(function(err){
+    codes.forEach(function(c){ delete inflight[c]; });
+    live.fails++;
+    console.warn("[리포트 레이더] 시세 조회 실패:", err && err.message ? err.message : err);
+    if(live.fails >= 3){
+      live.stopped = true;
+      console.warn("[리포트 레이더] 시세 조회가 3회 연속 실패해 자동 갱신을 중단합니다.");
+    }
+    renderUpdated();
+  });
+}
+
+var scheduleQuotes = debounce(refreshQuotes, 250);
+
+function startTimers(){
+  // 장중에만 재조회한다. 장외에는 로드 시 1회(종가)로 끝낸다.
+  setInterval(function(){
+    if(document.hidden || !inMarketHours()) return;
+    refreshQuotes();
+  }, QUOTE_INTERVAL);
+  setInterval(refreshData, DATA_INTERVAL);
+}
+
+/* ------------------------------------------------ 리포트 데이터 재확인 */
+function refreshData(){
+  fetch("data/meta.json", {cache:"no-store"}).then(function(r){
+    if(!r.ok) throw new Error("meta.json " + r.status);
+    return r.json();
+  }).then(function(m){
+    if(!m || !m.updated_at) return null;
+    if(meta && meta.updated_at === m.updated_at) return null;
+    return fetch("data/reports.json", {cache:"no-store"}).then(function(r){
+      if(!r.ok) throw new Error("reports.json " + r.status);
+      return r.json();
+    }).then(function(list){
+      if(!Array.isArray(list)) return;
+      meta = m;
+      reports = list;
+      rebuildBrokers();
+      applyLive();
+      renderBrokerList();
+      renderKeepScroll();   // 스크롤·필터는 그대로 둔 채 다시 그린다
+      renderUpdated();
+    });
+  }).catch(function(err){
+    console.warn("[리포트 레이더] 리포트 갱신 확인 실패:", err && err.message ? err.message : err);
+  });
+}
 
 /* ------------------------------------------------ 필터링 */
 function periodFloor(){
@@ -435,8 +639,8 @@ var REPORT_COLS = [
   {key:"broker", label:"증권사", get:function(r){return r.broker;}},
   {key:"rating", label:"의견",   get:function(r){return RATINGS.indexOf(r.rating);}},
   {key:"target", label:"목표주가", cls:"num", get:function(r){return r.target;}},
-  {key:"price",  label:"현재가",  cls:"num", get:function(r){return r.price;}},
-  {key:"gap",    label:"괴리율",  cls:"num", get:function(r){return r.gap;}}
+  {key:"price",  label:"현재가",  cls:"num", get:function(r){return effPrice(r);}},
+  {key:"gap",    label:"괴리율",  cls:"num", get:function(r){return effGap(r);}}
 ];
 
 var STOCK_COLS = [
@@ -477,6 +681,18 @@ function targetCell(r){
     mark = '<span class="tgt-new" title="이 증권사의 첫 목표가">NEW</span>';
   }
   return '<span class="strong">' + num(r.target) + "</span>" + mark;
+}
+
+/* 실시간 등락률 꼬리표 (한국식: 상승 빨강 / 하락 파랑) */
+function chgTag(p){
+  if(typeof p !== "number") return "";
+  var cls = p > 0 ? "chg-up" : (p < 0 ? "chg-down" : "chg-flat");
+  return '<span class="chg ' + cls + '">' + pct(p) + "</span>";
+}
+function priceCell(r){
+  var p = effPrice(r);
+  if(!p) return '<span class="muted">-</span>';
+  return num(p) + (typeof r.livePrice === "number" ? chgTag(r.liveChangePct) : "");
 }
 
 function gapCell(g){
@@ -520,8 +736,8 @@ function renderReports(rows){
     html.push('<td><span class="badge ' + esc(r.rating || "NR") + '" title="' +
       esc(r.rating_raw || "") + '">' + esc(r.rating || "NR") + "</span></td>");
     html.push('<td class="num">' + targetCell(r) + "</td>");
-    html.push('<td class="num">' + (r.price ? num(r.price) : '<span class="muted">-</span>') + "</td>");
-    html.push('<td class="num">' + gapCell(r.gap) + "</td>");
+    html.push('<td class="num">' + priceCell(r) + "</td>");
+    html.push('<td class="num">' + gapCell(effGap(r)) + "</td>");
     html.push("</tr>");
 
     if(open){
@@ -541,13 +757,16 @@ function groupByStock(rows){
     var g = map[r.code];
     if(!g){
       g = map[r.code] = {code:r.code, name:r.name, n:0, targets:[], gaps:[],
-                         price:null, BUY:0, HOLD:0, SELL:0, NR:0};
+                         price:null, changePct:null, BUY:0, HOLD:0, SELL:0, NR:0};
     }
     g.n++;
     if(r.name) g.name = r.name;
-    if(r.price) g.price = r.price;
+    var p = effPrice(r);
+    if(p) g.price = p;
+    if(typeof r.liveChangePct === "number") g.changePct = r.liveChangePct;
     if(typeof r.target === "number") g.targets.push(r.target);
-    if(typeof r.gap === "number") g.gaps.push(r.gap);
+    var gp = effGap(r);
+    if(typeof gp === "number") g.gaps.push(gp);
     if(g[r.rating] !== undefined) g[r.rating]++;
   }
   var out = [];
@@ -596,7 +815,7 @@ function renderStocks(rows){
     html.push('<td class="num strong">' + (s.avg ? num(s.avg) : '<span class="muted">-</span>') + "</td>");
     html.push('<td class="num">' + (s.max ? num(s.max) : '<span class="muted">-</span>') + "</td>");
     html.push('<td class="num">' + (s.min ? num(s.min) : '<span class="muted">-</span>') + "</td>");
-    html.push('<td class="num">' + (s.price ? num(s.price) : '<span class="muted">-</span>') + "</td>");
+    html.push('<td class="num">' + (s.price ? num(s.price) + chgTag(s.changePct) : '<span class="muted">-</span>') + "</td>");
     html.push('<td class="num">' + gapCell(s.gap) + "</td>");
     html.push("</tr>");
   }
@@ -623,6 +842,32 @@ function render(){
 
   syncControls();
   saveState();
+  // 새로 보이게 된 종목이 있으면 그것만 추가로 조회한다
+  scheduleQuotes();
+}
+
+/* 스크롤 위치를 지킨 채 다시 그린다 (시세·리포트 자동 갱신용) */
+function renderKeepScroll(){
+  var y = window.pageYOffset;
+  render();
+  window.scrollTo(0, y);
+}
+
+function marketLabel(){
+  if(live.stopped) return "자동갱신 중단";
+  if(inMarketHours()) return "장중";
+  return "장외 · 1회 조회(자동갱신 없음)";
+}
+
+function renderUpdated(){
+  var parts = [];
+  if(meta && meta.updated_at){
+    parts.push("리포트 갱신 " + meta.updated_at.replace("T", " ").slice(5, 16) + " KST");
+  }
+  parts.push(live.ok
+    ? "시세 실시간 " + kstClock(live.at) + " (" + marketLabel() + ")"
+    : "시세: 수집 시점 종가");
+  $("updated").textContent = parts.join(" · ");
 }
 
 function syncControls(){
@@ -734,6 +979,18 @@ function bind(){
   });
 }
 
+function rebuildBrokers(){
+  if(meta && Array.isArray(meta.brokers) && meta.brokers.length){
+    allBrokers = meta.brokers.slice();
+  }else{
+    var set = Object.create(null);
+    reports.forEach(function(r){ if(r.broker) set[r.broker] = 1; });
+    allBrokers = Object.keys(set).sort(function(a,b){ return a.localeCompare(b, "ko"); });
+  }
+  // 사라진 증권사가 필터에 남아 있으면 걷어낸다
+  state.brokers = state.brokers.filter(function(b){ return allBrokers.indexOf(b) >= 0; });
+}
+
 function renderBrokerList(){
   var html = [];
   for(var i=0;i<allBrokers.length;i++){
@@ -777,20 +1034,8 @@ function boot(){
     reports = Array.isArray(res[0]) ? res[0] : [];
     meta = res[1];
 
-    if(meta && Array.isArray(meta.brokers) && meta.brokers.length){
-      allBrokers = meta.brokers.slice();
-    }else{
-      var set = Object.create(null);
-      reports.forEach(function(r){ if(r.broker) set[r.broker] = 1; });
-      allBrokers = Object.keys(set).sort(function(a,b){ return a.localeCompare(b, "ko"); });
-    }
-    // 사라진 증권사가 필터에 남아 있으면 걷어낸다
-    state.brokers = state.brokers.filter(function(b){ return allBrokers.indexOf(b) >= 0; });
-
-    if(meta && meta.updated_at){
-      var t = meta.updated_at.replace("T", " ").slice(0, 16);
-      $("updated").textContent = "갱신 " + t + " KST";
-    }
+    rebuildBrokers();
+    renderUpdated();
 
     if(!reports.length){
       showNotice("수집된 리포트가 없습니다. <code>python scraper/collect.py --days 45</code> 를 먼저 실행해 주세요.");
@@ -800,7 +1045,8 @@ function boot(){
     renderBrokerList();
     bind();
     $("app").hidden = false;
-    render();
+    render();          // 끝에서 scheduleQuotes() 가 첫 시세 조회를 건다
+    startTimers();
   }).catch(function(err){
     var isFile = location.protocol === "file:";
     showNotice(
