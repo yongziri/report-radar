@@ -14,6 +14,7 @@ report-radar/
 │  └─ meta.json                  # 갱신 시각·건수·최신 리포트 날짜·증권사 목록
 ├─ scraper/
 │  ├─ collect.py                 # 수집기 (CLI)
+│  ├─ brokers.py                 # 증권사 직접 수집 (KB·NH·한투 네트워크 호출)
 │  ├─ parsers.py                 # 순수 파싱·계산 함수 (네트워크를 타지 않음)
 │  ├─ test_parsers.py            # 픽스처 기반 테스트
 │  └─ requirements.txt
@@ -30,9 +31,15 @@ Node도, 번들러도 필요 없다.
 | [네이버 금융 리서치](https://finance.naver.com/research/company_list.naver) | 리포트 목록·목표가·투자의견·요약 | 응답이 **EUC-KR**이다. HTML 메타는 utf-8이라고 거짓말하므로 강제로 디코딩한다 |
 | 네이버 실시간 시세 API | 현재가 | 한 번에 100종목씩 조회 |
 | [한경 컨센서스](https://consensus.hankyung.com/analysis/list?report_type=CO) | 애널리스트명 보강, 네이버에 없는 리포트 추가 | **브라우저 UA 필수**. 아니면 본문이 `Block access`로 돌아온다 |
+| [KB증권 리서치](https://rc.kbsec.com/) | KB증권 리포트 (`source: "kb"`) | 목록 JSON에 의견·목표가·요약이 다 들어 있다. **JSON 바디로 POST** 해야 한다(form이면 500) |
+| [NH투자증권 리서치](https://www.nhsec.com/research/boardList.action?rsh_ppr_dit_cd=01) | NH투자증권 리포트 (`source: "nh"`) | 목록엔 의견·목표가가 없어 요약문에서 캔다. 응답 인코딩이 **EUC-KR**인데 본문은 JSON이다 |
+| [한국투자증권 리서치](https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=10) | 한국투자증권 리포트 (`source: "kis"`) | **브라우저 UA 필수**. 의견·목표가는 상세 본문에서 캔다. PDF는 로그인이 필요해 `pdf`가 `null`이다 |
 
-네이버 레코드와 한경 레코드는 `(종목코드, 작성일, 증권사 정규화명)`으로 맞춰 붙인다.
-한경 수집이 실패해도 전체 수집은 계속된다(경고만 남긴다).
+이 세 곳은 네이버 리서치에 리포트를 거의 올리지 않아 각 사 사이트에서 직접 긁는다.
+소스 우선순위는 **네이버 > KB·NH·한투 > 한경**이다. `(종목코드, 작성일, 증권사 정규화명)`으로
+같은 리포트를 맞춰, 상위 소스 레코드가 있으면 하위 레코드를 새로 넣지 않고 상위 레코드의
+빈 칸(`analyst`·`target`·`rating_raw`·`summary`·`pdf`)만 채운다.
+어느 소스가 실패해도 전체 수집은 계속된다(경고만 남긴다).
 
 ## 실행
 
@@ -58,7 +65,7 @@ python scraper/collect.py --from 2026-08-01 --to 2026-08-31
 python scraper/collect.py --dry-run
 
 # 보조 소스 끄기
-python scraper/collect.py --no-hankyung --no-price
+python scraper/collect.py --no-hankyung --no-brokers --no-price
 ```
 
 요청 사이에 0.4초를 쉬고, 실패하면 2회까지 다시 시도한다. 상세 페이지를 못 읽어도
@@ -71,8 +78,8 @@ python scraper/collect.py --no-hankyung --no-price
 python scraper/test_parsers.py
 ```
 
-네트워크 없이 픽스처 문자열만으로 돈다. 목록·상세·한경 파서, 투자의견 정규화,
-괴리율, 목표가 변동 판정을 검증한다.
+네트워크 없이 픽스처 문자열만으로 돈다. 목록·상세·한경·KB·NH·한투 파서,
+본문에서 의견·목표가를 캐는 추출기, 투자의견 정규화, 괴리율, 목표가 변동 판정을 검증한다.
 
 ### 화면 확인
 
@@ -121,6 +128,8 @@ python -m http.server 3491
 - **`target_change`** — 같은 `code` + 같은 `broker`의 **직전(더 오래된 날짜)** 리포트
   목표가와 비교한 결과. `up`/`down`/`same`, 직전 리포트가 없으면 `new`,
   둘 중 하나라도 목표가가 없으면 `null`. 매 실행마다 전체 이력을 놓고 다시 계산한다.
+- **`source`** — `naver`·`kb`·`nh`·`kis`·`hankyung`. `id`는 `소스:원본키` 꼴이다
+  (`naver:96032`, `kb:20260904133704237K`, `nh:000000000000147095`, `kis:159058`).
 - 중복 판정 키는 `id`다. 이미 저장된 리포트의 본문은 건드리지 않고,
   `price`·`gap`·`prev_target`·`target_change`만 실행할 때마다 새로 채운다.
 - 작성일이 180일보다 오래된 건은 저장할 때 걸러낸다.
@@ -166,4 +175,14 @@ python -m http.server 3491
   마지막 페이지 번호를 따라간다.
 - 현재가는 조회 시점 값이라 장중에 돌리면 실시간가, 장 마감 후에는 종가가 들어온다.
   `price_date`는 조회한 날짜다.
+- **KB증권 목록에는 산업 리포트가 대표 종목코드를 달고 섞여 온다.** (예: 제약 위클리가
+  `stkCd` 128940인데 제목은 `제약 (350510)`) 제목의 `(코드)`와 `stkCd`가 같을 때만
+  종목 리포트로 본다. 그래서 종목명이 제목에 안 들어간 KB 리포트는 빠질 수 있다.
+- **NH·한투는 의견·목표가를 자연어에서 캔다.** NH는 요약문, 한투는 상세 본문에서
+  `투자의견 …`, `목표주가 … 원`을 찾는다. 본문이 수치를 PDF에만 적어 두면
+  `rating_raw`·`target`이 `null`로 남는다(한투 스몰캡·간담회 노트가 특히 그렇다).
+  `기존 170,000원` 같은 직전 목표가는 건너뛰고 새 목표가를 집는다.
+  의견을 못 캔 NH·한투 건은 다음 수집 때 수집 범위 안이면 한 번 더 시도한다.
+- 한국투자증권 PDF는 로그인해야 열린다. 그래서 `pdf`는 `null`이고 제목을 누르면
+  상세 페이지가 열린다. NH는 로그인 없이 열리는 PDF 직링크를 준다.
 - 이 페이지는 리포트를 모아 보여줄 뿐 투자 권유가 아니다. 판단과 책임은 투자자 본인에게 있다.

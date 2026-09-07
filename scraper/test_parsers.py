@@ -19,14 +19,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from parsers import (  # noqa: E402
     apply_target_changes,
+    compact_date,
     compute_gap,
+    extract_opinion_from_text,
     normalize_broker,
     normalize_date,
     normalize_rating,
     parse_detail,
     parse_hankyung_list,
+    parse_kb_list,
+    parse_kis_detail,
+    parse_kis_list,
+    parse_kis_total,
     parse_list_last_page,
     parse_list_page,
+    parse_nh_list,
+    parse_nh_summary,
     parse_price_payload,
     to_int,
 )
@@ -131,6 +139,112 @@ HANKYUNG_HTML = """
   </tr>
 </tbody>
 </table>
+</body></html>
+"""
+
+# KB 실제 응답에서 필요한 키만 남겼다. 첫 건은 산업(위클리) 리포트가 대표 종목코드를
+# 달고 온 오탐이다 — stkCd 128940인데 제목의 코드는 350510이다.
+KB_PAYLOAD = {
+    "status": "200",
+    "response": {
+        "totalCount": 0,
+        "reportList": [
+            {"docTitle": "제약 (350510)", "docTitleSub": "Biopharma Deals & News Weekly",
+             "publicDate": "2026-09-07", "stkCd": "128940", "indName": "제약",
+             "recomm": "Positive", "recommChg": "Positive", "tp": "",
+             "analystNm": "신지훈", "documentid": "20260907084805640K",
+             "docDetail": "- 주요 기술이전 및 M&A\n- 자가면역 CAR-T 임상 중단"},
+            {"docTitle": "CJ CGV (079160)", "docTitleSub": "극장 흥행 9월에도 이어질 것",
+             "publicDate": "2026-09-07", "stkCd": "079160", "indName": None,
+             "recomm": "Hold", "recommChg": "유지", "tp": "6000.0000",
+             "analystNm": "이현지", "documentid": "20260904133704237K",
+             "docDetail": "- 투자의견 Hold 유지, 목표주가 6,000원으로 상향 조정\n- 3Q26E: 컨센서스 상회 전망"},
+            {"docTitle": "스몰캡 (123456)", "docTitleSub": "", "publicDate": "2026-09-05",
+             "stkCd": "123456", "recomm": "Not Rated", "tp": None,
+             "analystNm": "김스몰", "documentid": "20260905111111111K",
+             "docDetail": "커버리지 개시 전 자료."},
+        ],
+    },
+}
+
+NH_LIST_PAYLOAD = {
+    "DATA": {"RESPONSE": {"H3211OutBlock2": {"ROW": [
+        {"rsh_ppr_no": "000000000000147095", "rsh_ppr_dru_dt": "20260907",
+         "rsh_ppr_dru_tm": "00000000", "rsh_ppr_til_cts": "[아모레퍼시픽] 분명, 변화하고 있다",
+         "rsh_ppr_dru_emp_fnm": "정지윤", "rsh_ppr_iem_cd_pcl": "090430",
+         "rsh_ppr_dru_dt_nm": "2026.09.07",
+         "hpge_fle_url_cts": "http://download.nhqv.com/CommFile/cis/rsh/epr/CISPPR1.pdf"},
+        {"rsh_ppr_no": "000000000000147088", "rsh_ppr_dru_dt": "20260906",
+         "rsh_ppr_dru_tm": "00000000", "rsh_ppr_til_cts": "제목만 있고 종목코드가 없는 건",
+         "rsh_ppr_dru_emp_fnm": "이화정", "rsh_ppr_iem_cd_pcl": "",
+         "hpge_fle_url_cts": ""},
+    ]}}},
+}
+
+# rsh_ppr_cts는 HTML이 두 번 escape 되어 내려온다.
+NH_SUMMARY_PAYLOAD = {
+    "DATA": {"RESPONSE": {"H3212OutBlock1": {"COUNT": 1, "ROW": [{
+        "rsh_ppr_iem_cd_pcl": "090430",
+        "rsh_ppr_iem_nm_pcl": "아모레퍼시픽",
+        "rsh_ppr_cts": (
+            "&amp;lt;span style=&amp;quot;color:#616161;&amp;quot;&amp;gt;"
+            "투자의견 Buy 유지하며, 목표주가를 185,000원(기존 170,000원)으로 상향."
+            "&amp;lt;/span&amp;gt;&amp;lt;br /&amp;gt;&amp;amp;nbsp;밸류에이션 산정 시점을 2027년으로 변경."
+        ),
+    }]}}},
+}
+
+# 실제 목록 마크업을 줄여 옮겼다. 산업Note는 종목 리포트가 아니라 걸러져야 한다.
+KIS_LIST_HTML = """
+<html><body>
+<div class="comp"><div class="right_area count_area"><p>전체건수 <span>20</span>건</p></div></div>
+<ul class="view_area line">
+  <li>
+    <a class="view_con" href="javascript:void(0)" onclick="event.preventDefault(); doDetail('159077');return false;">
+      <div class="head blue">AIR 스몰캡</div>
+      <div class="body">
+        <span class="body_tit">
+            AIR 스몰캡 엘티씨 (170920):엘티씨, 반도체 및 디스플레이 소재...
+        </span>
+        <span class="body_sub">주요 손익- 2026년 2분기 기준 매출액은 1,409억원...</span>
+      </div>
+      <span class="tit_info"><em>김연준</em><em>2026.09.07</em></span>
+    </a>
+    <a class="pdf_btn" href="javascript:void(0)" onclick="javascript:prePdfFileView('?category1=05','20260907153849397_ko.pdf','01', '2026.09.07', 'N', 'Y', 'N')"><span>원문보기</span></a>
+  </li>
+  <li>
+    <a class="view_con" href="javascript:void(0)" onclick="event.preventDefault(); doDetail('159059');return false;">
+      <div class="head blue">산업Note</div>
+      <div class="body"><span class="body_tit">유통:역발상이 유리한 시점</span>
+        <span class="body_sub">환율에 웃고 환율에 울고</span></div>
+      <span class="tit_info"><em>김유통</em><em>2026.09.07</em></span>
+    </a>
+  </li>
+  <li>
+    <a class="view_con" href="javascript:void(0)" onclick="event.preventDefault(); doDetail('159058');return false;">
+      <div class="head blue">기업Note</div>
+      <div class="body"><span class="body_tit">하나마이크론 (067310):NDR 후기: 정답만을 보여주는 중</span>
+        <span class="body_sub">상반기 성장의 주역, 브라질 법인...</span></div>
+      <span class="tit_info"><em>남채민</em><em>2026.09.07</em></span>
+    </a>
+  </li>
+</ul>
+</body></html>
+"""
+
+KIS_DETAIL_HTML = """
+<html><body>
+<div id="content" class="research"><div class="comp type_v"><div class="v_info_con">
+  <div class="content_title">
+    <span class="sub_title">기업Note</span>
+    <h1 class="h1_title">하나마이크론 (067310):NDR 후기: 정답만을 보여주는 중</h1>
+    <span class="info">남채민<em>2026.09.07</em></span>
+  </div>
+  <div class="v_info_body">
+    <div class='v_info_head'>12MF PER 9.2배의 매력적인 밸류에이션</div>
+    <div class='v_info_body'><BR>하나마이크론에 대한 투자의견 매수와 목표주가 68,000원을 유지한다.</div>
+  </div>
+</div></div></div>
 </body></html>
 """
 
@@ -265,6 +379,145 @@ class TestHankyungParser(unittest.TestCase):
         self.assertEqual(parse_hankyung_list("Block access. 0001"), [])
 
 
+class TestKbParser(unittest.TestCase):
+    def test_industry_report_filtered_out(self):
+        # stkCd(128940)와 제목의 코드(350510)가 다른 산업 리포트는 버린다
+        rows = parse_kb_list(KB_PAYLOAD)
+        self.assertEqual([r["code"] for r in rows], ["079160", "123456"])
+
+    def test_row(self):
+        row = parse_kb_list(KB_PAYLOAD)[0]
+        self.assertEqual(row["id"], "kb:20260904133704237K")
+        self.assertEqual(row["source"], "kb")
+        self.assertEqual(row["date"], "2026-09-07")
+        self.assertEqual(row["name"], "CJ CGV")
+        self.assertEqual(row["title"], "극장 흥행 9월에도 이어질 것")
+        self.assertEqual(row["broker"], "KB증권")
+        self.assertEqual(row["analyst"], "이현지")
+        self.assertEqual(row["rating_raw"], "Hold")
+        self.assertEqual(normalize_rating(row["rating_raw"]), "HOLD")
+        self.assertEqual(row["target"], 6000)
+        self.assertEqual(row["pdf"],
+                         "https://rdata.kbsec.com/pdf_data/20260904133704237K.pdf")
+        self.assertEqual(row["url"], row["pdf"])
+        self.assertIn("컨센서스 상회 전망", row["summary"])
+
+    def test_empty_target_and_subtitle(self):
+        row = parse_kb_list(KB_PAYLOAD)[1]
+        self.assertIsNone(row["target"])          # tp가 None
+        self.assertEqual(row["title"], "스몰캡 (123456)")  # 부제가 비면 원제목
+        self.assertEqual(normalize_rating(row["rating_raw"]), "NR")
+
+    def test_garbage(self):
+        self.assertEqual(parse_kb_list(None), [])
+        self.assertEqual(parse_kb_list({"response": {}}), [])
+
+
+class TestNhParser(unittest.TestCase):
+    def test_list_row(self):
+        rows = parse_nh_list(NH_LIST_PAYLOAD)
+        self.assertEqual(len(rows), 1)  # 종목코드 없는 건은 버린다
+        row = rows[0]
+        self.assertEqual(row["id"], "nh:000000000000147095")
+        self.assertEqual(row["source"], "nh")
+        self.assertEqual(row["code"], "090430")
+        self.assertEqual(row["name"], "아모레퍼시픽")   # 대괄호 종목명은 제목에서 뗀다
+        self.assertEqual(row["title"], "분명, 변화하고 있다")
+        self.assertEqual(row["broker"], "NH투자증권")
+        self.assertEqual(row["analyst"], "정지윤")
+        self.assertEqual(row["date"], "2026-09-07")
+        self.assertTrue(row["pdf"].endswith("CISPPR1.pdf"))
+        self.assertIsNone(row["rating_raw"])       # 의견은 요약에서 채운다
+        self.assertEqual(row["nh_no"], "000000000000147095")
+
+    def test_summary(self):
+        d = parse_nh_summary(NH_SUMMARY_PAYLOAD)
+        self.assertEqual(d["name"], "아모레퍼시픽")
+        self.assertEqual(d["rating_raw"], "Buy")
+        self.assertEqual(d["target"], 185000)      # 기존 170,000원이 아니라 신규 목표가
+        self.assertIn("밸류에이션 산정 시점", d["summary"])
+        self.assertNotIn("<", d["summary"])        # 태그·escape가 남으면 안 된다
+        self.assertNotIn("&", d["summary"])
+
+    def test_garbage(self):
+        self.assertEqual(parse_nh_list({}), [])
+        self.assertIsNone(parse_nh_summary({})["target"])
+
+
+class TestKisParser(unittest.TestCase):
+    def test_only_stock_categories(self):
+        rows = parse_kis_list(KIS_LIST_HTML)
+        self.assertEqual([r["code"] for r in rows], ["170920", "067310"])
+
+    def test_smallcap_row(self):
+        row = parse_kis_list(KIS_LIST_HTML)[0]
+        self.assertEqual(row["id"], "kis:159077")
+        self.assertEqual(row["source"], "kis")
+        self.assertEqual(row["name"], "엘티씨")   # 제목 앞 분류명은 뗀다
+        self.assertEqual(row["title"], "엘티씨, 반도체 및 디스플레이 소재...")
+        self.assertEqual(row["broker"], "한국투자증권")
+        self.assertEqual(row["analyst"], "김연준")
+        self.assertEqual(row["date"], "2026-09-07")
+        self.assertIsNone(row["pdf"])             # PDF는 로그인해야 열린다
+        self.assertEqual(
+            row["url"],
+            "https://securities.koreainvestment.com/main/research/research/"
+            "StrategyDetail.jsp?jkGubun=10&id=159077")
+
+    def test_company_note_row(self):
+        row = parse_kis_list(KIS_LIST_HTML)[1]
+        self.assertEqual(row["name"], "하나마이크론")
+        self.assertEqual(row["title"], "NDR 후기: 정답만을 보여주는 중")
+        self.assertIn("브라질 법인", row["summary"])
+
+    def test_total(self):
+        self.assertEqual(parse_kis_total(KIS_LIST_HTML), 20)
+        self.assertIsNone(parse_kis_total("<html></html>"))
+
+    def test_detail(self):
+        d = parse_kis_detail(KIS_DETAIL_HTML)
+        self.assertEqual(d["rating_raw"], "매수")
+        self.assertEqual(d["target"], 68000)
+        self.assertIn("하나마이크론", d["summary"])
+
+    def test_garbage(self):
+        self.assertEqual(parse_kis_list("<html></html>"), [])
+        self.assertIsNone(parse_kis_detail("<html></html>")["rating_raw"])
+
+
+class TestOpinionExtraction(unittest.TestCase):
+    def test_target_raised_with_previous_in_parens(self):
+        self.assertEqual(
+            extract_opinion_from_text(
+                "투자의견 Buy 유지하며, 목표주가를 185,000원(기존 170,000원)으로 상향"),
+            ("Buy", 185000))
+
+    def test_korean_rating_and_maintained_target(self):
+        self.assertEqual(
+            extract_opinion_from_text("투자의견 매수와 목표주가 68,000원을 유지"),
+            ("매수", 68000))
+
+    def test_previous_target_skipped(self):
+        _, target = extract_opinion_from_text("기존 목표주가 50,000원에서 60,000원으로 상향")
+        self.assertEqual(target, 60000)
+
+    def test_no_opinion(self):
+        self.assertEqual(
+            extract_opinion_from_text("3분기 실적은 시장 기대에 부합할 전망이다."),
+            (None, None))
+        self.assertEqual(extract_opinion_from_text(""), (None, None))
+        self.assertEqual(extract_opinion_from_text(None), (None, None))
+
+    def test_english_ratings(self):
+        for text, expected in (
+            ("투자의견 Hold 유지", "Hold"),
+            ("투자의견 Not Rated", "Not Rated"),
+            ("투자의견을 비중확대로 상향", "비중확대"),
+            ("투자의견: Outperform", "Outperform"),
+        ):
+            self.assertEqual(extract_opinion_from_text(text)[0], expected, text)
+
+
 class TestRatingNormalization(unittest.TestCase):
     def test_buy(self):
         for raw in ["매수", "Buy", "BUY", " buy ", "StrongBuy", "적극매수",
@@ -281,7 +534,8 @@ class TestRatingNormalization(unittest.TestCase):
             self.assertEqual(normalize_rating(raw), "SELL", raw)
 
     def test_nr(self):
-        for raw in ["없음", "Not Rated", "N/A", "NR", "nr", "투자의견없음", "", None, "   "]:
+        for raw in ["없음", "Not Rated", "N/A", "NR", "nr", "투자의견없음", "", None, "   ",
+                    "Positive", "Negative"]:
             self.assertEqual(normalize_rating(raw), "NR", repr(raw))
 
     def test_unknown_falls_back_to_nr(self):
@@ -380,6 +634,11 @@ class TestSmallHelpers(unittest.TestCase):
         self.assertEqual(normalize_date("2026-09-07"), "2026-09-07")
         self.assertEqual(normalize_date("2026.9.7"), "2026-09-07")
         self.assertIsNone(normalize_date("작성일"))
+
+    def test_compact_date(self):
+        self.assertEqual(compact_date("20260907"), "2026-09-07")
+        self.assertIsNone(compact_date("2026-09-07"))
+        self.assertIsNone(compact_date(""))
 
 
 if __name__ == "__main__":

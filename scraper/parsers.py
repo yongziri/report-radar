@@ -5,6 +5,8 @@
 """
 
 import re
+from html import unescape as _unescape
+
 from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------- 공통 유틸
@@ -57,6 +59,17 @@ def normalize_date(value):
     return None
 
 
+def compact_date(value):
+    """'20260907' -> '2026-09-07'. 구분자 없는 8자리가 아니면 None.
+
+    NH가 날짜를 이 꼴로 내려준다. normalize_date는 구분자가 있어야 잡는다.
+    """
+    s = str(value or "").strip()
+    if not re.fullmatch(r"\d{8}", s):
+        return None
+    return "%s-%s-%s" % (s[:4], s[4:6], s[6:])
+
+
 # ------------------------------------------------------------ 투자의견 정규화
 
 # 소문자·공백·마침표를 걷어낸 키로 찾는다.
@@ -76,6 +89,8 @@ _RATING_MAP = {
     # NR 계열
     "없음": "NR", "not rated": "NR", "notrated": "NR", "n/a": "NR", "na": "NR",
     "nr": "NR", "투자의견없음": "NR", "": "NR", "-": "NR", "의견없음": "NR",
+    # KB의 산업 의견(Positive/Negative)이 종목 리포트에 섞여 오면 등급 없음으로 둔다
+    "positive": "NR", "negative": "NR",
 }
 
 
@@ -378,6 +393,290 @@ def parse_hankyung_list(html):
             "views": None,
         })
     return out
+
+
+# --------------------------------------------- 본문에서 의견·목표가 뽑아내기
+
+# NH 요약문과 한국투자증권 상세 본문에는 의견·목표가 칸이 따로 없다. 문장에서 캔다.
+_OPINION_RE = re.compile(
+    r"투자의견\s*[:：]?\s*(?:을|를)?\s*['\"]?"
+    r"(매수|중립|매도|비중확대|비중축소|Strong\s*Buy|Buy|Hold|Neutral|Sell|"
+    r"Outperform|Underperform|Marketperform|Overweight|Underweight|Not\s*Rated|NR)",
+    re.IGNORECASE)
+_TARGET_WORD = re.compile(r"목표주가")
+_TARGET_NUM = re.compile(r"([\d,]+)\s*원")
+# '기존 170,000원', '기존 목표주가 50,000원'처럼 직전 목표가를 가리키는 숫자는 건너뛴다.
+_PREV_TARGET = re.compile(r"기존\s*(?:목표주가\s*(?:를|은|는|도)?\s*)?$")
+# '목표주가' 뒤 이 글자 수 안에서만 금액을 찾는다. 너무 넓히면 본문 숫자를 물어 온다.
+_TARGET_WINDOW = 40
+
+
+def extract_opinion_from_text(text):
+    """자연어 본문에서 (투자의견 원문, 목표주가)를 뽑는다. 못 찾으면 각각 None."""
+    if not text:
+        return None, None
+    s = _WS.sub(" ", str(text).replace("\xa0", " "))
+
+    rating_raw = None
+    m = _OPINION_RE.search(s)
+    if m:
+        rating_raw = _WS.sub(" ", m.group(1)).strip()
+
+    target = None
+    for kw in _TARGET_WORD.finditer(s):
+        window = s[kw.end():kw.end() + _TARGET_WINDOW]
+        for num in _TARGET_NUM.finditer(window):
+            if _PREV_TARGET.search(s[:kw.end()] + window[:num.start()]):
+                continue  # 기존 목표가는 건너뛰고 다음 금액을 본다
+            value = to_int(num.group(1))
+            if value:
+                target = value
+                break
+        if target is not None:
+            break
+    return rating_raw, target
+
+
+def _html_to_text(value):
+    """escape가 겹쳐 있는 HTML 조각을 평문으로 편다."""
+    if not value:
+        return ""
+    text = str(value)
+    for _ in range(4):
+        # NH는 이중 escape라 두 번은 풀어야 태그가 드러난다. 더 안 풀릴 때까지 돈다.
+        opened = _unescape(text)
+        if opened == text:
+            break
+        text = opened
+    text = re.sub(r"<[^>]+>", " ", text)
+    return _WS.sub(" ", _unescape(text).replace("\xa0", " ")).strip()
+
+
+# ------------------------------------------------------------- KB증권 파서
+
+KB_PDF_URL = "https://rdata.kbsec.com/pdf_data/%s.pdf"
+
+
+def _kb_target(value):
+    """KB의 tp는 '6000.0000' 꼴 문자열이다. ''/None/0은 목표가 없음으로 본다."""
+    s = str(value or "").replace(",", "").strip()
+    if not s:
+        return None
+    try:
+        num = int(float(s))
+    except ValueError:
+        return None
+    return num if num > 0 else None
+
+
+def parse_kb_list(payload):
+    """KB증권 리서치 목록 JSON -> 레코드 리스트.
+
+    산업 리포트가 대표 종목코드를 달고 섞여 들어온다(제약 위클리 stkCd 128940,
+    제목은 '제약 (350510)'). 제목의 (코드)와 stkCd가 같을 때만 종목 리포트로 본다.
+    """
+    rows = []
+    items = ((payload or {}).get("response") or {}).get("reportList") or []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stkCd") or "").strip()
+        doc_title = _WS.sub(" ", str(it.get("docTitle") or "").strip())
+        m = re.search(r"\((\d{6})\)", doc_title)
+        if not re.fullmatch(r"\d{6}", code) or m is None or m.group(1) != code:
+            continue
+        docid = str(it.get("documentid") or "").strip()
+        if not docid:
+            continue
+
+        title = _WS.sub(" ", str(it.get("docTitleSub") or "").strip()) or doc_title
+        summary = clean_summary(_WS.sub(" ", str(it.get("docDetail") or "").strip()))
+        pdf = KB_PDF_URL % docid
+        rows.append({
+            "id": "kb:%s" % docid,
+            "source": "kb",
+            "code": code,
+            "name": doc_title[:m.start()].strip() or None,
+            "title": title,
+            "broker": "KB증권",
+            "analyst": str(it.get("analystNm") or "").strip() or None,
+            "date": normalize_date(it.get("publicDate")),
+            "target": _kb_target(it.get("tp")),
+            "rating_raw": str(it.get("recomm") or "").strip() or None,
+            "pdf": pdf,
+            "url": pdf,
+            "summary": summary[:600] if summary else None,
+            "views": None,
+        })
+    return rows
+
+
+# -------------------------------------------------------- NH투자증권 파서
+
+NH_LIST_URL = "https://www.nhsec.com/research/boardList.action?rsh_ppr_dit_cd=01"
+
+
+def parse_nh_list(payload):
+    """NH투자증권 목록(H3211) JSON -> 레코드 리스트.
+
+    의견·목표가는 목록에 없다. 요약(H3212)에서 따로 캔다.
+    페이징 커서로 쓰는 원본 번호·날짜·시각은 nh_* 임시 키에 실어 보낸다
+    (수집기가 저장 전에 지운다).
+    """
+    rows = []
+    resp = ((payload or {}).get("DATA") or {}).get("RESPONSE") or {}
+    block = resp.get("H3211OutBlock2") or {}
+    for it in block.get("ROW") or []:
+        if not isinstance(it, dict):
+            continue
+        no = str(it.get("rsh_ppr_no") or "").strip()
+        if not no:
+            continue
+        m_code = re.search(r"\d{6}", str(it.get("rsh_ppr_iem_cd_pcl") or ""))
+        if m_code is None:
+            continue  # 종목코드가 없는 건(전략·산업 등)은 버린다
+
+        raw_title = _WS.sub(" ", str(it.get("rsh_ppr_til_cts") or "").strip())
+        name = None
+        title = raw_title
+        m = re.match(r"^\[([^\]]+)\]\s*(.*)$", raw_title)
+        if m:
+            name = m.group(1).strip() or None
+            title = m.group(2).strip() or raw_title
+
+        dt_raw = str(it.get("rsh_ppr_dru_dt") or "").strip()
+        rows.append({
+            "id": "nh:%s" % no,
+            "source": "nh",
+            "code": m_code.group(0),
+            "name": name,
+            "title": title,
+            "broker": "NH투자증권",
+            "analyst": str(it.get("rsh_ppr_dru_emp_fnm") or "").strip() or None,
+            "date": normalize_date(it.get("rsh_ppr_dru_dt_nm")) or compact_date(dt_raw),
+            "target": None,
+            "rating_raw": None,
+            "pdf": str(it.get("hpge_fle_url_cts") or "").strip() or None,
+            "url": NH_LIST_URL,
+            "summary": None,
+            "views": None,
+            "nh_no": no,
+            "nh_dt": dt_raw,
+            "nh_tm": str(it.get("rsh_ppr_dru_tm") or "").strip(),
+        })
+    return rows
+
+
+def parse_nh_summary(payload):
+    """NH 요약(H3212) JSON -> {'name', 'target', 'rating_raw', 'summary'}."""
+    out = {"name": None, "target": None, "rating_raw": None, "summary": None}
+    resp = ((payload or {}).get("DATA") or {}).get("RESPONSE") or {}
+    rows = ((resp.get("H3212OutBlock1") or {}).get("ROW")) or []
+    if not rows or not isinstance(rows[0], dict):
+        return out
+    row = rows[0]
+    out["name"] = str(row.get("rsh_ppr_iem_nm_pcl") or "").strip() or None
+    text = _html_to_text(row.get("rsh_ppr_cts"))
+    if text:
+        out["summary"] = text[:600]
+        out["rating_raw"], out["target"] = extract_opinion_from_text(text)
+    return out
+
+
+# ------------------------------------------------------ 한국투자증권 파서
+
+KIS_DETAIL_URL = ("https://securities.koreainvestment.com/main/research/research/"
+                  "StrategyDetail.jsp?jkGubun=10&id=%s")
+# 목록에는 산업Note·해외주식·ESG Note가 섞여 있다. 종목 리포트로 볼 분류만 남긴다.
+KIS_CATEGORIES = ("기업Note", "AIR 스몰캡")
+
+
+def parse_kis_list(html):
+    """한국투자증권 리서치 목록 HTML -> 레코드 리스트.
+
+    PDF는 로그인해야 열리므로 pdf는 항상 None이고, url은 상세 페이지를 가리킨다.
+    """
+    soup = _soup(html)
+    rows = []
+    for li in soup.select("ul.view_area > li"):
+        head = _text(li.select_one(".head"))
+        if head not in KIS_CATEGORIES:
+            continue
+        link = li.select_one("a.view_con")
+        if link is None:
+            continue
+        m_id = re.search(r"doDetail\('(\d+)'\)", link.get("onclick") or "")
+        if m_id is None:
+            continue
+
+        raw_title = _text(li.select_one(".body_tit"))
+        m = re.match(r"^(.+?)\s*\((\d{6})\)\s*:?\s*(.*)$", raw_title)
+        if m is None:
+            continue
+        # 스몰캡은 제목 앞에 분류명이 한 번 더 붙는다('AIR 스몰캡 엘티씨 (170920)').
+        name = re.sub(r"^%s\s*" % re.escape(head), "", m.group(1)).strip() or None
+        title = m.group(3).strip() or raw_title
+
+        analyst = None
+        date = None
+        for em in li.select(".tit_info em"):
+            value = _text(em)
+            parsed = normalize_date(value)
+            if parsed and date is None:
+                date = parsed
+            elif value and analyst is None:
+                analyst = value
+
+        summary = clean_summary(_text(li.select_one(".body_sub")))
+        rid = m_id.group(1)
+        rows.append({
+            "id": "kis:%s" % rid,
+            "source": "kis",
+            "code": m.group(2),
+            "name": name,
+            "title": title,
+            "broker": "한국투자증권",
+            "analyst": analyst,
+            "date": date,
+            "target": None,
+            "rating_raw": None,
+            "pdf": None,
+            "url": KIS_DETAIL_URL % rid,
+            "summary": summary[:600] if summary else None,
+            "views": None,
+            "kis_id": rid,
+        })
+    return rows
+
+
+def parse_kis_total(html):
+    """목록 상단 '전체건수 N건'. 페이지 수 계산에 쓴다. 못 찾으면 None.
+
+    분류 필터로 걸러낸 뒤에는 행 수로 마지막 페이지를 판단할 수 없어서 필요하다.
+    """
+    if not html:
+        return None
+    m = re.search(r"전체건수[^<]*<span[^>]*>\s*([\d,]+)\s*</span>", html)
+    if m is None:
+        m = re.search(r"전체건수\s*([\d,]+)\s*건", html)
+    return to_int(m.group(1)) if m else None
+
+
+def parse_kis_detail(html):
+    """상세 페이지 -> {'target', 'rating_raw', 'summary'}.
+
+    의견·목표가 칸이 따로 없어 본문 문장에서 캔다.
+    """
+    soup = _soup(html)
+    node = soup.select_one("div.v_info_con")
+    if node is None:
+        for junk in soup(["script", "style"]):
+            junk.decompose()
+        node = soup.body or soup
+    text = clean_summary(_text(node))
+    rating_raw, target = extract_opinion_from_text(text)
+    return {"target": target, "rating_raw": rating_raw,
+            "summary": text[:600] if text else None}
 
 
 # ------------------------------------------------------------- 현재가 파서

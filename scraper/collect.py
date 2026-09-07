@@ -1,14 +1,15 @@
 """리포트 레이더 수집기.
 
 네이버 금융 리서치(종목분석)를 1차 소스로 리포트를 모으고,
-네이버 실시간 시세로 현재가를, 한경 컨센서스로 애널리스트명을 보강한다.
+네이버에 잘 올라오지 않는 KB증권·NH투자증권·한국투자증권은 각 사 사이트에서 직접 긁는다.
+현재가는 네이버 실시간 시세로, 애널리스트명은 한경 컨센서스로 보강한다.
 결과는 data/reports.json (최근 180일 누적), data/meta.json 으로 저장한다.
 
 사용 예:
     python scraper/collect.py                 # 최근 3일 + 가격 갱신
     python scraper/collect.py --days 45       # 초기 백필
     python scraper/collect.py --from 2026-08-01 --to 2026-08-31
-    python scraper/collect.py --dry-run --no-hankyung
+    python scraper/collect.py --dry-run --no-hankyung --no-brokers
 """
 
 import argparse
@@ -29,6 +30,7 @@ except Exception:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import brokers  # noqa: E402
 from parsers import (  # noqa: E402
     apply_target_changes,
     compute_gap,
@@ -228,29 +230,36 @@ def collect_hankyung(session, date_from, date_to):
     return out
 
 
-def merge_hankyung(naver_records, hk_records):
-    """(종목코드, 날짜, 증권사 정규화명)으로 매칭해 analyst만 채운다.
+MERGE_FIELDS = ("analyst", "target", "rating_raw", "summary", "pdf")
 
-    매칭 안 된 한경 단독 건은 source='hankyung'으로 추가한다.
-    돌려주는 값: (보강된 건수, 추가된 레코드 리스트)
+
+def merge_sources(primary, secondary):
+    """(종목코드, 날짜, 증권사 정규화명)으로 맞춰 상위 소스의 빈 칸만 채운다.
+
+    같은 리포트가 양쪽에 있으면 상위(primary) 레코드를 남기고, 비어 있는
+    analyst·target·rating_raw·summary·pdf만 하위(secondary)에서 가져온다.
+    매칭 안 된 하위 소스 단독 건은 그대로 돌려준다.
+    돌려주는 값: (보강된 건수, 추가할 레코드 리스트)
     """
     index = {}
-    for rec in naver_records:
+    for rec in primary:
         key = (rec.get("code"), rec.get("date"), normalize_broker(rec.get("broker")))
         index.setdefault(key, []).append(rec)
 
     matched = 0
     extras = []
-    for hk in hk_records:
-        key = (hk["code"], hk["date"], normalize_broker(hk["broker"]))
+    for other in secondary:
+        key = (other.get("code"), other.get("date"),
+               normalize_broker(other.get("broker")))
         targets = index.get(key)
         if targets:
             for rec in targets:
-                if not rec.get("analyst") and hk.get("analyst"):
-                    rec["analyst"] = hk["analyst"]
+                for field in MERGE_FIELDS:
+                    if not rec.get(field) and other.get(field):
+                        rec[field] = other[field]
             matched += 1
         else:
-            extras.append(hk)
+            extras.append(other)
     return matched, extras
 
 
@@ -284,6 +293,8 @@ def parse_args(argv=None):
     p.add_argument("--from", dest="date_from", default=None, help="시작일 YYYY-MM-DD")
     p.add_argument("--to", dest="date_to", default=None, help="종료일 YYYY-MM-DD")
     p.add_argument("--no-hankyung", action="store_true", help="한경 컨센서스 보강 생략")
+    p.add_argument("--no-brokers", action="store_true",
+                   help="증권사 직접 수집(KB·NH·한투) 생략")
     p.add_argument("--no-price", action="store_true", help="현재가 갱신 생략")
     p.add_argument("--dry-run", action="store_true", help="저장하지 않고 요약만 출력")
     return p.parse_args(argv)
@@ -356,6 +367,41 @@ def main(argv=None):
 
     records = list(merged.values())
 
+    # 증권사 직접 수집(KB·NH·한투). 네이버 다음, 한경보다 위 우선순위다.
+    if not args.no_brokers:
+        # NH·한투는 건별로 요약/상세를 한 번 더 받아야 해서, 이미 저장된 id는 건너뛴다.
+        known_ids = set(merged.keys())
+        kb_rows = brokers.collect_kb(session, date_from, date_to)
+        log("KB증권 %d건" % len(kb_rows))
+        nh_rows = brokers.collect_nh(session, date_from, date_to, known_ids=known_ids)
+        log("NH투자증권 %d건" % len(nh_rows))
+        kis_rows = brokers.collect_kis(session, date_from, date_to, known_ids=known_ids)
+        log("한국투자증권 %d건" % len(kis_rows))
+        broker_rows = kb_rows + nh_rows + kis_rows
+
+        if broker_rows:
+            in_range = [r for r in records
+                        if date_from <= (r.get("date") or "") <= date_to]
+            bk_matched, bk_extras = merge_sources(in_range, broker_rows)
+            bk_extras = [e for e in bk_extras if e["id"] not in merged]
+            for extra in bk_extras:
+                merged[extra["id"]] = extra
+                records.append(extra)
+            log("증권사 직접 수집: 병합 %d건, 단독 추가 %d건"
+                % (bk_matched, len(bk_extras)))
+
+        # 이전 실행에서 의견을 못 뽑은 nh/kis 건은 이번 범위 안이면 다시 시도한다.
+        # 이번에 요약·상세를 막 받아온 건(=기존에 없던 id)은 빼고 본다.
+        fetched_ids = {r["id"] for r in broker_rows if r["id"] not in known_ids}
+        for source, enrich in (("nh", brokers.enrich_nh), ("kis", brokers.enrich_kis)):
+            retry = [r for r in records
+                     if r.get("source") == source and r.get("rating_raw") is None
+                     and r.get("id") not in fetched_ids
+                     and date_from <= (r.get("date") or "") <= date_to]
+            if retry:
+                log("%s 의견 재시도 %d건" % (source, len(retry)))
+                enrich(session, retry)
+
     # 한경 보강. 이번 수집 범위에 해당하는 레코드에만 애널리스트명을 채운다.
     if not args.no_hankyung:
         try:
@@ -364,7 +410,7 @@ def main(argv=None):
             if hk_records:
                 in_range = [r for r in records
                             if date_from <= (r.get("date") or "") <= date_to]
-                hk_matched, hk_extras = merge_hankyung(in_range, hk_records)
+                hk_matched, hk_extras = merge_sources(in_range, hk_records)
                 hk_extras = [e for e in hk_extras if e["id"] not in merged]
                 for extra in hk_extras:
                     merged[extra["id"]] = extra
@@ -436,20 +482,23 @@ def main(argv=None):
         })
     records = ordered
 
-    brokers = sorted({r["broker"] for r in records if r.get("broker")})
+    # 지역변수 이름은 brokers 모듈과 겹치지 않게 둔다.
+    broker_names = sorted({r["broker"] for r in records if r.get("broker")})
     dates = [r["date"] for r in records if r.get("date")]
     meta = {
         "updated_at": now.isoformat(timespec="seconds"),
         "count": len(records),
         "latest_date": max(dates) if dates else None,
-        "brokers": brokers,
+        "brokers": broker_names,
     }
 
     rating_dist = {}
+    source_dist = {}
     for r in records:
         rating_dist[r["rating"]] = rating_dist.get(r["rating"], 0) + 1
-    log("총 %d건 | 레이팅 %s | 증권사 %d곳 | 상세 실패 %d건"
-        % (len(records), rating_dist, len(brokers), detail_fail))
+        source_dist[r["source"]] = source_dist.get(r["source"], 0) + 1
+    log("총 %d건 | 소스 %s | 레이팅 %s | 증권사 %d곳 | 상세 실패 %d건"
+        % (len(records), source_dist, rating_dist, len(broker_names), detail_fail))
 
     if args.dry_run:
         log("--dry-run: 저장하지 않았습니다.")
