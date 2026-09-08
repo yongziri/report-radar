@@ -90,6 +90,12 @@ input[type=search]{
   border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--fg);
 }
 input[type=search]:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+select{
+  font-family:inherit;font-size:12px;font-weight:600;padding:5px 8px;max-width:210px;
+  border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--fg-dim);
+}
+select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+select.on{color:var(--fg);border-color:var(--accent)}
 
 /* 증권사 드롭다운 */
 .dd{position:relative}
@@ -140,6 +146,8 @@ a:hover{text-decoration:underline}
 .code{color:var(--fg-faint);font-size:11.5px;font-variant-numeric:tabular-nums;margin-left:5px}
 .title{color:var(--fg);display:inline}
 .title:hover{color:var(--accent)}
+/* 종목 셀 아래 붙는 업종명 */
+.ind{display:block;color:var(--fg-faint);font-size:11px;margin-top:1px}
 .sub{display:block;color:var(--fg-faint);font-size:11.5px;margin-top:1px}
 .badge{
   display:inline-block;min-width:44px;text-align:center;padding:2px 7px;border-radius:5px;
@@ -170,6 +178,19 @@ tr.summary-row td{
   background:var(--panel-2);color:var(--fg-dim);font-size:12.5px;line-height:1.65;
   padding:9px 14px 12px 14px;border-bottom:1px solid var(--line);
 }
+/* 업종별 탭: 대분류 행 + 그 아래 세부 업종 행 */
+tr.sec-group>td{background:var(--panel-2);font-weight:700;border-bottom:1px solid var(--line)}
+tr.sec-group,tr.sec-child{cursor:pointer}
+tr.sec-child>td:first-child{padding-left:26px}
+tr.sec-child>td{color:var(--fg-dim)}
+.ratio{color:var(--fg-faint);font-size:11px;font-weight:600;margin-left:5px}
+.mini{display:inline-block;min-width:26px;text-align:center;padding:1px 5px;border-radius:4px;
+      font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.mini.BUY{background:var(--buy-bg);color:var(--buy)}
+.mini.HOLD{background:var(--hold-bg);color:var(--hold)}
+.mini.SELL{background:var(--sell-bg);color:var(--sell)}
+.up-n{color:var(--up);font-weight:700}
+.down-n{color:var(--down);font-weight:700}
 .empty{padding:44px 16px;text-align:center;color:var(--fg-faint)}
 .notice{
   padding:18px;border:1px solid var(--line);border-radius:9px;background:var(--panel);
@@ -228,6 +249,12 @@ footer a{color:var(--fg-dim);text-decoration:underline}
       <button type="button" class="chip" data-change="new">신규</button>
     </div>
 
+    <div class="group" id="sectorChips"></div>
+
+    <div class="group">
+      <select id="industrySel" aria-label="세부 업종"></select>
+    </div>
+
     <details class="dd group" id="brokerDd">
       <summary id="brokerSummary">증권사 전체</summary>
       <div class="dd-panel">
@@ -247,6 +274,7 @@ footer a{color:var(--fg-dim);text-decoration:underline}
       <div class="seg" id="viewSeg">
         <button type="button" data-view="reports">리포트</button>
         <button type="button" data-view="stocks">종목별</button>
+        <button type="button" data-view="sectors">업종별</button>
       </div>
     </div>
 
@@ -284,12 +312,18 @@ footer a{color:var(--fg-dim);text-decoration:underline}
 var LS_KEY = "report-radar/state/v1";
 var RATINGS = ["BUY","HOLD","SELL","NR"];
 var CHANGES = ["up","down","new"];
+// 대분류(sector). scraper/sectors.py의 SECTOR_ORDER와 같은 순서다.
+var SECTORS = ["IT","헬스케어","금융","산업재","경기소비재","필수소비재",
+               "소재","에너지","유틸리티","통신·미디어","기타"];
+var UNCLASSIFIED = "미분류";   // industry/sector가 null인 종목을 묶는 이름
 
 var state = {
   period: "7",
   ratings: [],           // 비어 있으면 전체
   changes: [],           // 비어 있으면 전체
   brokers: [],           // 비어 있으면 전체
+  sectors: [],           // 대분류. 비어 있으면 전체
+  industry: "",          // 세부 업종 하나. 빈 문자열이면 전체
   q: "",
   view: "reports",
   sortKey: "date",
@@ -299,7 +333,9 @@ var state = {
 var reports = [];
 var meta = null;
 var allBrokers = [];
+var allSectors = [];                     // 화면에 그릴 대분류 칩 목록
 var openSummaries = Object.create(null);
+var openSectors = Object.create(null);   // 업종별 탭에서 펼쳐 둔 대분류
 
 /* ------------------------------------------------ 상태 저장/복원 */
 function loadState(){
@@ -542,8 +578,10 @@ function refreshData(){
       meta = m;
       reports = list;
       rebuildBrokers();
+      rebuildSectors();
       applyLive();
       renderBrokerList();
+      renderSectorChips();
       renderKeepScroll();   // 스크롤·필터는 그대로 둔 채 다시 그린다
       renderUpdated();
     });
@@ -564,10 +602,14 @@ function periodFloor(){
   return shiftISO(base, -(days - 1));
 }
 
-function filtered(){
+/* opts.skipIndustry / opts.skipSector: 그 필터의 선택지를 셀 때만 쓴다 */
+function filtered(opts){
+  opts = opts || {};
   var floor = periodFloor();
   var q = state.q.trim().toLowerCase();
   var rs = state.ratings, cs = state.changes, bs = state.brokers;
+  var ss = opts.skipSector ? [] : state.sectors;
+  var ind = opts.skipIndustry ? "" : state.industry;
   var out = [];
   for(var i=0;i<reports.length;i++){
     var r = reports[i];
@@ -575,6 +617,8 @@ function filtered(){
     if(rs.length && rs.indexOf(r.rating) < 0) continue;
     if(cs.length && cs.indexOf(r.target_change) < 0) continue;
     if(bs.length && bs.indexOf(r.broker) < 0) continue;
+    if(ss.length && ss.indexOf(r.sector || UNCLASSIFIED) < 0) continue;
+    if(ind && (r.industry || UNCLASSIFIED) !== ind) continue;
     if(q){
       var hay = ((r.name||"") + " " + (r.code||"") + " " + (r.title||"") + " " +
                  (r.broker||"") + " " + (r.analyst||"")).toLowerCase();
@@ -645,6 +689,7 @@ var REPORT_COLS = [
 
 var STOCK_COLS = [
   {key:"name",  label:"종목", get:function(s){return s.name;}},
+  {key:"industry", label:"업종", get:function(s){return s.industry;}},
   {key:"n",     label:"리포트", cls:"num", get:function(s){return s.n;}},
   {key:"buy",   label:"BUY/HOLD/SELL", sortable:false},
   {key:"avg",   label:"평균 목표가", cls:"num", get:function(s){return s.avg;}},
@@ -695,6 +740,13 @@ function priceCell(r){
   return num(p) + (typeof r.livePrice === "number" ? chgTag(r.liveChangePct) : "");
 }
 
+/* 종목 셀 아래 붙는 업종명. 툴팁에 대분류를 적는다 */
+function indTag(r){
+  if(!r.industry) return "";
+  return '<span class="ind" title="' + esc((r.sector || UNCLASSIFIED) + " · " + r.industry) +
+         '">' + esc(r.industry) + "</span>";
+}
+
 function gapCell(g){
   if(g === null || g === undefined) return '<span class="muted">-</span>';
   var cls = g > 0 ? "gap-pos" : (g < 0 ? "gap-neg" : "muted");
@@ -724,6 +776,7 @@ function renderReports(rows){
           '" target="_blank" rel="noopener">' + esc(r.name || r.code) + "</a>" +
           '<span class="code">' + esc(r.code) + "</span>"
         : '<span class="stock">' + esc(r.name || "") + "</span>") +
+      indTag(r) +
       "</td>");
     html.push("<td>" +
       '<a class="title" href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(r.title || "") + "</a>" +
@@ -756,11 +809,13 @@ function groupByStock(rows){
     if(!r.code) continue;
     var g = map[r.code];
     if(!g){
-      g = map[r.code] = {code:r.code, name:r.name, n:0, targets:[], gaps:[],
+      g = map[r.code] = {code:r.code, name:r.name, industry:null, sector:null,
+                         n:0, targets:[], gaps:[],
                          price:null, changePct:null, BUY:0, HOLD:0, SELL:0, NR:0};
     }
     g.n++;
     if(r.name) g.name = r.name;
+    if(r.industry){ g.industry = r.industry; g.sector = r.sector; }
     var p = effPrice(r);
     if(p) g.price = p;
     if(typeof r.liveChangePct === "number") g.changePct = r.liveChangePct;
@@ -807,6 +862,10 @@ function renderStocks(rows){
       '<a class="stock" href="https://finance.naver.com/item/main.naver?code=' + esc(s.code) +
       '" target="_blank" rel="noopener">' + esc(s.name || s.code) + "</a>" +
       '<span class="code">' + esc(s.code) + "</span></td>");
+    html.push("<td>" + (s.industry
+      ? '<span title="' + esc((s.sector || UNCLASSIFIED) + " · " + s.industry) + '">' +
+        esc(s.industry) + "</span>"
+      : '<span class="muted">-</span>') + "</td>");
     html.push('<td class="num strong">' + num(s.n) + "</td>");
     html.push("<td>" +
       '<span class="badge BUY">' + s.BUY + "</span> " +
@@ -823,13 +882,146 @@ function renderStocks(rows){
   return stocks.length;
 }
 
+/* ------------------------------------------------ 업종별 표 */
+var SECTOR_COLS = [
+  {key:"name",   label:"업종", get:function(g){return g.name;}},
+  {key:"n",      label:"리포트", cls:"num", get:function(g){return g.n;}},
+  {key:"stocks", label:"종목", cls:"num", get:function(g){return g.stocks;}},
+  {key:"buy",    label:"BUY/HOLD/SELL", get:function(g){return g.buyRatio;}},
+  {key:"up",     label:"목표가 상향/하향", get:function(g){return g.up;}},
+  {key:"gap",    label:"평균 괴리율", cls:"num", get:function(g){return g.gap;}},
+  {key:"last",   label:"최근 리포트", cls:"date", get:function(g){return g.last;}}
+];
+
+function newAgg(name, sector){
+  return {name:name, sector:sector, n:0, codes:Object.create(null),
+          BUY:0, HOLD:0, SELL:0, NR:0, up:0, down:0,
+          gapSum:0, gapN:0, last:"", kids:Object.create(null)};
+}
+
+function addAgg(g, r){
+  g.n++;
+  if(r.code) g.codes[r.code] = 1;
+  if(g[r.rating] !== undefined) g[r.rating]++;
+  if(r.target_change === "up") g.up++;
+  else if(r.target_change === "down") g.down++;
+  var gp = effGap(r);
+  if(typeof gp === "number"){ g.gapSum += gp; g.gapN++; }
+  if((r.date || "") > g.last) g.last = r.date || "";
+}
+
+function finishAgg(g){
+  g.stocks = Object.keys(g.codes).length;
+  g.gap = g.gapN ? Math.round(g.gapSum / g.gapN * 100) / 100 : null;
+  g.buyRatio = g.n ? Math.round(g.BUY / g.n * 1000) / 10 : null;
+  return g;
+}
+
+/* 대분류 -> 세부 업종 2단계 집계 */
+function groupBySector(rows){
+  var map = Object.create(null);
+  for(var i=0;i<rows.length;i++){
+    var r = rows[i];
+    var sname = r.sector || UNCLASSIFIED;
+    var iname = r.industry || UNCLASSIFIED;
+    var g = map[sname] || (map[sname] = newAgg(sname, sname));
+    addAgg(g, r);
+    var kid = g.kids[iname] || (g.kids[iname] = newAgg(iname, sname));
+    addAgg(kid, r);
+  }
+  var out = [];
+  for(var key in map){
+    var group = finishAgg(map[key]);
+    group.children = [];
+    for(var ik in group.kids) group.children.push(finishAgg(group.kids[ik]));
+    out.push(group);
+  }
+  return out;
+}
+
+function mixCell(g){
+  return '<span class="mini BUY">' + g.BUY + "</span> " +
+         '<span class="mini HOLD">' + g.HOLD + "</span> " +
+         '<span class="mini SELL">' + g.SELL + "</span>" +
+         (g.buyRatio === null ? "" : '<span class="ratio">BUY ' + g.buyRatio + "%</span>");
+}
+
+function changeCell(g){
+  if(!g.up && !g.down) return '<span class="muted">-</span>';
+  var out = [];
+  if(g.up) out.push('<span class="up-n">▲' + num(g.up) + "</span>");
+  if(g.down) out.push('<span class="down-n">▼' + num(g.down) + "</span>");
+  return out.join(" ");
+}
+
+function sectorRow(g, isChild){
+  var caret = "";
+  if(!isChild){
+    var open = !!openSectors[g.name];
+    caret = '<button type="button" class="toggle" data-secopen="' + esc(g.name) + '" ' +
+            'aria-expanded="' + (open ? "true" : "false") + '">' + (open ? "▾" : "▸") + "</button> ";
+  }
+  var html = '<tr class="' + (isChild ? "sec-child" : "sec-group") + '" data-sec="' + esc(g.sector) +
+             '" data-ind="' + (isChild ? esc(g.name) : "") + '" title="이 업종의 리포트 보기">';
+  html += "<td>" + caret + esc(g.name) + "</td>";
+  html += '<td class="num strong">' + num(g.n) + "</td>";
+  html += '<td class="num">' + num(g.stocks) + "</td>";
+  html += "<td>" + mixCell(g) + "</td>";
+  html += "<td>" + changeCell(g) + "</td>";
+  html += '<td class="num">' + gapCell(g.gap) + "</td>";
+  html += '<td class="date">' + esc((g.last || "").slice(2)) + "</td>";
+  return html + "</tr>";
+}
+
+function renderSectorView(rows){
+  $("thead").innerHTML = renderHead(SECTOR_COLS);
+  var groups = groupBySector(rows);
+  var keys = {};
+  SECTOR_COLS.forEach(function(c){ if(c.get) keys[c.key] = c.get; });
+
+  // 리포트 탭의 정렬 키(날짜 등)는 여기 없다. 그럴 땐 리포트 수 기준으로 본다.
+  var savedKey = state.sortKey;
+  if(!keys[state.sortKey]) state.sortKey = "n";
+  groups = sortRows(groups, keys);
+
+  var html = [], shown = 0;
+  for(var i=0;i<groups.length;i++){
+    var g = groups[i];
+    html.push(sectorRow(g, false));
+    if(openSectors[g.name]){
+      var kids = sortRows(g.children, keys);
+      for(var j=0;j<kids.length;j++) html.push(sectorRow(kids[j], true));
+    }
+    shown += g.children.length;
+  }
+  state.sortKey = savedKey;
+
+  $("tbody").innerHTML = html.join("");
+  return shown;
+}
+
+/* 업종 행을 누르면 리포트 탭으로 옮겨 가며 그 업종만 남긴다 */
+function gotoSector(sector, industry){
+  state.sectors = sector ? [sector] : [];
+  state.industry = industry || "";
+  state.view = "reports";
+  state.sortKey = "date";
+  state.sortDir = "desc";
+  renderSectorChips();
+  render();
+  window.scrollTo(0, 0);
+}
+
 /* ------------------------------------------------ 전체 렌더 */
 function render(){
   var rows = filtered();
   renderStats(rows);
 
   var shown;
-  if(state.view === "stocks"){
+  if(state.view === "sectors"){
+    shown = renderSectorView(rows);
+    $("count").textContent = "업종 " + num(shown) + "개 / 리포트 " + num(rows.length) + "건";
+  }else if(state.view === "stocks"){
     shown = renderStocks(rows);
     $("count").textContent = "종목 " + num(shown) + "개 / 리포트 " + num(rows.length) + "건";
   }else{
@@ -880,10 +1072,58 @@ function syncControls(){
   for(i=0;i<els.length;i++) els[i].setAttribute("aria-pressed", state.ratings.indexOf(els[i].dataset.rating) >= 0);
   els = document.querySelectorAll("[data-change]");
   for(i=0;i<els.length;i++) els[i].setAttribute("aria-pressed", state.changes.indexOf(els[i].dataset.change) >= 0);
+  els = document.querySelectorAll("[data-sector]");
+  for(i=0;i<els.length;i++) els[i].setAttribute("aria-pressed", state.sectors.indexOf(els[i].dataset.sector) >= 0);
 
   $("brokerSummary").textContent = state.brokers.length
     ? "증권사 " + state.brokers.length + "곳 ▾"
     : "증권사 전체 ▾";
+
+  renderIndustrySelect();
+}
+
+/* ------------------------------------------------ 업종 컨트롤 */
+function rebuildSectors(){
+  allSectors = SECTORS.slice();
+  // 업종이 안 붙은 리포트가 있으면 그것도 고를 수 있게 칩을 하나 더 둔다
+  for(var i=0;i<reports.length;i++){
+    if(!reports[i].sector){ allSectors.push(UNCLASSIFIED); break; }
+  }
+  state.sectors = state.sectors.filter(function(s){ return allSectors.indexOf(s) >= 0; });
+}
+
+function renderSectorChips(){
+  var html = ['<span class="lab">업종</span>'];
+  for(var i=0;i<allSectors.length;i++){
+    var s = allSectors[i];
+    html.push('<button type="button" class="chip" data-sector="' + esc(s) + '">' + esc(s) + "</button>");
+  }
+  $("sectorChips").innerHTML = html.join("");
+}
+
+/* 세부 업종 목록은 지금 기간·필터 안에 실제로 있는 업종만, 건수와 함께 보여준다 */
+function renderIndustrySelect(){
+  var rows = filtered({skipIndustry:true});
+  var counts = Object.create(null);
+  for(var i=0;i<rows.length;i++){
+    var k = rows[i].industry || UNCLASSIFIED;
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  var names = Object.keys(counts).sort(function(a, b){
+    return counts[b] - counts[a] || a.localeCompare(b, "ko");
+  });
+  // 고른 업종이 지금 조건에 하나도 없더라도 선택 상태는 보여 준다
+  if(state.industry && counts[state.industry] === undefined) names.unshift(state.industry);
+
+  var html = ['<option value="">세부 업종 전체</option>'];
+  for(var j=0;j<names.length;j++){
+    html.push('<option value="' + esc(names[j]) + '">' + esc(names[j]) +
+              " (" + num(counts[names[j]] || 0) + ")</option>");
+  }
+  var sel = $("industrySel");
+  sel.innerHTML = html.join("");
+  sel.value = state.industry || "";
+  sel.className = state.industry ? "on" : "";
 }
 
 /* ------------------------------------------------ 이벤트 */
@@ -908,10 +1148,16 @@ function bind(){
   });
 
   document.querySelector(".controls").addEventListener("click", function(e){
-    var b = e.target.closest("[data-rating],[data-change]");
+    var b = e.target.closest("[data-rating],[data-change],[data-sector]");
     if(!b) return;
     if(b.dataset.rating) toggleIn(state.ratings, b.dataset.rating);
-    else toggleIn(state.changes, b.dataset.change);
+    else if(b.dataset.change) toggleIn(state.changes, b.dataset.change);
+    else toggleIn(state.sectors, b.dataset.sector);
+    render();
+  });
+
+  $("industrySel").addEventListener("change", function(){
+    state.industry = $("industrySel").value;
     render();
   });
 
@@ -922,6 +1168,7 @@ function bind(){
 
   $("reset").addEventListener("click", function(){
     state.ratings = []; state.changes = []; state.brokers = [];
+    state.sectors = []; state.industry = "";
     state.q = ""; $("q").value = "";
     state.period = "7"; state.sortKey = "date"; state.sortDir = "desc";
     renderBrokerList();
@@ -950,11 +1197,24 @@ function bind(){
 
   $("tbody").addEventListener("click", function(e){
     var b = e.target.closest("button[data-summary]");
-    if(!b) return;
-    var id = b.dataset.summary;
-    if(openSummaries[id]) delete openSummaries[id];
-    else openSummaries[id] = true;
-    render();
+    if(b){
+      var id = b.dataset.summary;
+      if(openSummaries[id]) delete openSummaries[id];
+      else openSummaries[id] = true;
+      render();
+      return;
+    }
+    // 업종별 탭: 화살표는 접기/펼치기, 나머지 자리는 그 업종으로 이동
+    var caret = e.target.closest("button[data-secopen]");
+    if(caret){
+      var key = caret.dataset.secopen;
+      if(openSectors[key]) delete openSectors[key];
+      else openSectors[key] = true;
+      renderKeepScroll();
+      return;
+    }
+    var tr = e.target.closest("tr[data-sec]");
+    if(tr) gotoSector(tr.dataset.sec, tr.dataset.ind);
   });
 
   $("brokerAll").addEventListener("click", function(){
@@ -1012,15 +1272,20 @@ function showNotice(html){
 function boot(){
   loadState();
   // 예전 버전이 남긴 값이나 손댄 저장소로 정렬이 깨지지 않게 한 번 걸러준다
-  var VALID_SORT = ["date","name","broker","rating","target","price","gap","n","avg","max","min"];
+  var VALID_SORT = ["date","name","broker","rating","target","price","gap","n","avg","max","min",
+                    "industry","stocks","buy","up","last"];
   if(VALID_SORT.indexOf(state.sortKey) < 0) state.sortKey = "date";
   if(state.sortDir !== "asc" && state.sortDir !== "desc") state.sortDir = "desc";
-  if(state.view !== "reports" && state.view !== "stocks") state.view = "reports";
+  if(["reports","stocks","sectors"].indexOf(state.view) < 0) state.view = "reports";
   if(!Array.isArray(state.ratings)) state.ratings = [];
   if(!Array.isArray(state.changes)) state.changes = [];
   if(!Array.isArray(state.brokers)) state.brokers = [];
+  if(!Array.isArray(state.sectors)) state.sectors = [];
+  if(typeof state.industry !== "string") state.industry = "";
   if(typeof state.q !== "string") state.q = "";
   $("q").value = state.q || "";
+  // 업종별 탭은 처음엔 다 펼쳐 둔다 (접은 상태는 저장하지 않는다)
+  SECTORS.concat([UNCLASSIFIED]).forEach(function(s){ openSectors[s] = true; });
 
   Promise.all([
     fetch("data/reports.json", {cache:"no-store"}).then(function(r){
@@ -1035,6 +1300,7 @@ function boot(){
     meta = res[1];
 
     rebuildBrokers();
+    rebuildSectors();
     renderUpdated();
 
     if(!reports.length){
@@ -1043,6 +1309,7 @@ function boot(){
     }
 
     renderBrokerList();
+    renderSectorChips();
     bind();
     $("app").hidden = false;
     render();          // 끝에서 scheduleQuotes() 가 첫 시세 조회를 건다

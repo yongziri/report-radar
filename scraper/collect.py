@@ -31,6 +31,7 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import brokers  # noqa: E402
+import sectors as sector_mod  # noqa: E402
 from parsers import (  # noqa: E402
     apply_target_changes,
     compute_gap,
@@ -53,6 +54,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "data")
 REPORTS_PATH = os.path.join(DATA_DIR, "reports.json")
 META_PATH = os.path.join(DATA_DIR, "meta.json")
+SECTORS_PATH = os.path.join(DATA_DIR, "sectors.json")
 
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -110,6 +112,19 @@ def load_reports():
     except Exception as exc:
         log("  ! 기존 reports.json을 읽지 못했습니다 (%s). 빈 목록으로 시작합니다." % exc)
         return []
+
+
+def load_sectors():
+    """data/sectors.json. 없거나 깨졌으면 None."""
+    if not os.path.exists(SECTORS_PATH):
+        return None
+    try:
+        with open(SECTORS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception as exc:
+        log("  ! 기존 sectors.json을 읽지 못했습니다 (%s). 새로 받습니다." % exc)
+        return None
 
 
 def write_json_atomic(path, payload):
@@ -284,6 +299,87 @@ def fetch_prices(session, codes):
     return prices
 
 
+# ------------------------------------------------------------------ 업종 분류
+
+def resolve_sectors(session, args, now):
+    """업종 분류표를 준비한다. 낡았거나 없으면 다시 받고, 실패하면 기존 것을 쓴다."""
+    if args.no_sectors:
+        log("업종 분류 생략")
+        return None
+
+    data = load_sectors()
+    stale = sector_mod.is_stale(data, now)
+    if not (args.refresh_sectors or stale):
+        log("업종 분류: 기존 파일 사용 (갱신 %s, 업종 %d개, 종목 %d개)"
+            % (data.get("updated_at"), len(data.get("industries") or {}),
+               len(data.get("codes") or {})))
+        return data
+
+    log("업종 분류 수집 중...%s" % (" (강제)" if args.refresh_sectors else ""))
+    fresh = sector_mod.collect_sectors(session, fetch, log)
+    if not fresh:
+        if data:
+            log("  ! 업종 분류 수집에 실패했습니다. 기존 파일을 그대로 씁니다.")
+        else:
+            log("  ! 업종 분류 수집에 실패했고 기존 파일도 없습니다. 업종 없이 진행합니다.")
+        return data
+
+    log("업종 분류: 업종 %d개, 종목 %d개"
+        % (len(fresh.get("industries") or {}), len(fresh.get("codes") or {})))
+    if args.dry_run:
+        log("--dry-run: sectors.json을 저장하지 않았습니다.")
+    else:
+        write_json_atomic(SECTORS_PATH, fresh)
+        log("저장 완료: %s" % SECTORS_PATH)
+    return fresh
+
+
+def apply_sectors(records, sector_data):
+    """모든 레코드에 industry·sector를 부여한다. 매핑 없는 코드는 None."""
+    codes = (sector_data or {}).get("codes") or {}
+    industries = (sector_data or {}).get("industries") or {}
+    for rec in records:
+        industry = codes.get(rec.get("code"))
+        rec["industry"] = industry
+        rec["sector"] = (industries.get(industry) or sector_mod.sector_of(industry)
+                         if industry else None)
+
+
+def log_sector_stats(records):
+    """매핑 비율, 매핑 안 된 코드 상위 10개, 대분류별 리포트 수."""
+    total = len(records)
+    if not total:
+        return
+    mapped = sum(1 for r in records if r.get("industry"))
+    log("업종 매핑 %d/%d건 (%.1f%%)" % (mapped, total, mapped / total * 100.0))
+
+    missing = {}
+    for rec in records:
+        if rec.get("industry") or not rec.get("code"):
+            continue
+        key = rec["code"]
+        entry = missing.setdefault(key, {"n": 0, "name": rec.get("name") or ""})
+        entry["n"] += 1
+        if not entry["name"] and rec.get("name"):
+            entry["name"] = rec["name"]
+    if missing:
+        top = sorted(missing.items(), key=lambda kv: (-kv[1]["n"], kv[0]))[:10]
+        log("  매핑 안 된 코드 상위 %d개: %s"
+            % (len(top), ", ".join("%s(%s) %d건" % (c, v["name"] or "?", v["n"])
+                                   for c, v in top)))
+        log("  매핑 안 된 종목 %d개 / 리포트 %d건"
+            % (len(missing), sum(v["n"] for v in missing.values())))
+
+    dist = {}
+    for rec in records:
+        key = rec.get("sector") or "미분류"
+        dist[key] = dist.get(key, 0) + 1
+    order = sector_mod.SECTOR_ORDER + ["미분류"]
+    parts = ["%s %d" % (k, dist[k]) for k in order if k in dist]
+    parts += ["%s %d" % (k, v) for k, v in sorted(dist.items()) if k not in order]
+    log("  대분류별 리포트 수: " + " | ".join(parts))
+
+
 # --------------------------------------------------------------------- main
 
 def parse_args(argv=None):
@@ -296,6 +392,9 @@ def parse_args(argv=None):
     p.add_argument("--no-brokers", action="store_true",
                    help="증권사 직접 수집(KB·NH·한투) 생략")
     p.add_argument("--no-price", action="store_true", help="현재가 갱신 생략")
+    p.add_argument("--no-sectors", action="store_true", help="업종 분류 생략")
+    p.add_argument("--refresh-sectors", action="store_true",
+                   help="업종 분류를 강제로 다시 수집 (기본은 7일마다)")
     p.add_argument("--dry-run", action="store_true", help="저장하지 않고 요약만 출력")
     return p.parse_args(argv)
 
@@ -327,6 +426,8 @@ def main(argv=None):
         log("네이버 목록을 한 건도 받지 못했습니다. 중단합니다.")
         return 1
     log("네이버 목록 %d건" % len(fetched))
+
+    sector_data = resolve_sectors(session, args, now)
 
     existing = load_reports()
     existing_ids = {r.get("id") for r in existing}
@@ -460,6 +561,9 @@ def main(argv=None):
                 rec.setdefault("price_date", None)
             rec["gap"] = compute_gap(rec.get("target"), rec.get("price"))
 
+    # 업종은 매 실행마다 전체 레코드에 다시 붙인다 (분류표가 바뀌었을 수 있다).
+    apply_sectors(records, sector_data)
+
     # 목표가 변동은 전체 이력을 놓고 매번 다시 계산한다.
     apply_target_changes(records)
 
@@ -470,7 +574,9 @@ def main(argv=None):
     for r in records:
         ordered.append({
             "id": r.get("id"), "source": r.get("source"), "date": r.get("date"),
-            "code": r.get("code"), "name": r.get("name"), "title": r.get("title"),
+            "code": r.get("code"), "name": r.get("name"),
+            "industry": r.get("industry"), "sector": r.get("sector"),
+            "title": r.get("title"),
             "broker": r.get("broker"), "analyst": r.get("analyst"),
             "rating_raw": r.get("rating_raw"), "rating": r.get("rating"),
             "target": r.get("target"), "prev_target": r.get("prev_target"),
@@ -499,6 +605,7 @@ def main(argv=None):
         source_dist[r["source"]] = source_dist.get(r["source"], 0) + 1
     log("총 %d건 | 소스 %s | 레이팅 %s | 증권사 %d곳 | 상세 실패 %d건"
         % (len(records), source_dist, rating_dist, len(broker_names), detail_fail))
+    log_sector_stats(records)
 
     if args.dry_run:
         log("--dry-run: 저장하지 않았습니다.")

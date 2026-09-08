@@ -38,6 +38,14 @@ from parsers import (  # noqa: E402
     parse_price_payload,
     to_int,
 )
+from sectors import (  # noqa: E402
+    SECTOR_MAP,
+    SECTOR_ORDER,
+    is_stale,
+    parse_sector_codes,
+    parse_sector_list,
+    sector_of,
+)
 
 # ------------------------------------------------------------------ 픽스처
 
@@ -247,6 +255,56 @@ KIS_DETAIL_HTML = """
 </div></div></div>
 </body></html>
 """
+
+# 업종 목록. 네이버는 &를 그대로 주지만 &amp;로 이스케이프된 경우도 함께 본다.
+# 같은 업종이 링크 두 개로 나오는 행(업종명 + 등락률)도 있어 중복 제거를 확인한다.
+SECTOR_LIST_HTML = """
+<html><body><table class="type_1">
+  <tr><th>업종명</th><th>전일대비</th></tr>
+  <tr>
+    <td><a href="/sise/sise_group_detail.naver?type=upjong&no=278">전기유틸리티</a></td>
+    <td><a href="/sise/sise_group_detail.naver?type=upjong&no=278">+1.20%</a></td>
+  </tr>
+  <tr>
+    <td><a href="/sise/sise_group_detail.naver?type=upjong&amp;no=261" class="tltle">반도체와반도체장비</a></td>
+  </tr>
+  <tr>
+    <td><a href="/sise/sise_group_detail.naver?type=upjong&no=284">호텔,레스토랑,레저</a></td>
+  </tr>
+  <tr><td><a href="/sise/sise_rise.naver">상승</a></td></tr>
+</table></body></html>
+"""
+
+SECTOR_DETAIL_HTML = """
+<html><body><table class="type_5">
+  <tr><th>종목명</th><th>현재가</th></tr>
+  <tr>
+    <td><a href="/item/main.naver?code=005930">삼성전자</a></td>
+    <td><a href="/item/main.naver?code=005930">74,800</a></td>
+  </tr>
+  <tr><td><a href="/item/main.naver?code=000660">SK하이닉스</a></td></tr>
+  <tr><td><a href="/sise/sise_group.naver?type=upjong">업종 목록</a></td></tr>
+</table></body></html>
+"""
+
+# 2026-09-08 기준 네이버 업종 79개. 하나도 빠짐없이 대분류가 붙어야 한다.
+NAVER_INDUSTRIES = [
+    "전기유틸리티", "건설", "건강관리기술", "기계", "반도체와반도체장비", "창업투자",
+    "백화점과일반상점", "통신장비", "비철금속", "방송과엔터테인먼트", "조선",
+    "컴퓨터와주변기기", "기타", "복합기업", "가구", "항공사", "가정용기기와용품",
+    "우주항공과국방", "부동산", "증권", "가정용품", "복합유틸리티", "다각화된통신서비스",
+    "교육서비스", "석유와가스", "생명과학도구및서비스", "소프트웨어", "화학",
+    "식품과기본식료품소매", "건축자재", "운송인프라", "건강관리장비와용품",
+    "다각화된소비자서비스", "호텔,레스토랑,레저", "레저용장비와제품", "생명보험",
+    "기타금융", "전문소매", "철강", "건강관리업체및서비스", "종이와목재",
+    "도로와철도운송", "제약", "무선통신서비스", "가스유틸리티", "사무용전자제품",
+    "광고", "식품", "섬유,의류,신발,호화품", "건축제품", "인터넷과카탈로그소매",
+    "상업서비스와공급품", "에너지장비및서비스", "음료", "담배", "화장품", "핸드셋",
+    "포장재", "디스플레이패널", "디스플레이장비및부품", "전기제품", "카드", "전기장비",
+    "자동차", "판매업체", "항공화물운송과물류", "은행", "무역회사와판매업체", "생물공학",
+    "해운사", "자동차부품", "양방향미디어와서비스", "손해보험", "게임엔터테인먼트",
+    "출판", "문구류", "전자제품", "IT서비스", "전자장비와기기",
+]
 
 PRICE_PAYLOAD = {
     "result": {
@@ -620,6 +678,63 @@ class TestPricePayload(unittest.TestCase):
     def test_garbage(self):
         self.assertEqual(parse_price_payload(None), {})
         self.assertEqual(parse_price_payload({}), {})
+
+
+class TestSectorParser(unittest.TestCase):
+    def test_list(self):
+        groups = parse_sector_list(SECTOR_LIST_HTML)
+        self.assertEqual(groups, [
+            ("278", "전기유틸리티"),
+            ("261", "반도체와반도체장비"),   # &amp; 로 이스케이프된 링크도 잡는다
+            ("284", "호텔,레스토랑,레저"),   # 업종명의 콤마는 그대로 둔다
+        ])
+
+    def test_codes(self):
+        self.assertEqual(parse_sector_codes(SECTOR_DETAIL_HTML), ["005930", "000660"])
+
+    def test_garbage(self):
+        self.assertEqual(parse_sector_list("<html></html>"), [])
+        self.assertEqual(parse_sector_list(""), [])
+        self.assertEqual(parse_sector_codes(None), [])
+
+
+class TestSectorMap(unittest.TestCase):
+    def test_all_naver_industries_mapped(self):
+        self.assertEqual(len(NAVER_INDUSTRIES), 79)
+        missing = [n for n in NAVER_INDUSTRIES if n not in SECTOR_MAP]
+        self.assertEqual(missing, [], "대분류가 없는 업종: %s" % missing)
+
+    def test_map_has_no_extra_entries(self):
+        extra = [n for n in SECTOR_MAP if n not in NAVER_INDUSTRIES]
+        self.assertEqual(extra, [], "네이버에 없는 업종이 표에 있음: %s" % extra)
+
+    def test_sectors_are_known(self):
+        for industry, sector in SECTOR_MAP.items():
+            self.assertIn(sector, SECTOR_ORDER, industry)
+
+    def test_sector_of(self):
+        self.assertEqual(sector_of("반도체와반도체장비"), "IT")
+        self.assertEqual(sector_of("호텔,레스토랑,레저"), "경기소비재")
+        self.assertEqual(sector_of("듣도보도 못한 업종"), "기타")  # 새 업종은 기타
+        self.assertIsNone(sector_of(None))
+        self.assertIsNone(sector_of(""))
+
+
+class TestSectorStale(unittest.TestCase):
+    def now(self):
+        from datetime import datetime, timedelta, timezone
+        return datetime(2026, 9, 8, 12, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    def test_fresh(self):
+        self.assertFalse(is_stale({"updated_at": "2026-09-05T09:00:00+09:00"}, self.now()))
+
+    def test_old(self):
+        self.assertTrue(is_stale({"updated_at": "2026-08-01T09:00:00+09:00"}, self.now()))
+
+    def test_missing_or_broken(self):
+        self.assertTrue(is_stale(None, self.now()))
+        self.assertTrue(is_stale({}, self.now()))
+        self.assertTrue(is_stale({"updated_at": "어제"}, self.now()))
 
 
 class TestSmallHelpers(unittest.TestCase):
