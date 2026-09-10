@@ -5,3 +5,4 @@ __pycache__/
 data/*.tmp
 .DS_Store
 .claude/
+app/__pycache__/

@@ -1,0 +1,566 @@
+<body>
+<header>
+ <div class="wrap">
+  <div class="hd">
+    <div class="brand">리포트 <span>레이더</span></div>
+    <div class="tick">
+      <div class="t"><span class="n">KOSPI</span><b id="tKospi">-</b><span id="tKospiC" class="num"></span></div>
+      <div class="t"><span class="n">KOSDAQ</span><b id="tKosdaq">-</b><span id="tKosdaqC" class="num"></span></div>
+      <span class="mkb" id="mkKr">국내장</span>
+    </div>
+    <div class="hd-r">
+      <span class="scanind hide" id="scanInd"></span>
+      <span class="upd" id="upd">갱신 없음</span>
+      <button class="btn" id="btnRefresh">새로고침</button>
+      <button class="btn on" id="btnAuto">자동갱신 ON</button>
+      <button class="btn" id="btnTheme">🌙</button>
+      <button class="btn" id="btnSet">설정</button>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button data-tab="dash" class="act">대시보드</button>
+    <button data-tab="rep">리포트</button>
+    <button data-tab="anal">종목분석</button>
+    <button data-tab="cmp">기업분석</button>
+    <button data-tab="scr">스크리너</button>
+    <button data-tab="alr">알림</button>
+  </nav>
+ </div>
+</header>
+
+<main class="wrap">
+
+<!-- ============ 대시보드 ============ -->
+<section class="tab act" id="tab-dash">
+  <div class="panel">
+    <div class="ptitle">시장 개요</div>
+    <div class="pbody">
+      <div class="ovw">
+        <div class="ovi"><div class="k">KOSPI</div><div class="v" id="ovKospi">-</div><div class="c num" id="ovKospiC"></div></div>
+        <div class="ovi"><div class="k">KOSDAQ</div><div class="v" id="ovKosdaq">-</div><div class="c num" id="ovKosdaqC"></div></div>
+        <div class="gauge">
+          <div class="glab">
+            <span class="up" id="gUp">상승 -</span>
+            <span style="color:var(--tx3)" id="gFlat">보합 -</span>
+            <span class="down" id="gDn">하락 -</span>
+          </div>
+          <div class="gbar"><i class="gu" id="gBarU"></i><i class="gf" id="gBarF" style="width:100%"></i><i class="gd" id="gBarD"></i></div>
+          <div style="font-size:10.5px;color:var(--tx3);margin-top:3px" id="gNote">스크리너에서 전체 스캔을 실행하면 표시됩니다.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid3" id="sigPanels">
+    <div class="panel"><div class="ptitle">Top Gainers <span class="sub sigscope"></span></div><div class="tbw"><table><tbody id="sigUp"></tbody></table></div></div>
+    <div class="panel"><div class="ptitle">Top Losers <span class="sub sigscope"></span></div><div class="tbw"><table><tbody id="sigDn"></tbody></table></div></div>
+    <div class="panel"><div class="ptitle">거래대금 상위 <span class="sub sigscope"></span></div><div class="tbw"><table><tbody id="sigAmt"></tbody></table></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">업종별 퍼포먼스 <span class="sub" id="secSub"></span>
+      <span class="sp"><span style="font-size:10.5px;color:var(--tx3)">시총가중 등락률 · 막대 클릭 → 스크리너</span></span>
+    </div>
+    <div class="pbody" id="secPerf"></div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">시가총액 상위 150 <span class="sub tmscope"></span><span class="sub" id="tmapSub"></span>
+      <span class="sp">
+        <div class="seg" id="segTmap">
+          <button data-p="1d" class="act">1일</button>
+          <button data-p="1w">1주</button>
+          <button data-p="1m">1개월</button>
+        </div>
+        <span class="tlegend"><span id="lgMin">-3%</span><i id="lg1"></i><i id="lg2"></i><i id="lg3"></i><i id="lg4"></i><i id="lg5"></i><span id="lgMax">+3%</span></span>
+        <button class="btn" id="tmapReload">갱신</button>
+      </span>
+    </div>
+    <div class="prog hide" id="tmapProg" style="margin:0 8px"><div id="tmapBar"></div></div>
+    <div class="tmap" id="tmap"></div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">오늘의 리포트 <span class="sub">증권사 리포트 · 목표가 상향 종목</span>
+      <span class="sp"><button class="btn xs" id="rpTodayMore">더 보기 →</button></span>
+    </div>
+    <div class="pbody" id="rpToday"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel news">
+      <div class="ptitle">시장 뉴스 <span class="sub" id="mnSub"></span>
+        <span class="sp"><button class="btn xs" id="mnReload">갱신</button></span>
+      </div>
+      <div class="pbody newsbox" id="mktNews"><div style="color:var(--tx3)">불러오는 중…</div></div>
+    </div>
+    <div class="panel">
+      <div class="ptitle">최근 공시 <span class="sub" id="dcSub"></span>
+        <span class="sp">
+          <label class="chk"><input type="checkbox" id="dcMine"> 내 종목만</label>
+          <button class="btn xs" id="dcReload">갱신</button>
+        </span>
+      </div>
+      <div class="pbody" style="padding-bottom:0"><div class="presets" id="dcTypes"></div></div>
+      <div class="tbw dcbox"><table><tbody id="dcBody"></tbody></table></div>
+      <div class="empty" id="dcEmpty">불러오는 중…</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">관심종목 <span class="sub" id="wlCnt"></span>
+      <span class="sp"><div class="srch" id="srchWl"><input type="text" placeholder="종목명 · 코드 · 티커 검색"><div class="sug"></div></div></span>
+    </div>
+    <div class="pbody" style="padding-bottom:0;display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+      <div class="presets" id="wlTabs"></div>
+      <button class="btn xs" id="wlAddGrp">+ 그룹</button>
+      <button class="btn xs" id="wlRenGrp">이름변경</button>
+      <button class="btn xs" id="wlDelGrp">그룹삭제</button>
+    </div>
+    <div class="tbw"><table>
+      <thead><tr><th class="l">종목</th><th>현재가</th><th>전일대비</th><th>등락률</th>
+        <th>1주</th><th>1개월</th><th>거래량</th><th class="c">30일</th><th class="c">삭제</th></tr></thead>
+      <tbody id="wlBody"></tbody>
+    </table></div>
+    <div class="empty" id="wlEmpty" style="display:none">관심종목이 없습니다. 위 검색창에서 추가하세요.</div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">경제 캘린더 <span class="sub">TradingView · 한국/미국 주요 지표</span>
+      <span class="sp"><button class="btn xs" id="calToggle">접기</button></span>
+    </div>
+    <div id="calWrap" style="border-top:1px solid var(--line)">
+      <iframe id="calFrame" title="경제 캘린더" style="display:block;width:100%;height:520px;border:0"></iframe>
+      <div class="pbody hide" id="calFail">
+        <div class="note">경제 캘린더 위젯을 불러오지 못했습니다.
+        <a href="https://kr.tradingview.com/economic-calendar/" target="_blank" rel="noopener">TradingView 경제 캘린더 새 창으로 열기 →</a></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">포트폴리오 <span class="sub" id="pfSum"></span>
+      <span class="sp">
+        <button class="btn" id="pfImport">가져오기</button>
+        <div class="srch" id="srchPf"><input type="text" placeholder="보유종목 추가"><div class="sug"></div></div>
+      </span>
+    </div>
+    <div class="tbw"><table>
+      <thead><tr><th class="l">종목</th><th>수량</th><th>평균단가</th><th>현재가</th>
+        <th>매입금액</th><th>평가금액</th><th>평가손익</th><th>수익률</th><th class="c">삭제</th></tr></thead>
+      <tbody id="pfBody"></tbody>
+    </table></div>
+    <div class="empty" id="pfEmpty" style="display:none">보유 종목이 없습니다.</div>
+  </div>
+</section>
+
+<!-- ============ 리포트 ============ -->
+<section class="tab" id="tab-rep">
+  <div class="note hide" id="rpNotice"></div>
+
+  <div id="rpApp">
+    <div class="panel">
+      <div class="ptitle">개요 <span class="sub" id="rpOvSub"></span>
+        <span class="sp"><span class="sub" id="rpUpd"></span></span>
+      </div>
+      <div class="pbody"><div class="ovw" id="rpStats"></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="ptitle">필터
+        <span class="sp">
+          <span class="sub" id="rpCount"></span>
+          <button class="btn xs" id="rpReset">필터 초기화</button>
+        </span>
+      </div>
+      <div class="pbody" id="rpFilters">
+        <div class="row">
+          <div class="rfl"><span class="k">기간</span>
+            <div class="seg" id="rpPeriod">
+              <button data-p="1">오늘</button><button data-p="3">3일</button>
+              <button data-p="7" class="act">1주</button><button data-p="30">1개월</button>
+              <button data-p="all">전체</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">레이팅</span>
+            <div class="chips">
+              <button class="chip r-BUY" data-rrating="BUY">BUY</button>
+              <button class="chip r-HOLD" data-rrating="HOLD">HOLD</button>
+              <button class="chip r-SELL" data-rrating="SELL">SELL</button>
+              <button class="chip r-NR" data-rrating="NR">NR</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">목표가</span>
+            <div class="chips">
+              <button class="chip" data-rchange="up">상향</button>
+              <button class="chip" data-rchange="down">하향</button>
+              <button class="chip" data-rchange="new">신규</button>
+            </div>
+          </div>
+          <div class="rfl" style="flex:1;min-width:260px"><span class="k">업종</span>
+            <div class="chips" id="rpSectorChips"></div>
+          </div>
+          <div class="rfl"><span class="k">세부 업종</span>
+            <select id="rpIndustry" aria-label="세부 업종"></select>
+          </div>
+          <div class="rfl"><span class="k">증권사</span>
+            <details class="dd" id="rpBrokerDd">
+              <summary id="rpBrokerSum">증권사 전체 ▾</summary>
+              <div class="dd-panel">
+                <div class="dd-actions">
+                  <button class="btn xs" id="rpBrokerAll">전체 선택</button>
+                  <button class="btn xs" id="rpBrokerNone">전체 해제</button>
+                </div>
+                <div id="rpBrokerList"></div>
+              </div>
+            </details>
+          </div>
+          <div class="rfl"><span class="k">검색</span>
+            <div class="srch" id="rpSrch">
+              <input type="text" id="rpQ" placeholder="종목명 · 코드 · 증권사 검색" autocomplete="off">
+              <div class="sug acx" id="rpSug"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="selbar hide" id="rpSelbar"></div>
+
+    <div class="panel" id="rpTablePanel">
+      <div class="ptitle"><span id="rpTableTitle">리포트</span>
+        <span class="sp">
+          <span class="sub" id="rpCount2"></span>
+          <div class="seg" id="rpViewSeg">
+            <button data-v="reports" class="act">리포트</button>
+            <button data-v="stocks">종목별</button>
+            <button data-v="sectors">업종별</button>
+            <button data-v="heat">히트맵</button>
+          </div>
+        </span>
+      </div>
+      <div class="tbw"><table class="rtbl" id="rpTable">
+        <thead id="rpThead"></thead><tbody id="rpTbody"></tbody>
+      </table></div>
+      <div class="empty" id="rpEmpty" style="display:none">조건에 맞는 리포트가 없습니다.</div>
+    </div>
+
+    <div class="panel hide" id="rpHeatPanel">
+      <div class="ptitle">히트맵 <span class="sub">타일 크기 = 리포트 수 · 구획 = 대분류</span>
+        <span class="sp">
+          <div class="seg" id="rpViewSeg2">
+            <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
+            <button data-v="sectors">업종별</button><button data-v="heat" class="act">히트맵</button>
+          </div>
+          <div class="seg" id="rpHeatSeg">
+            <button data-hc="gap" class="act">괴리율</button><button data-hc="buy">BUY 비율</button>
+          </div>
+          <span class="tlegend"><span id="rpLgMin">-</span>
+            <i id="rpLg1"></i><i id="rpLg2"></i><i id="rpLg3"></i><i id="rpLg4"></i><i id="rpLg5"></i>
+            <span id="rpLgMax">-</span><span id="rpLgMid" style="margin-left:5px"></span></span>
+        </span>
+      </div>
+      <div class="tmap" id="rpTmap"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 종목분석 ============ -->
+<section class="tab" id="tab-anal">
+  <div class="panel">
+    <div class="ptitle"><span id="anTitle">종목 분석</span> <span class="sub" id="anSub"></span>
+      <span class="sp">
+        <div class="srch" id="srchAn"><input type="text" placeholder="분석할 종목 검색"><div class="sug"></div></div>
+        <button class="btn" id="anCmp">기업분석 보기 →</button>
+        <button class="btn" id="anAddWl">관심종목 추가</button>
+      </span>
+    </div>
+    <div class="pbody" id="anEmpty">
+      <div class="note">분석할 종목을 검색해서 선택하세요. 관심종목·시그널 패널·트리맵·스크리너의 행을 클릭해도 이 탭으로 이동합니다.</div>
+    </div>
+    <div id="anBody" style="display:none">
+      <div class="tbw"><table class="statgrid"><tbody id="anStats"></tbody></table></div>
+      <div class="pbody row" style="border-top:1px solid var(--line)">
+        <div class="seg" id="segPeriod">
+          <button data-p="3m">3M</button><button data-p="6m">6M</button>
+          <button data-p="1y" class="act">1Y</button><button data-p="3y">3Y</button>
+        </div>
+        <div class="seg" id="segTf">
+          <button data-t="day" class="act">일봉</button><button data-t="week">주봉</button><button data-t="month">월봉</button>
+        </div>
+        <div class="malegend" id="maLeg"></div>
+      </div>
+      <div class="chw"><canvas id="chart"></canvas><div class="tip" id="tip"></div></div>
+    </div>
+  </div>
+  <div class="panel hide" id="anRepPanel">
+    <div class="ptitle">증권사 리포트 <span class="sub" id="anRepSub"></span>
+      <span class="sp"><span class="sub">목표가 컨센서스 · 최근 3개월</span></span>
+    </div>
+    <div class="pbody" id="anRepCons"></div>
+    <div class="tbw"><table class="rtbl">
+      <thead><tr><th class="l">날짜</th><th class="l">증권사</th><th class="l">애널리스트</th>
+        <th class="l">제목</th><th class="c">의견</th><th>목표주가</th><th>괴리율</th></tr></thead>
+      <tbody id="anRepBody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid2" id="anFeeds" style="display:none">
+    <div class="panel news">
+      <div class="ptitle">뉴스 <span class="sub" id="anNewsSub"></span>
+        <span class="sp"><button class="btn xs" id="anNewsReload">갱신</button></span>
+      </div>
+      <div class="pbody newsbox" id="anNews"></div>
+    </div>
+    <div class="panel">
+      <div class="ptitle">공시 <span class="sub" id="anDcSub"></span></div>
+      <div class="pbody dcbox" id="anDc"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 기업분석 ============ -->
+<section class="tab" id="tab-cmp">
+  <div class="panel">
+    <div class="ptitle"><span id="cmpTitle">기업분석</span> <span class="sub" id="cmpSub"></span>
+      <span class="sp">
+        <div class="srch" id="srchCmp"><input type="text" placeholder="국내 종목 검색"><div class="sug"></div></div>
+        <div class="seg" id="segCmp"></div>
+        <button class="btn" id="cmpOpen">새 창에서 열기</button>
+      </span>
+    </div>
+    <div class="pbody" id="cmpEmpty">
+      <div class="note">분석할 <b>국내 종목</b>을 검색해서 선택하세요. 종목분석 탭의 “기업분석 보기 →” 버튼으로도 이동합니다.<br>
+      리포트 출처: 와이즈리포트(FnGuide) — 재무요약 · 투자지표 · 컨센서스 제공.</div>
+    </div>
+    <div id="cmpBody" style="display:none">
+      <div class="pbody" style="font-size:10.5px;color:var(--tx3);border-top:1px solid var(--line)">
+        아래 리포트는 외부 사이트(와이즈리포트)를 그대로 삽입한 것이라 앱의 다크 테마가 적용되지 않습니다(교차 출처라 스타일 개입 불가). 정상 동작입니다.
+      </div>
+      <div class="cmpwrap">
+        <div class="cmpload" id="cmpLoad"><div class="spin"></div><div>리포트를 불러오는 중…</div></div>
+        <!-- referrerpolicy 를 지정하면 와이즈리포트가 빈 화면을 반환한다. 기본값(Referer 전송) 유지. -->
+        <iframe id="cmpFrame" title="기업분석 리포트"></iframe>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 스크리너 ============ -->
+<section class="tab" id="tab-scr">
+  <div class="panel">
+    <div class="ptitle">국내 스크리너 <span class="sub">코스피 300 + 코스닥 200</span>
+      <span class="sp">
+        <select id="savedScreens" title="저장된 스크린"><option value="">— 스크린 불러오기 —</option></select>
+        <button class="btn" id="scrSave">현재 조건 저장</button>
+        <button class="btn" id="scrDel">삭제</button>
+        <div class="seg" id="segScope" title="스캔 범위">
+          <button data-s="top500">상위 500 (약 1분)</button>
+          <button data-s="all">전체 (약 4분)</button>
+        </div>
+        <button class="btn pri" id="scrScan">다시 스캔</button>
+      </span>
+    </div>
+
+    <div class="pbody">
+      <div class="presets" id="presets"></div>
+      <div class="fgrid" id="fgrid" style="margin-top:6px"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn pri" id="scrApply">필터 적용</button>
+        <button class="btn" id="scrReset">필터 초기화</button>
+        <button class="btn" id="scrDeep">심층 분석 (상위 50)</button>
+        <button class="btn" id="scrCsv">CSV 내보내기</button>
+        <button class="btn" id="scrAddSel">선택 관심종목 추가</button>
+        <button class="btn" id="scrCols">컬럼 선택</button>
+        <div class="seg" id="segColView">
+          <button data-cv="overview" class="act">개요</button><button data-cv="value">가치</button>
+          <button data-cv="perf">성과</button><button data-cv="tech">기술</button>
+        </div>
+        <div class="seg" id="segView">
+          <button data-v="table" class="act">테이블</button><button data-v="tree">트리맵</button><button data-v="chart">차트</button>
+        </div>
+        <label class="fl" style="flex-direction:row;align-items:center;gap:4px;color:var(--tx2)"
+               title="켜면 앱 시작 시 자동 스캔하고, 장중에는 5분마다 다시 스캔합니다">
+          <input type="checkbox" id="autoScan" style="width:auto"> 자동 스캔
+        </label>
+        <label class="fl" style="flex-direction:row;align-items:center;gap:4px;color:var(--tx2)"
+               title="게이지·시그널·업종·트리맵·스크리너 결과에 ETF와 ETN을 포함합니다 (관심종목·보유종목은 항상 지원)">
+          <input type="checkbox" id="inclEtf" style="width:auto"> ETF·ETN 포함
+        </label>
+      </div>
+      <div style="margin-top:7px">
+        <div class="prog"><div id="scrBar"></div></div>
+        <div style="font-size:10.5px;color:var(--tx3);margin-top:4px" id="scrMsg">자동 스캔이 켜져 있으면 앱 시작 시 자동으로 수집합니다.</div>
+      </div>
+    </div>
+
+    <div class="colpick hide" id="colpick"></div>
+    <div class="sumline" id="scrSum"></div>
+
+    <div class="tbw" id="scrTableWrap">
+      <table><thead><tr id="scrHead"></tr></thead><tbody id="scrBody"></tbody></table>
+    </div>
+    <div class="tmap sm hide" id="scrTmap"></div>
+    <div class="hide" id="scrChartWrap">
+      <div class="pbody" style="border-top:1px solid var(--line)">
+        <div class="prog"><div id="cgBar"></div></div>
+        <div style="font-size:10.5px;color:var(--tx3);margin-top:4px" id="cgMsg"></div>
+      </div>
+      <div class="cgrid" id="scrChart"></div>
+    </div>
+    <div class="empty" id="scrEmpty">스캔 결과가 없습니다.</div>
+  </div>
+
+</section>
+
+<!-- ============ 알림 ============ -->
+<section class="tab" id="tab-alr">
+  <div class="panel">
+    <div class="ptitle">알림 규칙
+      <span class="sp">
+        <button class="btn" id="btnNoti">브라우저 알림 권한</button>
+        <button class="btn" id="btnBeep">소리 테스트</button>
+      </span>
+    </div>
+    <div class="pbody">
+      <div class="row">
+        <div class="srch" id="srchAl"><input type="text" placeholder="종목 검색"><div class="sug"></div></div>
+        <label class="fl">조건
+          <select id="alCond">
+            <option value="ge">현재가 이상 도달</option>
+            <option value="le">현재가 이하 도달</option>
+            <option value="rge">등락률 이상 (+N%)</option>
+            <option value="rle">등락률 이하 (-N%)</option>
+          </select>
+        </label>
+        <label class="fl">기준값<input type="number" id="alVal" class="cell" step="0.01" placeholder="70000"></label>
+        <label class="fl" style="flex:1;min-width:150px">메모<input type="text" id="alMemo" placeholder="선택" style="width:100%"></label>
+        <button class="btn pri" id="alAdd">규칙 추가</button>
+      </div>
+      <div style="margin-top:8px" class="note">
+        알림은 <b>이 브라우저 창이 열려 있는 동안에만</b> 동작합니다. 자동갱신 주기마다 조건을 평가하며,
+        발동한 규칙은 반복 알림을 막기 위해 자동 비활성화됩니다(재활성 가능).<span id="notiState"></span>
+      </div>
+    </div>
+    <div class="tbw"><table>
+      <thead><tr><th class="c">상태</th><th class="l">종목</th><th class="l">조건</th>
+        <th>기준값</th><th>현재값</th><th class="l">메모</th><th class="c">동작</th></tr></thead>
+      <tbody id="alBody"></tbody>
+    </table></div>
+    <div class="empty" id="alEmpty" style="display:none">등록된 알림 규칙이 없습니다.</div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">알림 기록 <span class="sp"><button class="btn xs" id="alLogClr">기록 지우기</button></span></div>
+    <div class="pbody log" id="alLog"></div>
+  </div>
+</section>
+
+</main>
+
+<footer class="wrap">
+  시세는 지연·오류가 있을 수 있으며 투자 판단과 책임은 이용자 본인에게 있습니다.<br>
+  데이터 출처: 네이버 금융(시세·업종·뉴스), DART(공시), 증권사 리포트 —
+  <a href="https://finance.naver.com/research/company_list.naver" target="_blank" rel="noopener">네이버 금융 리서치</a>,
+  <a href="https://consensus.hankyung.com/analysis/list?report_type=CO" target="_blank" rel="noopener">한경 컨센서스</a>,
+  <a href="https://rc.kbsec.com/" target="_blank" rel="noopener">KB증권</a>,
+  <a href="https://www.nhsec.com/research/boardList.action?rsh_ppr_dit_cd=01" target="_blank" rel="noopener">NH투자증권</a>,
+  <a href="https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=10" target="_blank" rel="noopener">한국투자증권</a>.
+</footer>
+
+<div class="ttip" id="ttip"></div>
+<div class="mpop" id="mpop"><div class="mh"><b id="mpopName"></b><span id="mpopPct"></span></div>
+  <canvas id="mpopCv" width="480" height="200" style="width:240px;height:100px"></canvas>
+  <div class="mf"><span id="mpopRange"></span><span id="mpopPerf"></span></div></div>
+
+<div class="mask" id="mask">
+ <div class="modal">
+  <h3>설정 <button id="setClose">&times;</button></h3>
+  <div class="bd">
+    <div class="fld">
+      <label>등락 색상 규칙</label>
+      <div class="seg" id="segCC" style="align-self:flex-start">
+        <button data-cc="global">글로벌 (상승 초록 / 하락 빨강)</button>
+        <button data-cc="kr">한국식 (상승 빨강 / 하락 파랑)</button>
+      </div>
+    </div>
+    <div class="fld">
+      <label>커스텀 프록시 URL <span style="color:var(--tx3);font-weight:400">(선택 · rss2json 대체)</span></label>
+      <input type="text" id="sProxy" placeholder="https://stock-proxy.내계정.workers.dev">
+      <div class="hint">
+        비워두면 기존 rss2json 방식으로 동작합니다. Cloudflare Worker 를 만들어 주소를 넣으면
+        뉴스·공시를 원본에서 직접 가져와 <b>공시가 10건 → 50건</b>으로 늘고 간헐적 실패도 줄어듭니다.
+        만드는 방법은 <b>tools/PROXY_SETUP.md</b> 참고(약 5분, 무료).
+        <div style="margin-top:3px">현재 모드: <b id="proxyMode">-</b></div>
+      </div>
+    </div>
+    <div class="fld">
+      <label>자동갱신 주기 (초)</label>
+      <input type="number" id="sIv" min="20" step="10" placeholder="60">
+      <div class="hint">최소 20초. 대시보드 탭이 열려 있으면 트리맵(40종목×4콜)도 함께 갱신됩니다.</div>
+    </div>
+    <div class="fld">
+      <label>데이터 백업</label>
+      <div class="row">
+        <button class="btn" id="sExp">JSON 내보내기</button>
+        <button class="btn" id="sImp">JSON 가져오기</button>
+        <button class="btn" id="sRst" style="color:var(--down)">전체 초기화</button>
+      </div>
+      <input type="file" id="sFile" accept=".json,application/json" style="display:none">
+    </div>
+  </div>
+  <div class="ft">
+    <button class="btn" id="setCancel">취소</button>
+    <button class="btn pri" id="setSave">저장</button>
+  </div>
+ </div>
+</div>
+
+<!-- ============ 잔고 가져오기 ============ -->
+<div class="mask" id="impMask">
+ <div class="modal" style="max-width:960px">
+  <h3>포트폴리오 잔고 가져오기 <button id="impClose">&times;</button></h3>
+  <div class="bd">
+    <div class="fld">
+      <label>1. 잔고 데이터 입력</label>
+      <div class="row">
+        <input type="file" id="impFile" accept=".csv,.txt,.tsv" style="width:auto">
+        <span style="font-size:10.5px;color:var(--tx3)" id="impFileInfo"></span>
+      </div>
+      <textarea id="impText" rows="6" placeholder="또는 HTS 잔고 화면을 드래그·복사해서 여기에 붙여넣으세요 (탭 구분 지원)"></textarea>
+      <div class="hint">증권사 CSV·TSV 파일 또는 화면 복사 텍스트를 지원합니다.
+        EUC-KR 로 저장된 파일도 자동 인식하며, 합계·소계 행은 자동 제외됩니다.</div>
+    </div>
+
+    <div id="impStep2" class="hide">
+      <div class="fld">
+        <label>2. 인식 결과 <span id="impMeta" style="font-weight:400;color:var(--tx3)"></span></label>
+        <div class="tbw" style="max-height:250px;overflow:auto;border:1px solid var(--line)">
+          <table id="impPrev" class="imptbl"></table>
+        </div>
+        <div class="hint">열 인식이 틀렸으면 맨 윗줄 드롭다운으로 바꾸세요. 회색 행은 제외된 행(합계·빈행)입니다.</div>
+      </div>
+
+      <div class="fld hide" id="impFixWrap">
+        <label>미매칭 종목 — 코드를 직접 입력하세요</label>
+        <div id="impFix"></div>
+      </div>
+
+      <div class="fld">
+        <label>3. 반영 방식</label>
+        <div class="seg" id="impMode" style="align-self:flex-start">
+          <button data-m="merge" class="act">병합 (같은 종목 덮어쓰기)</button>
+          <button data-m="replace">전체 교체</button>
+          <button data-m="addnew">새 종목만 추가</button>
+        </div>
+      </div>
+      <div class="note" id="impSummary"></div>
+    </div>
+  </div>
+  <div class="ft">
+    <button class="btn" id="impCancel">취소</button>
+    <button class="btn pri" id="impApply" disabled>포트폴리오에 반영</button>
+  </div>
+ </div>
+</div>
+
+<div id="toasts"></div>
