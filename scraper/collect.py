@@ -554,7 +554,9 @@ def main(argv=None):
             if info:
                 rec["price"] = info["price"]
                 rec["price_date"] = price_date
-                if not rec.get("name") and info.get("name"):
+                # 종목명은 네이버 시세의 정식 명칭을 우선한다.
+                # (KB "AI 실적속보: 종목명 (코드)" 처럼 제목에서 잘라낸 이름이 섞여 들어오는 것을 바로잡는다)
+                if info.get("name"):
                     rec["name"] = info["name"]
             else:
                 rec.setdefault("price", None)
