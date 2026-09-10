@@ -124,6 +124,48 @@ select.on{color:var(--fg);border-color:var(--accent)}
 }
 .count{margin-left:auto;font-size:12px;color:var(--fg-faint);font-variant-numeric:tabular-nums}
 
+/* ---------- 검색 자동완성 ---------- */
+.searchbox{position:relative}
+.ac{
+  position:absolute;z-index:40;top:calc(100% + 5px);left:0;width:330px;max-width:88vw;
+  max-height:340px;overflow:auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:4px;box-shadow:0 6px 20px rgba(10,14,22,.16);
+}
+.ac-sec{
+  padding:6px 8px 3px;font-size:10.5px;font-weight:700;letter-spacing:.3px;
+  color:var(--fg-faint);border-top:1px solid var(--line-2);margin-top:3px;
+}
+.ac-sec:first-child{border-top:0;margin-top:0}
+.ac-item{
+  display:flex;align-items:baseline;gap:6px;padding:5px 8px;border-radius:6px;
+  cursor:pointer;font-size:12.5px;
+}
+.ac-item[aria-selected="true"],.ac-item:hover{background:var(--accent-soft)}
+.ac-name{font-weight:600;color:var(--fg);white-space:nowrap}
+.ac-item mark{background:none;color:var(--accent);font-weight:700}
+.ac-code{color:var(--fg-faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.ac-ind{color:var(--fg-faint);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac-n{
+  margin-left:auto;padding-left:8px;color:var(--fg-dim);font-size:11px;font-weight:600;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.ac-empty{padding:9px 8px;color:var(--fg-faint);font-size:12px;line-height:1.6}
+
+/* 고른 종목·검색어 칩 줄 */
+.selbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.selbar[hidden]{display:none}
+.selchip{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 5px 4px 11px;border-radius:999px;
+  font-size:12px;font-weight:600;background:var(--accent-soft);
+  border:1px solid var(--accent);color:var(--fg);
+}
+.selchip .c{color:var(--fg-faint);font-weight:600;font-variant-numeric:tabular-nums}
+.selchip .x{
+  appearance:none;border:0;background:none;font-family:inherit;font-size:14px;line-height:1;
+  color:var(--fg-dim);cursor:pointer;padding:1px 5px;border-radius:999px;
+}
+.selchip .x:hover{color:var(--fg);background:var(--line-2)}
+
 /* ---------- 표 ---------- */
 .tablewrap{overflow-x:auto;border-radius:9px}
 table{border-collapse:collapse;width:100%;min-width:940px;background:var(--panel)}
@@ -200,6 +242,14 @@ tr.sec-child>td{color:var(--fg-dim)}
   background:var(--line-2);padding:2px 6px;border-radius:4px;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--fg);
 }
+/* 더 보기 행 */
+tr.more-row td{padding:12px 10px;text-align:center;background:var(--panel-2)}
+.morebtn{
+  appearance:none;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
+  padding:7px 18px;border:1px solid var(--line);border-radius:7px;
+  background:var(--panel);color:var(--accent);
+}
+.morebtn:hover{border-color:var(--accent)}
 footer{margin-top:16px;font-size:11.5px;color:var(--fg-faint);line-height:1.8}
 footer a{color:var(--fg-dim);text-decoration:underline}
 
@@ -266,8 +316,11 @@ footer a{color:var(--fg-dim);text-decoration:underline}
       </div>
     </details>
 
-    <div class="group">
-      <input type="search" id="q" placeholder="종목명·코드·제목·증권사 검색" autocomplete="off">
+    <div class="group searchbox">
+      <input type="search" id="q" placeholder="종목명·코드 검색 후 선택" autocomplete="off"
+             role="combobox" aria-expanded="false" aria-autocomplete="list"
+             aria-controls="ac" aria-label="종목·증권사 검색">
+      <div class="ac" id="ac" role="listbox" aria-label="검색 제안" hidden></div>
     </div>
 
     <div class="group">
@@ -281,6 +334,8 @@ footer a{color:var(--fg-dim);text-decoration:underline}
     <button type="button" class="linkbtn" id="reset">필터 초기화</button>
     <span class="count" id="count"></span>
   </div>
+
+  <div class="selbar" id="selbar" hidden></div>
 
   <div class="panel tablewrap">
     <table id="table">
@@ -324,7 +379,8 @@ var state = {
   brokers: [],           // 비어 있으면 전체
   sectors: [],           // 대분류. 비어 있으면 전체
   industry: "",          // 세부 업종 하나. 빈 문자열이면 전체
-  q: "",
+  codes: [],             // 자동완성에서 고른 종목 코드. 비어 있으면 전체
+  q: "",                 // Enter 로 확정한 자유 텍스트. 타이핑 중에는 건드리지 않는다
   view: "reports",
   sortKey: "date",
   sortDir: "desc"
@@ -336,6 +392,15 @@ var allBrokers = [];
 var allSectors = [];                     // 화면에 그릴 대분류 칩 목록
 var openSummaries = Object.create(null);
 var openSectors = Object.create(null);   // 업종별 탭에서 펼쳐 둔 대분류
+
+var stockIndex = [];                     // 자동완성 후보 (코드 기준 유일, 리포트 수 내림차순)
+var stockByCode = Object.create(null);
+var acItems = [];                        // 지금 드롭다운에 뿌린 항목
+var acIndex = -1;                        // 키보드로 짚고 있는 항목. -1이면 없음
+var acOpen = false;
+
+var PAGE = 500;                          // 리포트 표를 한 번에 그리는 행 수
+var reportLimit = PAGE;
 
 /* ------------------------------------------------ 상태 저장/복원 */
 function loadState(){
@@ -369,6 +434,10 @@ function num(n){
 function pct(n){
   if(n === null || n === undefined || isNaN(n)) return "";
   return (n > 0 ? "+" : "") + Number(n).toFixed(2) + "%";
+}
+/* 검색 비교용: 소문자로 낮추고 공백을 지운다 */
+function norm(s){
+  return String(s === null || s === undefined ? "" : s).toLowerCase().replace(/\s+/g, "");
 }
 function debounce(fn, ms){
   var t;
@@ -579,6 +648,7 @@ function refreshData(){
       reports = list;
       rebuildBrokers();
       rebuildSectors();
+      rebuildStocks();
       applyLive();
       renderBrokerList();
       renderSectorChips();
@@ -608,11 +678,13 @@ function filtered(opts){
   var floor = periodFloor();
   var q = state.q.trim().toLowerCase();
   var rs = state.ratings, cs = state.changes, bs = state.brokers;
+  var cd = state.codes;
   var ss = opts.skipSector ? [] : state.sectors;
   var ind = opts.skipIndustry ? "" : state.industry;
   var out = [];
   for(var i=0;i<reports.length;i++){
     var r = reports[i];
+    if(cd.length && cd.indexOf(r.code) < 0) continue;
     if(floor && (r.date || "") < floor) continue;
     if(rs.length && rs.indexOf(r.rating) < 0) continue;
     if(cs.length && cs.indexOf(r.target_change) < 0) continue;
@@ -761,8 +833,11 @@ function renderReports(rows){
   REPORT_COLS.forEach(function(c){ if(c.get) keys[c.key] = c.get; });
   rows = sortRows(rows, keys);
 
+  // 정렬·집계는 전체 기준으로 끝내고, 그리는 행 수만 끊는다
+  var total = rows.length;
+  var lim = Math.min(total, reportLimit);
   var html = [];
-  for(var i=0;i<rows.length;i++){
+  for(var i=0;i<lim;i++){
     var r = rows[i];
     var link = r.pdf || r.url || "#";
     var hasSummary = !!(r.summary && r.summary.length);
@@ -797,6 +872,11 @@ function renderReports(rows){
       html.push('<tr class="summary-row"><td colspan="' + REPORT_COLS.length + '">' +
                 esc(r.summary) + "</td></tr>");
     }
+  }
+  if(total > lim){
+    html.push('<tr class="more-row"><td colspan="' + REPORT_COLS.length + '">' +
+              '<button type="button" class="morebtn" id="moreBtn">더 보기 (+' + num(PAGE) +
+              ") · 남은 " + num(total - lim) + "건</button></td></tr>");
   }
   $("tbody").innerHTML = html.join("");
 }
@@ -1012,10 +1092,13 @@ function gotoSector(sector, industry){
   window.scrollTo(0, 0);
 }
 
-/* ------------------------------------------------ 전체 렌더 */
-function render(){
+/* ------------------------------------------------ 전체 렌더
+   keepLimit: "더 보기"로 늘려 둔 행 수를 그대로 둔다. 필터가 바뀔 때는 넘기지 않는다. */
+function render(keepLimit){
+  if(!keepLimit) reportLimit = PAGE;
   var rows = filtered();
   renderStats(rows);
+  renderSelbar();
 
   var shown;
   if(state.view === "sectors"){
@@ -1029,7 +1112,17 @@ function render(){
     shown = rows.length;
     $("count").textContent = num(rows.length) + "건 / 전체 " + num(reports.length) + "건";
   }
-  $("empty").hidden = shown > 0;
+  var em = $("empty");
+  if(shown === 0){
+    // 종목을 골랐는데 기간에 걸려 비었다면 기간을 넓힐 길을 열어 준다
+    if(state.codes.length && state.period !== "all"){
+      em.innerHTML = "이 기간엔 리포트가 없습니다 · " +
+        '<button type="button" class="linkbtn" id="allPeriod">전체 기간 보기</button>';
+    }else{
+      em.textContent = "조건에 맞는 리포트가 없습니다.";
+    }
+  }
+  em.hidden = shown > 0;
   $("table").hidden = shown === 0;
 
   syncControls();
@@ -1041,7 +1134,7 @@ function render(){
 /* 스크롤 위치를 지킨 채 다시 그린다 (시세·리포트 자동 갱신용) */
 function renderKeepScroll(){
   var y = window.pageYOffset;
-  render();
+  render(true);
   window.scrollTo(0, y);
 }
 
@@ -1126,6 +1219,180 @@ function renderIndustrySelect(){
   sel.className = state.industry ? "on" : "";
 }
 
+/* ------------------------------------------------ 검색 자동완성
+   타이핑 중에는 표를 다시 그리지 않고 이 드롭다운만 갱신한다. */
+var AC_STOCKS = 12, AC_BROKERS = 5;
+
+/* 코드 기준 유일한 종목 목록. 리포트 수는 필터와 무관하게 전체 기간 기준이다 */
+function rebuildStocks(){
+  var map = Object.create(null), code;
+  for(var i=0;i<reports.length;i++){
+    var r = reports[i];
+    if(!r.code) continue;
+    var s = map[r.code];
+    if(!s) s = map[r.code] = {code:r.code, name:r.name || r.code, industry:"", n:0};
+    s.n++;
+    if(r.name) s.name = r.name;
+    if(r.industry) s.industry = r.industry;
+  }
+  stockByCode = map;
+  stockIndex = [];
+  for(code in map){
+    var st = map[code];
+    st.nameNorm = norm(st.name);
+    st.codeNorm = norm(st.code);
+    stockIndex.push(st);
+  }
+  stockIndex.sort(function(a, b){ return b.n - a.n || a.name.localeCompare(b.name, "ko"); });
+}
+
+/* 입력값과 겹치는 부분만 강조한다. 공백을 지운 비교값으로는 위치를 못 잡으므로
+   원문에서 그대로 찾히는 경우에만 표시한다. */
+function hilite(text, raw){
+  var t = String(text === null || text === undefined ? "" : text);
+  var i = raw ? t.toLowerCase().indexOf(raw) : -1;
+  if(i < 0) return esc(t);
+  return esc(t.slice(0, i)) + "<mark>" + esc(t.slice(i, i + raw.length)) + "</mark>" +
+         esc(t.slice(i + raw.length));
+}
+
+function acCandidates(input){
+  var qn = norm(input);
+  var out = {stocks:[], brokers:[], raw:input.trim().toLowerCase()};
+  if(!qn) return out;
+
+  var hits = [];
+  for(var i=0;i<stockIndex.length;i++){
+    var s = stockIndex[i];
+    var byName = s.nameNorm.indexOf(qn), byCode = s.codeNorm.indexOf(qn);
+    if(byName < 0 && byCode < 0) continue;
+    // 이름 앞부분 일치를 가장 위로, 그다음 코드 앞부분, 나머지는 부분일치
+    hits.push({s:s, rank: byName === 0 ? 0 : (byCode === 0 ? 1 : 2)});
+  }
+  hits.sort(function(a, b){
+    return a.rank - b.rank || b.s.n - a.s.n || a.s.name.localeCompare(b.s.name, "ko");
+  });
+  for(var j=0;j<hits.length && out.stocks.length < AC_STOCKS;j++) out.stocks.push(hits[j].s);
+
+  for(var k=0;k<allBrokers.length && out.brokers.length < AC_BROKERS;k++){
+    if(norm(allBrokers[k]).indexOf(qn) >= 0) out.brokers.push(allBrokers[k]);
+  }
+  return out;
+}
+
+function renderAc(){
+  var input = $("q").value;
+  var c = acCandidates(input);
+  var html = [], n = 0, i;
+  acItems = [];
+
+  if(c.stocks.length){
+    html.push('<div class="ac-sec" aria-hidden="true">종목</div>');
+    for(i=0;i<c.stocks.length;i++){
+      var s = c.stocks[i];
+      acItems.push({kind:"stock", value:s.code});
+      html.push('<div class="ac-item" role="option" id="ac-opt-' + n + '" data-i="' + n +
+                '" aria-selected="false">' +
+                '<span class="ac-name">' + hilite(s.name, c.raw) + "</span>" +
+                '<span class="ac-code">' + hilite(s.code, c.raw) + "</span>" +
+                (s.industry ? '<span class="ac-ind">' + esc(s.industry) + "</span>" : "") +
+                '<span class="ac-n">' + num(s.n) + "건</span></div>");
+      n++;
+    }
+  }
+  if(c.brokers.length){
+    html.push('<div class="ac-sec" aria-hidden="true">증권사</div>');
+    for(i=0;i<c.brokers.length;i++){
+      var b = c.brokers[i];
+      acItems.push({kind:"broker", value:b});
+      html.push('<div class="ac-item" role="option" id="ac-opt-' + n + '" data-i="' + n +
+                '" aria-selected="false">' +
+                '<span class="ac-name">' + hilite(b, c.raw) + "</span></div>");
+      n++;
+    }
+  }
+  if(!n){
+    html.push('<div class="ac-empty">일치하는 종목·증권사가 없습니다.<br>' +
+              "Enter 를 누르면 제목까지 텍스트로 찾습니다.</div>");
+  }
+
+  $("ac").innerHTML = html.join("");
+  acIndex = -1;
+  $("q").removeAttribute("aria-activedescendant");
+  setAcOpen(!!input.trim());
+}
+
+function setAcOpen(on){
+  acOpen = !!on;
+  $("ac").hidden = !acOpen;
+  $("q").setAttribute("aria-expanded", acOpen ? "true" : "false");
+  if(!acOpen){
+    acIndex = -1;
+    $("q").removeAttribute("aria-activedescendant");
+  }
+}
+function closeAc(){ setAcOpen(false); }
+
+function moveAc(delta){
+  if(!acOpen || !acItems.length) return;
+  var panel = $("ac");
+  var prev = panel.querySelector('.ac-item[aria-selected="true"]');
+  if(prev) prev.setAttribute("aria-selected", "false");
+  acIndex += delta;
+  if(acIndex < 0) acIndex = acItems.length - 1;
+  if(acIndex >= acItems.length) acIndex = 0;
+  var el = panel.querySelector('.ac-item[data-i="' + acIndex + '"]');
+  if(!el) return;
+  el.setAttribute("aria-selected", "true");
+  $("q").setAttribute("aria-activedescendant", el.id);
+  if(el.scrollIntoView) el.scrollIntoView({block:"nearest"});
+}
+
+function pickAc(i){
+  var it = acItems[i];
+  if(!it) return;
+  $("q").value = "";
+  closeAc();
+  if(it.kind === "stock"){
+    if(state.codes.indexOf(it.value) < 0) state.codes.push(it.value);
+  }else{
+    if(state.brokers.indexOf(it.value) < 0) state.brokers.push(it.value);
+    renderBrokerList();
+  }
+  render();
+  $("q").focus();
+}
+
+/* 드롭다운에서 아무것도 고르지 않고 Enter: 예전처럼 자유 텍스트로 거른다 */
+function commitText(){
+  var v = $("q").value.trim();
+  closeAc();
+  if(!v) return;
+  state.q = v;
+  $("q").value = "";
+  render();
+}
+
+function renderSelbar(){
+  var html = [], i;
+  for(i=0;i<state.codes.length;i++){
+    var code = state.codes[i];
+    var s = stockByCode[code];
+    var label = s ? s.name : code;
+    html.push('<span class="selchip">' + esc(label) +
+              '<span class="c">' + esc(code) + "</span>" +
+              '<button type="button" class="x" data-uncode="' + esc(code) +
+              '" aria-label="' + esc(label) + ' 선택 해제">×</button></span>');
+  }
+  if(state.q){
+    html.push('<span class="selchip">제목 검색: ‘' + esc(state.q) + '’' +
+              '<button type="button" class="x" id="unq" aria-label="검색어 지우기">×</button></span>');
+  }
+  var bar = $("selbar");
+  bar.innerHTML = html.join("");
+  bar.hidden = !html.length;
+}
+
 /* ------------------------------------------------ 이벤트 */
 function toggleIn(arr, value){
   var i = arr.indexOf(value);
@@ -1161,16 +1428,70 @@ function bind(){
     render();
   });
 
-  $("q").addEventListener("input", debounce(function(){
-    state.q = $("q").value;
+  // 타이핑은 드롭다운만 건드린다. 표는 항목을 고르거나 Enter 를 쳤을 때만 다시 그린다.
+  var acDebounced = debounce(renderAc, 120);
+  $("q").addEventListener("input", function(){
+    if(!$("q").value.trim()){ closeAc(); return; }
+    acDebounced();
+  });
+  $("q").addEventListener("focus", function(){
+    if($("q").value.trim()) renderAc();
+  });
+  $("q").addEventListener("keydown", function(e){
+    if(e.key === "ArrowDown"){
+      e.preventDefault();
+      if(!acOpen && $("q").value.trim()) renderAc();
+      moveAc(1);
+    }else if(e.key === "ArrowUp"){
+      e.preventDefault();
+      moveAc(-1);
+    }else if(e.key === "Enter"){
+      e.preventDefault();
+      if(acOpen && acIndex >= 0) pickAc(acIndex);
+      else commitText();
+    }else if(e.key === "Escape"){
+      if(acOpen){ e.preventDefault(); closeAc(); }
+    }else if(e.key === "Backspace"){
+      // 빈 입력창에서 지우면 마지막으로 고른 종목이 빠진다
+      if(!$("q").value && state.codes.length){
+        e.preventDefault();
+        state.codes.pop();
+        closeAc();
+        render();
+      }
+    }
+  });
+  // click 이 오기 전에 처리해야 입력창의 포커스가 먼저 빠지지 않는다
+  $("ac").addEventListener("mousedown", function(e){
+    var it = e.target.closest(".ac-item");
+    if(!it) return;
+    e.preventDefault();
+    pickAc(Number(it.dataset.i));
+  });
+
+  $("selbar").addEventListener("click", function(e){
+    var x = e.target.closest("[data-uncode]");
+    if(x){
+      var i = state.codes.indexOf(x.dataset.uncode);
+      if(i >= 0) state.codes.splice(i, 1);
+      render();
+      return;
+    }
+    if(e.target.closest("#unq")){ state.q = ""; render(); }
+  });
+
+  $("empty").addEventListener("click", function(e){
+    if(!e.target.closest("#allPeriod")) return;
+    state.period = "all";
     render();
-  }, 200));
+  });
 
   $("reset").addEventListener("click", function(){
     state.ratings = []; state.changes = []; state.brokers = [];
-    state.sectors = []; state.industry = "";
+    state.sectors = []; state.industry = ""; state.codes = [];
     state.q = ""; $("q").value = "";
     state.period = "7"; state.sortKey = "date"; state.sortDir = "desc";
+    closeAc();
     renderBrokerList();
     render();
   });
@@ -1196,12 +1517,17 @@ function bind(){
   });
 
   $("tbody").addEventListener("click", function(e){
+    if(e.target.closest("#moreBtn")){
+      reportLimit += PAGE;
+      renderKeepScroll();
+      return;
+    }
     var b = e.target.closest("button[data-summary]");
     if(b){
       var id = b.dataset.summary;
       if(openSummaries[id]) delete openSummaries[id];
       else openSummaries[id] = true;
-      render();
+      render(true);
       return;
     }
     // 업종별 탭: 화살표는 접기/펼치기, 나머지 자리는 그 업종으로 이동
@@ -1233,9 +1559,11 @@ function bind(){
   });
 
   // 드롭다운 바깥을 누르면 닫는다
+  var searchbox = document.querySelector(".searchbox");
   document.addEventListener("click", function(e){
     var dd = $("brokerDd");
     if(dd.open && !dd.contains(e.target)) dd.open = false;
+    if(acOpen && !searchbox.contains(e.target)) closeAc();
   });
 }
 
@@ -1283,7 +1611,10 @@ function boot(){
   if(!Array.isArray(state.sectors)) state.sectors = [];
   if(typeof state.industry !== "string") state.industry = "";
   if(typeof state.q !== "string") state.q = "";
-  $("q").value = state.q || "";
+  if(!Array.isArray(state.codes)) state.codes = [];
+  state.codes = state.codes.filter(function(c){ return typeof c === "string" && c; });
+  // 확정된 검색어는 칩으로 보여 주므로 입력창은 늘 비워 둔다
+  $("q").value = "";
   // 업종별 탭은 처음엔 다 펼쳐 둔다 (접은 상태는 저장하지 않는다)
   SECTORS.concat([UNCLASSIFIED]).forEach(function(s){ openSectors[s] = true; });
 
@@ -1301,6 +1632,7 @@ function boot(){
 
     rebuildBrokers();
     rebuildSectors();
+    rebuildStocks();
     renderUpdated();
 
     if(!reports.length){
