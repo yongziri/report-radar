@@ -41,14 +41,17 @@ function keyOf(mk, code){ return "KR:" + code; }
 const LS_KEY = "stockHelper.v1";
 const LS_SCAN = "stockHelper.scan";
 const DEFAULTS = {
-  v:3,
+  v:4,
   theme:"dark", auto:true,
   settings:{ iv:60, cc:"global", proxy:"" },
-  /* 멀티 관심종목 그룹 (v2). 포트폴리오는 단일 유지. */
+  /* 멀티 관심종목 그룹 (v2) */
   wlGroups:[ { name:"기본", items:[ { mk:"KR", code:"005930", name:"삼성전자" },
                                     { mk:"KR", code:"000660", name:"SK하이닉스" } ] } ],
   wlActive:0,
-  portfolio:[], alerts:[], alertLog:[],
+  /* 계좌별 보유 기록 (v4). S.portfolio 는 전 계좌 합산 뷰(읽기 전용)로 남는다. */
+  accounts:[ { id:"acc1", name:"종합 주식 계좌", items:[] } ],
+  acctSel:"acc1",
+  alerts:[], alertLog:[],
   screens:[],                 // 저장된 스크린 [{name, fs, sort, cols}]
   cols:null,                  // 표시 컬럼 (null = 기본)
   autoScan:true,              // 시작 시 자동 스캔 + 장중 주기 재스캔
@@ -59,6 +62,50 @@ const SCAN_TOP_N = 500;
 const SCAN_FRESH_MS = 10*60*1000;   // 이 시간 안에 스캔했으면 자동 스캔 생략
 let MIGRATE_MSG = "";        // 마이그레이션 안내 (init 에서 1회 토스트)
 let S = load();
+bindPortfolioView(S);
+
+/* 계좌 목록 / 현재 선택 계좌 */
+function newAcctId(){ return "acc" + Date.now().toString(36) + Math.floor(Math.random()*1296).toString(36); }
+function ACCTS(){
+  if(!Array.isArray(S.accounts) || !S.accounts.length)
+    S.accounts = [{ id:newAcctId(), name:"종합 주식 계좌", items:[] }];
+  S.accounts.forEach(function(a){ if(!Array.isArray(a.items)) a.items = []; });
+  return S.accounts;
+}
+function curAcct(){
+  var l = ACCTS(), a = null;
+  for(var i=0;i<l.length;i++){ if(l[i].id === S.acctSel){ a = l[i]; break; } }
+  if(!a){ a = l[0]; S.acctSel = a.id; }
+  return a;
+}
+/* 전 계좌 보유 합산 뷰 — 같은 종목은 수량 합산·가중평균. 읽기 전용이다. */
+function mergedHoldings(){
+  var order = [], by = {};
+  ACCTS().forEach(function(a){
+    a.items.forEach(function(it){
+      if(!it || !it.code) return;
+      var k = keyOf(it.mk, it.code), m = by[k];
+      if(!m){
+        m = by[k] = { mk:it.mk || "KR", code:it.code, name:it.name || it.code,
+                      qty:0, avg:0, buy:0, accts:[], acctIds:[] };
+        order.push(m);
+      }
+      var qty = Number(it.qty) || 0, avg = Number(it.avg) || 0;
+      m.qty += qty; m.buy += qty*avg;
+      if(m.acctIds.indexOf(a.id) < 0){ m.acctIds.push(a.id); m.accts.push(a.name); }
+    });
+  });
+  order.forEach(function(m){ m.avg = m.qty > 0 ? m.buy/m.qty : 0; });
+  return order;
+}
+/* 기존 코드(관심종목·알림·시세추적·가져오기)가 참조하는 S.portfolio 호환 뷰.
+   열거 불가 속성이라 JSON.stringify(S) 에는 저장되지 않는다. */
+function bindPortfolioView(o){
+  try{
+    delete o.portfolio;
+    Object.defineProperty(o, "portfolio", { get:mergedHoldings, enumerable:false, configurable:true });
+  }catch(e){ console.warn("포트폴리오 뷰 바인딩 실패", e); }
+}
 
 /* 활성 관심종목 그룹 / 전체 그룹 종목 */
 function WL(){
@@ -106,6 +153,18 @@ function load(){
       o.v = 3;
       if(removed) MIGRATE_MSG = "미국 주식 지원이 종료되어 " + removed + "종목이 제거되었습니다.";
     }
+    /* v3 -> v4: 단일 포트폴리오를 "종합 주식 계좌" 로 옮긴다 (계좌별 보유 기록) */
+    if(!Array.isArray(o.accounts) || !o.accounts.length){
+      var pf = Array.isArray(o.portfolio) ? o.portfolio : [];
+      o.accounts = [{ id:"acc1", name:"종합 주식 계좌", items:pf.map(function(x){
+        return { mk:x.mk || "KR", code:x.code, name:x.name,
+                 qty:Number(x.qty) || 0, avg:Number(x.avg) || 0, memo:"" };
+      }) }];
+      o.acctSel = "acc1";
+      if(pf.length) console.info("보유 " + pf.length + "종목을 “종합 주식 계좌”로 옮겼습니다(v4).");
+    }
+    delete o.portfolio;                        // 합산 뷰(게터)로 대체됨
+    o.v = 4;
     Object.keys(d).forEach(function(k){ if(o[k] === undefined) o[k] = d[k]; });
     o.settings = o.settings || {};
     Object.keys(d.settings).forEach(function(k){

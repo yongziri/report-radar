@@ -97,7 +97,7 @@ function syncNotiState(){
    포트폴리오 잔고 가져오기 (UI)
    파싱 로직은 08_import.js(순수 함수)에 있고 여기서는 화면만 담당한다.
    ========================================================================= */
-const IMP = { text:"", parsed:null, force:{}, fix:{}, mode:"merge", encoding:"" };
+const IMP = { text:"", parsed:null, force:{}, fix:{}, mode:"merge", encoding:"", acct:"" };
 const IMP_FIELDS = [["", "무시"], ["code","종목코드"], ["name","종목명"], ["qty","수량"], ["avg","평단가"]];
 
 /* 종목명 -> {code, mk} 역매핑 (내장 유니버스 + 관심종목 + 기존 포트폴리오) */
@@ -119,8 +119,20 @@ function buildNameLookup(){
   };
 }
 
+/* CSV 를 반영할 계좌 (모달에서 선택) */
+function impTarget(){
+  var l = ACCTS();
+  for(var i=0;i<l.length;i++){ if(l[i].id === IMP.acct) return l[i]; }
+  return curAcct();
+}
+
 function openImport(){
   IMP.text = ""; IMP.parsed = null; IMP.force = {}; IMP.fix = {}; IMP.mode = "merge"; IMP.encoding = "";
+  IMP.acct = curAcct().id;
+  $("#impAcct").innerHTML = ACCTS().map(function(a){
+    return '<option value="' + esc(a.id) + '"' + (a.id === IMP.acct ? " selected" : "") + '>' +
+           esc(a.name) + " (" + a.items.length + "종목)</option>";
+  }).join("");
   $("#impText").value = "";
   $("#impFile").value = "";
   $("#impFileInfo").textContent = "";
@@ -222,17 +234,17 @@ function importResolved(){
 }
 
 function renderImportSummary(){
-  var p = IMP.parsed, list = importResolved();
+  var p = IMP.parsed, list = importResolved(), acc = impTarget();
   var un = p.rows.length - list.length;
   var exist = {};
-  S.portfolio.forEach(function(x){ exist[keyOf(x.mk, x.code)] = true; });
+  acc.items.forEach(function(x){ exist[keyOf(x.mk, x.code)] = true; });
   var dup = list.filter(function(x){ return exist[keyOf(x.mk, x.code)]; }).length;
   var isNew = list.length - dup;
 
-  var eff;
-  if(IMP.mode === "replace") eff = "기존 " + S.portfolio.length + "종목을 모두 지우고 " + list.length + "종목으로 교체";
-  else if(IMP.mode === "addnew") eff = "새 종목 " + isNew + "종목만 추가 (기존 " + dup + "종목은 그대로)";
-  else eff = "기존 " + dup + "종목 수량·평단 덮어쓰기 + 새 종목 " + isNew + "종목 추가";
+  var eff = "“" + acc.name + "” 계좌에 · ";
+  if(IMP.mode === "replace") eff += "기존 " + acc.items.length + "종목을 모두 지우고 " + list.length + "종목으로 교체";
+  else if(IMP.mode === "addnew") eff += "새 종목 " + isNew + "종목만 추가 (기존 " + dup + "종목은 그대로)";
+  else eff += "기존 " + dup + "종목 수량·평단 덮어쓰기 + 새 종목 " + isNew + "종목 추가";
 
   $("#impSummary").innerHTML =
     "<b>" + list.length + "종목 인식</b>" +
@@ -245,33 +257,34 @@ function renderImportSummary(){
 function applyImport(){
   var list = importResolved();
   if(!list.length){ toast("반영할 종목이 없습니다.", "err"); return; }
-  var before = S.portfolio.length;
+  var acc = impTarget(), before = acc.items.length;
   if(IMP.mode === "replace"){
-    S.portfolio = list.map(function(x){
-      return { mk:x.mk, code:x.code, name:x.name, qty:x.qty, avg:x.avg };
+    acc.items = list.map(function(x){
+      return { mk:x.mk, code:x.code, name:x.name, qty:x.qty, avg:x.avg, memo:"" };
     });
   }else{
     var idx = {};
-    S.portfolio.forEach(function(x, i){ idx[keyOf(x.mk, x.code)] = i; });
+    acc.items.forEach(function(x, i){ idx[keyOf(x.mk, x.code)] = i; });
     list.forEach(function(x){
       var k = keyOf(x.mk, x.code);
       if(idx[k] !== undefined){
         if(IMP.mode === "merge"){
-          S.portfolio[idx[k]].qty = x.qty;
-          S.portfolio[idx[k]].avg = x.avg;
+          acc.items[idx[k]].qty = x.qty;
+          acc.items[idx[k]].avg = x.avg;
         }
       }else{
-        S.portfolio.push({ mk:x.mk, code:x.code, name:x.name, qty:x.qty, avg:x.avg });
-        idx[k] = S.portfolio.length - 1;
+        acc.items.push({ mk:x.mk, code:x.code, name:x.name, qty:x.qty, avg:x.avg, memo:"" });
+        idx[k] = acc.items.length - 1;
       }
     });
   }
-  save(); renderPortfolio(); refreshAll(); closeImport();
-  toast("포트폴리오 반영 완료 — " + before + "종목 → " + S.portfolio.length + "종목", "ok");
+  S.acctSel = acc.id;
+  save(); renderAccounts(); renderPortfolio(); refreshAll(); closeImport();
+  toast("“" + acc.name + "” 반영 완료 — " + before + "종목 → " + acc.items.length + "종목", "ok");
 }
 
 function initImport(){
-  $("#pfImport").onclick = openImport;
+  $("#acImport").onclick = openImport;
   $("#impClose").onclick = closeImport;
   $("#impCancel").onclick = closeImport;
   $("#impMask").onclick = function(e){ if(e.target === $("#impMask")) closeImport(); };
@@ -294,6 +307,10 @@ function initImport(){
     fr.onerror = function(){ toast("파일을 읽지 못했습니다.", "err"); };
     fr.readAsArrayBuffer(f);
   };
+  $("#impAcct").onchange = function(){
+    IMP.acct = this.value;
+    if(IMP.parsed) renderImportSummary();
+  };
   $("#impMode").onclick = function(e){
     var b = e.target.closest("button[data-m]"); if(!b) return;
     IMP.mode = b.dataset.m;
@@ -314,6 +331,7 @@ function showTab(id){
     renderWatchlist();
     renderMarketNews(); renderDisclosures();     // 10분 캐시라 탭 전환마다 재호출되지 않음
   }, 20);
+  if(id === "acct") setTimeout(function(){ renderAccounts(); refreshAll(); }, 20);
   if(id === "cmp" && !CMP.sel && AN.sel) selectCompany(AN.sel);
   if(id === "scr" && scrView === "tree") setTimeout(function(){ renderScrTree(lastList); }, 20);
   if(id === "rep") setTimeout(function(){ rpRender(true); refreshAll(); }, 20);
@@ -379,6 +397,7 @@ function importJson(file){
       if(!o || typeof o !== "object") throw new Error("형식 오류");
       S = o;
       Object.keys(DEFAULTS).forEach(function(k){ if(S[k] === undefined) S[k] = DEFAULTS[k]; });
+      bindPortfolioView(S);
       save(); location.reload();
     }catch(e){ toast("가져오기 실패: " + e.message, "err"); }
   };
@@ -389,7 +408,7 @@ function importJson(file){
 function init(){
   applyTheme(); syncAutoBtn(); renderMaLegend(); renderMarket();
   buildFilterUI(); buildPresetBtns(); buildColPicker(); renderScreens();
-  renderWatchlist(); renderPortfolio(); renderAlerts(); syncNotiState();
+  renderWatchlist(); renderPortfolio(); renderAccounts(); renderAlerts(); syncNotiState();
 
   initTmapEvents($("#tmap"));
   initTmapEvents($("#scrTmap"));
@@ -398,6 +417,7 @@ function init(){
   initCalendar();
   initHover();
   initImport();
+  initAccounts();
   rpInit();                                       // 증권사 리포트 (데이터는 백그라운드 적재)
   setupSearch("#srchCmp", function(it){ selectCompany(it); });
 
@@ -480,12 +500,6 @@ function init(){
   $("#sigPanels").addEventListener("click", onSignalClick);
 
   setupSearch("#srchWl", addWatch);
-  setupSearch("#srchPf", function(it){
-    var k = keyOf(it.mk, it.code);
-    if(S.portfolio.some(function(p){ return keyOf(p.mk, p.code) === k; })){ toast("이미 포트폴리오에 있습니다."); return; }
-    S.portfolio.push({ mk:it.mk, code:it.code, name:it.name, qty:0, avg:0 });
-    save(); renderPortfolio(); refreshAll();
-  });
   setupSearch("#srchAn", function(it){ selectStock(it); });
   setupSearch("#srchAl", function(it){ alPick = it; $("#srchAl input").value = it.name; });
 
@@ -620,7 +634,7 @@ function init(){
     var oldProxy = S.settings.proxy || "";
     S.settings.proxy = $("#sProxy").value.trim().replace(/\/+$/, "");
     save(); closeSettings(); applyTheme();
-    renderMarket(); renderPortfolio(); renderSignals(); renderGauge(); renderSectorPerf(); applyFilter();
+    renderMarket(); renderPortfolio(); renderAccounts(); renderSignals(); renderGauge(); renderSectorPerf(); applyFilter();
     if(S.auto) startTimer();
     if(S.settings.proxy !== oldProxy){        // 소스가 바뀌었으니 뉴스·공시 캐시 무효화
       Object.keys(RSS.cache).forEach(function(k){ delete RSS.cache[k]; });

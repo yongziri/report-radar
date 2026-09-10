@@ -20,6 +20,7 @@
   <nav class="tabs">
     <button data-tab="dash" class="act">대시보드</button>
     <button data-tab="rep">리포트</button>
+    <button data-tab="acct">계좌</button>
     <button data-tab="anal">종목분석</button>
     <button data-tab="cmp">기업분석</button>
     <button data-tab="scr">스크리너</button>
@@ -139,18 +140,17 @@
   </div>
 
   <div class="panel">
-    <div class="ptitle">포트폴리오 <span class="sub" id="pfSum"></span>
+    <div class="ptitle">보유 종목 <span class="sub" id="pfAcct"></span> <span class="sub" id="pfSum"></span>
       <span class="sp">
-        <button class="btn" id="pfImport">가져오기</button>
-        <div class="srch" id="srchPf"><input type="text" placeholder="보유종목 추가"><div class="sug"></div></div>
+        <button class="btn" id="pfOpenAcct">계좌 탭 열기 →</button>
       </span>
     </div>
     <div class="tbw"><table>
       <thead><tr><th class="l">종목</th><th>수량</th><th>평균단가</th><th>현재가</th>
-        <th>매입금액</th><th>평가금액</th><th>평가손익</th><th>수익률</th><th class="c">삭제</th></tr></thead>
+        <th>매입금액</th><th>평가금액</th><th>평가손익</th><th>수익률</th><th class="l">계좌</th></tr></thead>
       <tbody id="pfBody"></tbody>
     </table></div>
-    <div class="empty" id="pfEmpty" style="display:none">보유 종목이 없습니다.</div>
+    <div class="empty" id="pfEmpty" style="display:none">보유 종목이 없습니다. 계좌 탭에서 기록하세요.</div>
   </div>
 </section>
 
@@ -262,6 +262,50 @@
       </div>
       <div class="tmap" id="rpTmap"></div>
     </div>
+  </div>
+</section>
+
+<!-- ============ 계좌 ============ -->
+<section class="tab" id="tab-acct">
+  <div class="panel">
+    <div class="ptitle">전체 계좌 <span class="sub" id="acTotSub"></span>
+      <span class="sp">
+        <button class="btn" id="acImport">CSV 가져오기</button>
+        <button class="btn" id="acExp">JSON 내보내기</button>
+        <button class="btn" id="acImpJson">JSON 가져오기</button>
+        <input type="file" id="acFile" accept=".json,application/json" style="display:none">
+      </span>
+    </div>
+    <div class="pbody"><div class="ovw" id="acTot"></div></div>
+    <div class="pbody" style="padding-top:0">
+      <div class="note" style="margin:0">보유 기록은 이 브라우저에만 저장됩니다(localStorage).
+        기기를 바꾸거나 브라우저 데이터를 지우기 전에 <b>JSON 내보내기</b>로 백업하세요.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">계좌 <span class="sub" id="acName"></span>
+      <span class="sp">
+        <div class="srch" id="srchAcct"><input type="text" placeholder="종목명 · 코드 검색해 추가"><div class="sug"></div></div>
+      </span>
+    </div>
+    <div class="pbody" style="padding-bottom:0;display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+      <div class="presets" id="acTabs"></div>
+      <button class="btn xs" id="acAdd">+ 계좌</button>
+      <button class="btn xs" id="acRen">이름변경</button>
+      <button class="btn xs" id="acDel">계좌삭제</button>
+      <button class="btn xs" id="acLeft">◀</button>
+      <button class="btn xs" id="acRight">▶</button>
+    </div>
+    <div class="pbody"><div class="ovw" id="acSum"></div></div>
+    <div class="tbw"><table class="actbl">
+      <thead><tr><th class="l">종목</th><th class="c">코드</th><th>보유수량</th><th>매입금액</th>
+        <th>현재가</th><th>평균단가</th><th>평가손익</th><th>수익률</th><th>평가금액</th>
+        <th class="l">메모</th><th class="c">이동</th><th class="c">삭제</th></tr></thead>
+      <tbody id="acBody"></tbody>
+    </table></div>
+    <div class="empty" id="acEmpty" style="display:none">보유 종목이 없습니다.
+      위 검색창에서 종목을 검색해 추가하거나 CSV를 가져오세요.</div>
   </div>
 </section>
 
@@ -518,7 +562,7 @@
 <!-- ============ 잔고 가져오기 ============ -->
 <div class="mask" id="impMask">
  <div class="modal" style="max-width:960px">
-  <h3>포트폴리오 잔고 가져오기 <button id="impClose">&times;</button></h3>
+  <h3>계좌 잔고 가져오기 <button id="impClose">&times;</button></h3>
   <div class="bd">
     <div class="fld">
       <label>1. 잔고 데이터 입력</label>
@@ -546,7 +590,12 @@
       </div>
 
       <div class="fld">
-        <label>3. 반영 방식</label>
+        <label>3. 반영할 계좌</label>
+        <select id="impAcct" style="align-self:flex-start;min-width:200px"></select>
+      </div>
+
+      <div class="fld">
+        <label>4. 반영 방식</label>
         <div class="seg" id="impMode" style="align-self:flex-start">
           <button data-m="merge" class="act">병합 (같은 종목 덮어쓰기)</button>
           <button data-m="replace">전체 교체</button>
@@ -558,7 +607,7 @@
   </div>
   <div class="ft">
     <button class="btn" id="impCancel">취소</button>
-    <button class="btn pri" id="impApply" disabled>포트폴리오에 반영</button>
+    <button class="btn pri" id="impApply" disabled>계좌에 반영</button>
   </div>
  </div>
 </div>

@@ -43,7 +43,7 @@ function refreshAll(){
 
   return Promise.all(jobs).then(function(){
     $("#upd").textContent = "갱신 " + nowTime();
-    renderWatchlist(); renderPortfolio(); renderMarket();
+    renderWatchlist(); renderPortfolio(); renderAccounts(); renderMarket();
     if(AN.sel) renderAnalysisHead();
     if(curTab === "rep") rpRenderKeep();       // 리포트 표의 현재가·괴리율 갱신
     evalAlerts(); loadSparklines();
@@ -545,49 +545,40 @@ function drawSpark(cv, data, pct){
   ctx.globalAlpha = .15; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
 }
 
-/* ---------- 포트폴리오 ---------- */
+/* ---------- 포트폴리오 (전 계좌 합산 · 읽기 전용. 편집은 계좌 탭) ---------- */
 function renderPortfolio(){
   var tb = $("#pfBody"); tb.innerHTML = "";
-  $("#pfEmpty").style.display = S.portfolio.length ? "none" : "block";
+  var list = mergedHoldings();
+  $("#pfEmpty").style.display = list.length ? "none" : "block";
+  $("#pfAcct").textContent = ACCTS().length + "개 계좌";
   var totBuy = 0, totVal = 0;
-  S.portfolio.forEach(function(p, i){
+  list.forEach(function(p){
     var q = QUOTES[keyOf(p.mk, p.code)];
-    var qty = Number(p.qty)||0, avg = Number(p.avg)||0;
-    var buy = qty*avg, cur = q ? q.price : null;
-    var val = cur !== null ? qty*cur : null;
+    var buy = p.buy, cur = q ? q.price : null;
+    var val = cur !== null ? p.qty*cur : null;
     var pl = val !== null ? val - buy : null;
     var pct = (buy > 0 && pl !== null) ? pl/buy*100 : null;
     totBuy += buy; totVal += (val !== null ? val : buy);
     var tr = document.createElement("tr");
+    tr.className = "clk";
     tr.innerHTML =
-      '<td class="l"><span class="tk" data-hv="' + esc(p.code) + '">' +
-        esc(p.name) + '</span></td><td></td><td></td>' +
+      '<td class="l"><span class="tk" data-hv="' + esc(p.code) + '">' + esc(p.name) + '</span></td>' +
+      '<td class="num">' + fmt(p.qty, p.qty % 1 ? 2 : 0) + '</td>' +
+      '<td class="num">' + fmt(Math.round(p.avg)) + '</td>' +
       '<td class="num">' + (cur !== null ? fmtPrice(cur, p.mk) : "-") + '</td>' +
       '<td class="num">' + fmt(Math.round(buy)) + '</td>' +
       '<td class="num">' + (val !== null ? fmt(Math.round(val)) : "-") + '</td>' +
       '<td class="num ' + dirCls(pl) + '">' + (pl !== null ? fmtSigned(Math.round(pl)) : "-") + '</td>' +
-      '<td class="num ' + dirCls(pct) + '">' + fmtPct(pct) + '</td><td class="c"></td>';
-    var td = tr.children;
-    td[1].appendChild(numInput(p.qty, function(v){ p.qty = v; save(); renderPortfolio(); }));
-    td[2].appendChild(numInput(p.avg, function(v){ p.avg = v; save(); renderPortfolio(); }));
-    var b = document.createElement("button");
-    b.className = "btn xs"; b.textContent = "×";
-    b.onclick = function(){ S.portfolio.splice(i,1); save(); renderPortfolio(); };
-    td[8].appendChild(b);
+      '<td class="num ' + dirCls(pct) + '">' + fmtPct(pct) + '</td>' +
+      '<td class="l" style="color:var(--tx3)">' + esc(p.accts.join(", ")) + '</td>';
+    tr.onclick = function(){ openAcctTab(p.acctIds[0]); };
     tb.appendChild(tr);
   });
   var pl = totVal - totBuy, plPct = totBuy > 0 ? pl/totBuy*100 : 0;
-  $("#pfSum").innerHTML = S.portfolio.length
+  $("#pfSum").innerHTML = list.length
     ? ("매입 " + fmt(Math.round(totBuy)) + " · 평가 " + fmt(Math.round(totVal)) +
        ' · 손익 <span class="' + dirCls(pl) + '">' + fmtSigned(Math.round(pl)) + " (" + fmtPct(plPct) + ")</span>")
     : "";
-}
-function numInput(val, onChange){
-  var el = document.createElement("input");
-  el.type = "number"; el.className = "cell"; el.value = (val == null ? "" : val);
-  el.step = "any"; el.min = "0";
-  el.onchange = function(){ onChange(el.value === "" ? 0 : Number(el.value)); };
-  return el;
 }
 
 /* =========================================================================
