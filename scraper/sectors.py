@@ -1,9 +1,12 @@
 """업종 분류 수집.
 
-네이버 금융 업종(sise_group)에서 '업종명 -> 종목코드' 목록을 긁어
+네이버 증권 업종 API에서 '업종명 -> 종목코드' 목록을 긁어
 data/sectors.json 을 만든다. 대분류(sector)는 아래 SECTOR_MAP 하드코딩표를 따른다.
 
-네트워크 호출은 collect.py 가 넘겨주는 fetch/session/log 를 그대로 쓴다
+옛 경로(finance.naver.com/sise/sise_group.naver)는 2026-09-14경부터
+stock.naver.com으로 302 되어 쓸 수 없다.
+
+네트워크 호출은 collect.py 가 넘겨주는 fetch_json/session/log 를 그대로 쓴다
 (요청 간격·재시도·UA 정책을 수집기와 한 벌로 유지하기 위해서다).
 파싱 함수(parse_sector_list·parse_sector_codes)는 네트워크를 타지 않아
 test_parsers.py 가 픽스처만으로 검증한다.
@@ -12,14 +15,16 @@ test_parsers.py 가 픽스처만으로 검증한다.
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from html import unescape as _unescape
 
 KST = timezone(timedelta(hours=9))
 REQUEST_GAP = 0.4
 STALE_DAYS = 7
 
-SECTOR_LIST_URL = "https://finance.naver.com/sise/sise_group.naver"
-SECTOR_DETAIL_URL = "https://finance.naver.com/sise/sise_group_detail.naver"
+SECTOR_LIST_URL = "https://m.stock.naver.com/api/stocks/industry"
+SECTOR_DETAIL_URL = "https://m.stock.naver.com/api/stocks/industry/%s"
+PAGE_SIZE = 100
+# 가장 큰 업종도 종목 수백 개 수준이다. 페이지 폭주를 막는 상한.
+MAX_PAGE = 20
 
 # 업종명 -> 대분류. 네이버 업종 79개를 11개로 접는다.
 # 표에 없는 업종명이 새로 나타나면 '기타'로 두고 경고를 남긴다.
@@ -82,35 +87,35 @@ def sector_of(industry):
 
 # ------------------------------------------------------------------- 파서
 
-# 목록의 링크. 네이버는 &를 그대로 주지만 &amp;로 이스케이프되어도 잡히게 둔다.
-_GROUP_RE = re.compile(
-    r"sise_group_detail\.naver\?type=upjong&(?:amp;)?no=(\d+)\"[^>]*>([^<]+)<")
-_CODE_RE = re.compile(r"/item/main\.naver\?code=(\d{6})")
+# 신형 종목코드는 영문자를 품는다(0126Z0). 여섯 자리이고 첫 자리는 늘 숫자다.
+_CODE_RE = re.compile(r"\A[0-9][0-9A-Z]{5}\Z")
 
 
-def parse_sector_list(html):
-    """업종 목록 HTML -> [(no, 업종명), ...]. 등장 순서를 지키고 no로 중복을 제거한다."""
-    if not html:
-        return []
+def parse_sector_list(payload):
+    """업종 목록 JSON -> [(no, 업종명), ...]. 등장 순서를 지키고 no로 중복을 제거한다."""
     out = []
     seen = set()
-    for no, name in _GROUP_RE.findall(html):
-        name = _unescape(name).replace("\xa0", " ").strip()
-        if not name or no in seen:
+    for group in (payload or {}).get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        no = str(group.get("no") or "").strip()
+        name = str(group.get("name") or "").replace("\xa0", " ").strip()
+        if not no or not name or no in seen:
             continue
         seen.add(no)
         out.append((no, name))
     return out
 
 
-def parse_sector_codes(html):
-    """업종 상세 HTML -> ['005930', ...]. 등장 순서를 지키고 중복을 제거한다."""
-    if not html:
-        return []
+def parse_sector_codes(payload):
+    """업종별 종목 JSON -> ['005930', ...]. 등장 순서를 지키고 중복을 제거한다."""
     out = []
     seen = set()
-    for code in _CODE_RE.findall(html):
-        if code in seen:
+    for item in (payload or {}).get("stocks") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("itemCode") or "").strip().upper()
+        if not _CODE_RE.match(code) or code in seen:
             continue
         seen.add(code)
         out.append(code)
@@ -119,19 +124,20 @@ def parse_sector_codes(html):
 
 # ------------------------------------------------------------------- 수집
 
-def collect_sectors(session, fetch, log=print, gap=REQUEST_GAP):
+def collect_sectors(session, fetch_json, log=print, gap=REQUEST_GAP):
     """네이버 업종 분류를 통째로 긁어 sectors.json 페이로드를 만든다.
 
     돌려주는 값: {'updated_at', 'industries', 'codes'} 또는 실패 시 None.
     호출부(collect.py)는 None이면 기존 파일을 그대로 둔다.
     """
-    html = fetch(session, SECTOR_LIST_URL, params={"type": "upjong"}, encoding="euc-kr")
-    if html is None:
+    payload = fetch_json(session, SECTOR_LIST_URL,
+                         params={"page": 1, "pageSize": PAGE_SIZE})
+    if payload is None:
         log("  ! 업종 목록을 받지 못했습니다.")
         return None
-    groups = parse_sector_list(html)
+    groups = parse_sector_list(payload)
     if not groups:
-        log("  ! 업종 목록을 파싱하지 못했습니다 (마크업이 바뀌었을 수 있습니다).")
+        log("  ! 업종 목록을 파싱하지 못했습니다 (응답 형식이 바뀌었을 수 있습니다).")
         return None
     log("  업종 %d개" % len(groups))
 
@@ -144,15 +150,23 @@ def collect_sectors(session, fetch, log=print, gap=REQUEST_GAP):
             unknown.append(name)
         industries[name] = sector_of(name)
 
-        time.sleep(gap)
-        detail = fetch(session, SECTOR_DETAIL_URL,
-                       params={"type": "upjong", "no": no},
-                       encoding="euc-kr", referer=SECTOR_LIST_URL)
-        if detail is None:
-            failed += 1
-            continue
-        for code in parse_sector_codes(detail):
-            codes.setdefault(code, name)  # 먼저 만난 업종을 남긴다
+        got = 0
+        for page in range(1, MAX_PAGE + 1):
+            time.sleep(gap)
+            detail = fetch_json(session, SECTOR_DETAIL_URL % no,
+                                params={"page": page, "pageSize": PAGE_SIZE})
+            if detail is None:
+                failed += 1
+                break
+            batch = parse_sector_codes(detail)
+            if not batch:
+                break
+            for code in batch:
+                codes.setdefault(code, name)  # 먼저 만난 업종을 남긴다
+            got += len(batch)
+            total = detail.get("totalCount")
+            if isinstance(total, int) and got >= total:
+                break
         if i % 20 == 0 or i == len(groups):
             log("  업종 %d/%d: 종목 %d개" % (i, len(groups), len(codes)))
 

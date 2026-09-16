@@ -29,6 +29,23 @@ def _soup(html):
         return BeautifulSoup(html, "html.parser")
 
 
+# 신형 종목코드는 영문자를 품는다 (0126Z0 삼성에피스홀딩스, 00680K 미래에셋증권2우B,
+# 0167A0 SOL AI반도체TOP2플러스). 여섯 자리이고 첫 자리는 늘 숫자다.
+STOCK_CODE = r"[0-9][0-9A-Z]{5}"
+_STOCK_CODE_RE = re.compile(r"\A%s\Z" % STOCK_CODE)
+
+
+def is_stock_code(value):
+    """정확히 여섯 자리 대문자 영숫자(첫 자리는 숫자)면 True."""
+    return bool(_STOCK_CODE_RE.match(str(value or "").strip()))
+
+
+def positive_int(value):
+    """'320000' -> 320000. ''/None/'0'/음수는 '값 없음'으로 보고 None."""
+    num = to_int(value)
+    return num if num and num > 0 else None
+
+
 def to_int(value):
     """'200,000' -> 200000, '없음'/''/None -> None."""
     if value is None:
@@ -144,162 +161,63 @@ def normalize_broker(name):
     return s
 
 
-# ------------------------------------------------- 네이버 리서치 목록 파서
+# -------------------------------------------- 네이버 리서치 API 파서
 
-def parse_list_page(html):
-    """네이버 금융 리서치 종목분석 목록 HTML -> 레코드 리스트.
+# 2026-09-14경 finance.naver.com의 리서치 페이지가 stock.naver.com으로 302 되면서
+# HTML 목록/상세 파서는 쓸 수 없게 되었다. 모바일 증권 JSON API로 갈아탔다.
+NAVER_RESEARCH_URL = "https://m.stock.naver.com/research/company/%s"
 
-    종목코드(a.stock_item)와 상세 링크(nid)가 모두 있는 행만 취한다.
+
+def parse_naver_api_list(items):
+    """/api/research/company 응답(배열) -> 레코드 리스트.
+
+    상세(pdf·목표가·의견·요약)는 parse_naver_api_detail이 따로 채운다.
+    nid는 상세 요청용 임시 키라 수집기가 저장 전에 지운다.
     """
-    soup = _soup(html)
-    table = soup.select_one("table.type_1") or soup.find("table")
-    if table is None:
-        return []
-
     rows = []
-    for tr in table.find_all("tr"):
-        stock_a = tr.select_one("a.stock_item")
-        if stock_a is None:
+    for it in items or []:
+        if not isinstance(it, dict):
             continue
-        m_code = re.search(r"code=(\d{6})", stock_a.get("href", "") or "")
-        if not m_code:
+        rid = str(it.get("researchId") or "").strip()
+        code = str(it.get("itemCode") or "").strip().upper()
+        if not rid or not is_stock_code(code):
             continue
-        code = m_code.group(1)
-        name = (stock_a.get("title") or _text(stock_a)).strip()
-
-        read_a = None
-        for a in tr.find_all("a", href=True):
-            if "company_read" in a["href"]:
-                read_a = a
-                break
-        if read_a is None:
-            continue
-        m_nid = re.search(r"nid=(\d+)", read_a["href"])
-        if not m_nid:
-            continue
-        nid = m_nid.group(1)
-        title = _text(read_a)
-
-        cells = tr.find_all("td")
-        cell_text = [_text(td) for td in cells]
-
-        # 날짜: YY.MM.DD 또는 YYYY-MM-DD 꼴이 들어있는 칸
-        date = None
-        date_idx = None
-        for i, t in enumerate(cell_text):
-            d = normalize_date(t)
-            if d and re.search(r"\d{2}[.\-]\d{1,2}[.\-]\d{1,2}", t):
-                date = d
-                date_idx = i
-                break
-
-        # 조회수: 날짜 칸 뒤쪽에 오는 순수 숫자 칸
-        views = None
-        for i, t in enumerate(cell_text):
-            if date_idx is not None and i <= date_idx:
-                continue
-            if re.fullmatch(r"[\d,]+", t or ""):
-                views = to_int(t)
-                break
-
-        # 증권사: 링크가 없는 칸 중 날짜/조회수가 아닌 첫 칸 (기본 배치는 3번째)
-        broker = ""
-        if len(cells) > 2 and not cells[2].find("a"):
-            broker = cell_text[2]
-        if not broker:
-            for i, td in enumerate(cells):
-                if i == date_idx or td.find("a") is not None:
-                    continue
-                t = cell_text[i]
-                if not t or re.fullmatch(r"[\d,]+", t):
-                    continue
-                broker = t
-                break
-
-        pdf = None
-        file_td = tr.select_one("td.file a[href]")
-        if file_td is None:
-            for a in tr.find_all("a", href=True):
-                if a["href"].lower().endswith(".pdf"):
-                    file_td = a
-                    break
-        if file_td is not None:
-            pdf = file_td["href"].strip() or None
-
         rows.append({
-            "id": "naver:%s" % nid,
+            "id": "naver:%s" % rid,
             "source": "naver",
-            "nid": nid,
+            "nid": rid,
             "code": code,
-            "name": name,
-            "title": title,
-            "broker": broker,
+            "name": str(it.get("itemName") or "").strip() or None,
+            "title": _WS.sub(" ", str(it.get("title") or "").strip()),
+            "broker": str(it.get("brokerName") or "").strip(),
             "analyst": None,
-            "date": date,
-            "views": views,
-            "pdf": pdf,
-            "url": "https://finance.naver.com/research/company_read.naver?nid=%s" % nid,
+            "date": normalize_date(it.get("writeDate")),
+            "views": to_int(it.get("readCount")),
+            "pdf": None,
+            "url": NAVER_RESEARCH_URL % rid,
         })
     return rows
 
 
-def parse_list_last_page(html):
-    """페이지네이션(table.Nnavi)에서 확인 가능한 마지막 페이지 번호. 없으면 None."""
-    soup = _soup(html)
-    nav = soup.select_one("table.Nnavi")
-    if nav is None:
-        return None
-    pages = []
-    for a in nav.find_all("a", href=True):
-        m = re.search(r"page=(\d+)", a["href"])
-        if m:
-            pages.append(int(m.group(1)))
-    for td in nav.select("td.on"):
-        m = re.search(r"\d+", _text(td))
-        if m:
-            pages.append(int(m.group(0)))
-    return max(pages) if pages else None
+def parse_naver_api_detail(obj):
+    """/api/research/company/{researchId} 응답 -> 상세 필드.
 
-
-# ------------------------------------------------- 네이버 리서치 상세 파서
-
-def parse_detail(html):
-    """상세 페이지 -> {'target': int|None, 'rating_raw': str|None, 'summary': str|None}.
-
-    상세에는 종목코드가 없다(사이드 위젯 코드에 속지 말 것). 목록에서 받은 코드를 쓴다.
+    naver_prev_target(prevGoalPrice)·price_at_write(priceAtWriteDate)는
+    네이버가 알려주는 값을 그대로 담는다. 우리가 이력으로 계산하는
+    prev_target/target_change와는 별개 필드다.
     """
-    soup = _soup(html)
-    info = soup.select_one("div.view_info_1")
-
-    target = None
-    rating_raw = None
-
-    money = info.select_one("em.money") if info else None
-    if money is not None:
-        strong = money.find("strong")
-        target = to_int(_text(strong) if strong is not None else _text(money))
-    coment = info.select_one("em.coment") if info else None
-    if coment is not None:
-        rating_raw = _text(coment) or None
-
-    # 셀렉터가 안 먹으면 정규식으로 한 번 더 (마크업이 흔들려도 값은 건진다)
-    if target is None:
-        m = re.search(r"목표가\s*<em class=\"money\">(?:<strong>)?([\d,]+|없음)", html)
-        if m:
-            target = to_int(m.group(1))
-    if not rating_raw:
-        m = re.search(r"투자의견\s*<em class=\"coment\">([^<]+)</em>", html)
-        if m:
-            rating_raw = m.group(1).strip() or None
-
-    summary = None
-    body = soup.select_one("td.view_cnt")
-    if body is not None:
-        text = clean_summary(_text(body))
-        if text:
-            summary = text[:600]
-
-    return {"target": target, "rating_raw": rating_raw, "summary": summary}
+    content = (obj or {}).get("researchContent")
+    if not isinstance(content, dict):
+        content = {}
+    summary = clean_summary(_html_to_text(content.get("content")))
+    return {
+        "target": positive_int(content.get("goalPrice")),
+        "rating_raw": str(content.get("opinion") or "").strip() or None,
+        "summary": summary[:600] if summary else None,
+        "pdf": str(content.get("attachUrl") or "").strip() or None,
+        "naver_prev_target": positive_int(content.get("prevGoalPrice")),
+        "price_at_write": positive_int(content.get("priceAtWriteDate")),
+    }
 
 
 # 본문 끝에 첨부파일 이름이 딸려 온다. (예: '... 개선되었다. 20260904163445150_0_ko.pdf')
@@ -346,14 +264,14 @@ def parse_hankyung_list(html):
 
         code = None
         for a in tr.find_all("a", href=True):
-            m = re.search(r"business_code=(\d{6})", a["href"])
+            m = re.search(r"business_code=(%s)" % STOCK_CODE, a["href"])
             if m:
                 code = m.group(1)
                 break
 
         name = None
         title = raw_title
-        m = re.match(r"^\s*(.+?)\((\d{6})\)\s*(.*)$", raw_title)
+        m = re.match(r"^\s*(.+?)\((%s)\)\s*(.*)$" % STOCK_CODE, raw_title)
         if m:
             name = m.group(1).strip()
             code = code or m.group(2)
@@ -482,8 +400,8 @@ def parse_kb_list(payload):
             continue
         code = str(it.get("stkCd") or "").strip()
         doc_title = _WS.sub(" ", str(it.get("docTitle") or "").strip())
-        m = re.search(r"\((\d{6})\)", doc_title)
-        if not re.fullmatch(r"\d{6}", code) or m is None or m.group(1) != code:
+        m = re.search(r"\((%s)\)" % STOCK_CODE, doc_title)
+        if not is_stock_code(code) or m is None or m.group(1) != code:
             continue
         docid = str(it.get("documentid") or "").strip()
         if not docid:
@@ -532,7 +450,7 @@ def parse_nh_list(payload):
         no = str(it.get("rsh_ppr_no") or "").strip()
         if not no:
             continue
-        m_code = re.search(r"\d{6}", str(it.get("rsh_ppr_iem_cd_pcl") or ""))
+        m_code = re.search(STOCK_CODE, str(it.get("rsh_ppr_iem_cd_pcl") or ""))
         if m_code is None:
             continue  # 종목코드가 없는 건(전략·산업 등)은 버린다
 
@@ -610,7 +528,7 @@ def parse_kis_list(html):
             continue
 
         raw_title = _text(li.select_one(".body_tit"))
-        m = re.match(r"^(.+?)\s*\((\d{6})\)\s*:?\s*(.*)$", raw_title)
+        m = re.match(r"^(.+?)\s*\((%s)\)\s*:?\s*(.*)$" % STOCK_CODE, raw_title)
         if m is None:
             continue
         # 스몰캡은 제목 앞에 분류명이 한 번 더 붙는다('AIR 스몰캡 엘티씨 (170920)').

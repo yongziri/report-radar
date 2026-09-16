@@ -666,7 +666,7 @@ function initHover(){
     var el = e.target.closest("[data-hv]");
     if(!el){ return; }
     var code = el.dataset.hv;
-    if(!code || !/^\d{6}$/.test(code)) return;
+    if(!code || !/^[0-9][0-9A-Z]{5}$/.test(code)) return;
     if(HOVER.code === code) return;
     hideHover();
     HOVER.code = code;
@@ -710,7 +710,10 @@ function setupSearch(sel, onPick){
     exact.sort(byCap); starts.sort(byCap); contains.sort(byCap);
     var list = exact.concat(starts, contains).slice(0, 15);
     if(!list.length || list[0].code.toLowerCase() !== lq){
-      if(/^\d{6}$/.test(q)) list.unshift({ market:"KOSPI", code:q, name:q + " (직접 입력)" });
+      if(/^[0-9][0-9A-Za-z]{5}$/.test(q)){
+        var qc = q.toUpperCase();
+        list.unshift({ market:"KOSPI", code:qc, name:qc + " (직접 입력)" });
+      }
     }
     /* 알파벳만 입력한 경우: 국내 전용 앱이므로 안내 */
     if(!list.length && /^[A-Za-z][A-Za-z.\-]*$/.test(q)){

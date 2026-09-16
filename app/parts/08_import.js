@@ -25,12 +25,13 @@ function impNum(s){
   var v = parseFloat(t);
   return neg ? -v : v;
 }
-/* "A005930" / "005930" 모두 종목코드로 인식. 앞자리 0 을 보존한다. */
+/* "A005930" / "005930" / "0126Z0" 모두 종목코드로 인식. 앞자리 0 을 보존한다.
+   신형 코드는 영문자를 품지만 첫 자리는 늘 숫자다. */
 function impIsCode(s){
   if(s === null || s === undefined) return false;
-  return /^[Aa]?\d{6}$/.test(String(s).trim());
+  return /^[Aa]?[0-9][0-9A-Za-z]{5}$/.test(String(s).trim());
 }
-function impCode(s){ return String(s).trim().replace(/^[Aa]/, ""); }
+function impCode(s){ return String(s).trim().replace(/^[Aa]/, "").toUpperCase(); }
 function impKey(s){ return String(s || "").replace(/[\s_()\-]/g, "").toLowerCase(); }
 
 /* CSV 따옴표를 존중하는 행 분해 */

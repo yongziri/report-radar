@@ -22,17 +22,17 @@ from parsers import (  # noqa: E402
     compact_date,
     compute_gap,
     extract_opinion_from_text,
+    is_stock_code,
     normalize_broker,
     normalize_date,
     normalize_rating,
-    parse_detail,
     parse_hankyung_list,
     parse_kb_list,
     parse_kis_detail,
     parse_kis_list,
     parse_kis_total,
-    parse_list_last_page,
-    parse_list_page,
+    parse_naver_api_detail,
+    parse_naver_api_list,
     parse_nh_list,
     parse_nh_summary,
     parse_price_payload,
@@ -49,64 +49,75 @@ from sectors import (  # noqa: E402
 
 # ------------------------------------------------------------------ 픽스처
 
-LIST_HTML = """
-<html><head><meta charset="utf-8"></head><body>
-<table class="type_1">
-  <tr><th>종목명</th><th>제목</th><th>증권사</th><th>첨부</th><th>작성일</th><th>조회수</th></tr>
-  <tr><td colspan="6" class="line"></td></tr>
-  <tr>
-    <td><a href="/item/main.naver?code=031980" title="피에스케이홀딩스" class="stock_item">피에스케이홀딩스</a></td>
-    <td><a href="company_read.naver?nid=96032&amp;page=1">홀딩스의 시간이 온다</a><img alt="NEW"></td>
-    <td>DS투자증권</td>
-    <td class="file"><a href="https://stock.pstatic.net/stock-research/company/66/20260907_company_169484000.pdf"></a></td>
-    <td class="date">26.09.07</td>
-    <td class="date">4006</td>
-  </tr>
-  <tr>
-    <td><a href="/item/main.naver?code=005930" title="삼성전자" class="stock_item">삼성전자</a></td>
-    <td><a href="company_read.naver?nid=96031&amp;page=1">반등의 조건</a></td>
-    <td>미래에셋증권</td>
-    <td class="file"></td>
-    <td class="date">26.09.05</td>
-    <td class="date">12,340</td>
-  </tr>
-</table>
-<table class="Nnavi">
-  <tr>
-    <td class="on">1</td>
-    <td><a href="/research/company_list.naver?&amp;page=2">2</a></td>
-    <td><a href="/research/company_list.naver?&amp;page=3">3</a></td>
-  </tr>
-</table>
-</body></html>
-"""
+# 네이버 증권 리서치 API 실측 응답 (2026-09-16).
+# itemCode는 영문자를 품을 수 있다(0126Z0 삼성에피스홀딩스).
+NAVER_API_LIST = [
+    {
+        "researchCategory": "종목분석",
+        "category": "종목분석",
+        "itemCode": "068270",
+        "itemName": "셀트리온",
+        "researchId": 96183,
+        "title": "더욱 강하게 밟는 가속성장페달, 2027년",
+        "brokerName": "DS투자증권",
+        "writeDate": "2026-09-16",
+        "readCount": "20",
+        "endUrl": "https://m.stock.naver.com/research/company/96183",
+    },
+    {
+        "researchCategory": "종목분석",
+        "category": "종목분석",
+        "itemCode": "0126Z0",
+        "itemName": "삼성에피스홀딩스",
+        "researchId": 96170,
+        "title": "분할 이후를 본다",
+        "brokerName": "한화투자증권",
+        "writeDate": "2026-09-15",
+        "readCount": "1,234",
+        "endUrl": "https://m.stock.naver.com/research/company/96170",
+    },
+    # 종목코드가 없는 건(산업·시황이 섞여 들어오는 경우)은 버린다
+    {"itemCode": "", "itemName": "", "researchId": 96169, "title": "시황",
+     "brokerName": "X증권", "writeDate": "2026-09-15", "readCount": "1"},
+]
 
-DETAIL_HTML = """
-<html><body>
-<div class="view_info_1">
-  <span>목표가 <em class="money"><strong>200,000</strong></em></span>
-  <span>투자의견 <em class="coment">매수</em></span>
-</div>
-<table><tr><td class="view_cnt">
-  홀딩스의 시간이 온다.   반도체 후공정   장비 업체로서
-  내년 실적   개선이 가시화된다.
-</td></tr></table>
-<div class="side"><a href="/item/main.naver?code=005930">삼성전자</a></div>
-</body></html>
-"""
+NAVER_API_DETAIL = {
+    "researchContent": {
+        "itemCode": "068270",
+        "itemName": "셀트리온",
+        "researchId": "96183",
+        "title": "더욱 강하게 밟는 가속성장페달, 2027년",
+        "brokerName": "DS투자증권",
+        "writeDate": "2026-09-16",
+        "readCount": "52",
+        "attachUrl": "https://stock.pstatic.net/stock-research/company/66/"
+                     "20260916_company_126967000.pdf",
+        "content": "<p><strong>2027년 매출액 약 7.1조원</strong></p>"
+                   "<p><br>셀트리온에 대하여 고성장세를 지속할 것으로 전망한다."
+                   " 20260916_company_126967000.pdf</p>",
+        "opinion": "매수",
+        "goalPrice": "320000",
+        "prevGoalPrice": "177500",
+        "priceAtWriteDate": "177500",
+    },
+    "researchSummaries": [],
+}
 
-DETAIL_HTML_NONE = """
-<html><body>
-<div class="view_info_1">
-  <span>목표가 <em class="money">없음</em></span>
-  <span>투자의견 <em class="coment">Not Rated</em></span>
-</div>
-<table><tr><td class="view_cnt">커버리지 개시 전 자료.</td></tr></table>
-</body></html>
-"""
+# 목표가를 제시하지 않은 건. 빈 문자열·"0"·null이 섞여 온다.
+NAVER_API_DETAIL_NONE = {
+    "researchContent": {
+        "itemCode": "123456",
+        "itemName": "무등급",
+        "researchId": "96000",
+        "attachUrl": "",
+        "content": "",
+        "opinion": "Not Rated",
+        "goalPrice": "0",
+        "prevGoalPrice": None,
+        "priceAtWriteDate": "",
+    }
+}
 
-# 실제 마크업을 그대로 옮겼다. 제목 칸의 div.layerPop이 같은 제목을 한 번 더 품고 있고,
-# 적정가격을 제시하지 않은 리포트는 0으로 내려온다.
 HANKYUNG_HTML = """
 <html><body>
 <table>
@@ -256,36 +267,30 @@ KIS_DETAIL_HTML = """
 </body></html>
 """
 
-# 업종 목록. 네이버는 &를 그대로 주지만 &amp;로 이스케이프된 경우도 함께 본다.
-# 같은 업종이 링크 두 개로 나오는 행(업종명 + 등락률)도 있어 중복 제거를 확인한다.
-SECTOR_LIST_HTML = """
-<html><body><table class="type_1">
-  <tr><th>업종명</th><th>전일대비</th></tr>
-  <tr>
-    <td><a href="/sise/sise_group_detail.naver?type=upjong&no=278">전기유틸리티</a></td>
-    <td><a href="/sise/sise_group_detail.naver?type=upjong&no=278">+1.20%</a></td>
-  </tr>
-  <tr>
-    <td><a href="/sise/sise_group_detail.naver?type=upjong&amp;no=261" class="tltle">반도체와반도체장비</a></td>
-  </tr>
-  <tr>
-    <td><a href="/sise/sise_group_detail.naver?type=upjong&no=284">호텔,레스토랑,레저</a></td>
-  </tr>
-  <tr><td><a href="/sise/sise_rise.naver">상승</a></td></tr>
-</table></body></html>
-"""
+# 업종 목록 API 실측 응답 (2026-09-16). no로 중복을 제거한다.
+SECTOR_LIST_PAYLOAD = {
+    "stockListSortType": "INDUSTRY",
+    "groups": [
+        {"no": 278, "name": "전기유틸리티", "totalCount": 9},
+        {"no": 261, "name": "반도체와반도체장비", "totalCount": 120},
+        {"no": 261, "name": "반도체와반도체장비", "totalCount": 120},  # 중복
+        {"no": 284, "name": "호텔,레스토랑,레저", "totalCount": 30},   # 콤마는 그대로
+        {"no": "", "name": "이름만 있는 행"},
+    ],
+    "totalCount": 79,
+}
 
-SECTOR_DETAIL_HTML = """
-<html><body><table class="type_5">
-  <tr><th>종목명</th><th>현재가</th></tr>
-  <tr>
-    <td><a href="/item/main.naver?code=005930">삼성전자</a></td>
-    <td><a href="/item/main.naver?code=005930">74,800</a></td>
-  </tr>
-  <tr><td><a href="/item/main.naver?code=000660">SK하이닉스</a></td></tr>
-  <tr><td><a href="/sise/sise_group.naver?type=upjong">업종 목록</a></td></tr>
-</table></body></html>
-"""
+SECTOR_DETAIL_PAYLOAD = {
+    "stockListSortType": "INDUSTRY",
+    "stocks": [
+        {"stockEndType": "stock", "itemCode": "005930", "stockName": "삼성전자"},
+        {"stockEndType": "stock", "itemCode": "000660", "stockName": "SK하이닉스"},
+        {"stockEndType": "stock", "itemCode": "0126Z0", "stockName": "삼성에피스홀딩스"},
+        {"stockEndType": "stock", "itemCode": "005930", "stockName": "삼성전자"},  # 중복
+        {"stockEndType": "stock", "itemCode": "BADCODE", "stockName": "형식 오류"},
+    ],
+    "totalCount": 3,
+}
 
 # 2026-09-08 기준 네이버 업종 79개. 하나도 빠짐없이 대분류가 붙어야 한다.
 NAVER_INDUSTRIES = [
@@ -322,85 +327,96 @@ PRICE_PAYLOAD = {
 
 # ------------------------------------------------------------------- 테스트
 
-class TestListParser(unittest.TestCase):
+class TestStockCode(unittest.TestCase):
+    def test_new_style_codes(self):
+        # 영문자를 품는 신형 코드도 통과해야 한다
+        for code in ("005930", "0126Z0", "00680K", "0167A0"):
+            self.assertTrue(is_stock_code(code), code)
+
+    def test_rejects(self):
+        # 길이가 다르거나 첫 자리가 숫자가 아니거나 소문자면 거른다
+        for bad in ("", None, "12345", "1234567", "A05930", "0126z0", "BADCODE", "종목"):
+            self.assertFalse(is_stock_code(bad), repr(bad))
+
+    def test_strips_whitespace(self):
+        self.assertTrue(is_stock_code(" 005930 "))
+
+
+class TestNaverApiListParser(unittest.TestCase):
     def test_rows(self):
-        rows = parse_list_page(LIST_HTML)
-        self.assertEqual(len(rows), 2)
+        rows = parse_naver_api_list(NAVER_API_LIST)
+        self.assertEqual(len(rows), 2)   # 종목코드 없는 행은 버린다
 
         first = rows[0]
-        self.assertEqual(first["id"], "naver:96032")
+        self.assertEqual(first["id"], "naver:96183")
         self.assertEqual(first["source"], "naver")
-        self.assertEqual(first["code"], "031980")
-        self.assertEqual(first["name"], "피에스케이홀딩스")
-        self.assertEqual(first["title"], "홀딩스의 시간이 온다")
+        self.assertEqual(first["nid"], "96183")
+        self.assertEqual(first["code"], "068270")
+        self.assertEqual(first["name"], "셀트리온")
+        self.assertEqual(first["title"], "더욱 강하게 밟는 가속성장페달, 2027년")
         self.assertEqual(first["broker"], "DS투자증권")
-        self.assertEqual(first["date"], "2026-09-07")
-        self.assertEqual(first["views"], 4006)
-        self.assertTrue(first["pdf"].endswith("169484000.pdf"))
-        self.assertEqual(
-            first["url"],
-            "https://finance.naver.com/research/company_read.naver?nid=96032")
+        self.assertEqual(first["date"], "2026-09-16")
+        self.assertEqual(first["views"], 20)
+        self.assertIsNone(first["pdf"])     # PDF는 상세에서 붙인다
+        self.assertEqual(first["url"],
+                         "https://m.stock.naver.com/research/company/96183")
 
-    def test_second_row_and_missing_pdf(self):
-        rows = parse_list_page(LIST_HTML)
-        second = rows[1]
-        self.assertEqual(second["code"], "005930")
-        self.assertEqual(second["date"], "2026-09-05")
-        self.assertEqual(second["views"], 12340)
-        self.assertIsNone(second["pdf"])
+    def test_alpha_code_and_comma_views(self):
+        second = parse_naver_api_list(NAVER_API_LIST)[1]
+        self.assertEqual(second["code"], "0126Z0")
+        self.assertEqual(second["name"], "삼성에피스홀딩스")
+        self.assertEqual(second["date"], "2026-09-15")
+        self.assertEqual(second["views"], 1234)
 
-    def test_header_and_filler_rows_skipped(self):
-        # th 헤더 행과 line 행은 stock_item이 없으니 걸러진다
-        self.assertEqual(len(parse_list_page("<table class='type_1'></table>")), 0)
-        self.assertEqual(parse_list_page("<html></html>"), [])
-
-    def test_last_page(self):
-        self.assertEqual(parse_list_last_page(LIST_HTML), 3)
-        self.assertIsNone(parse_list_last_page("<html></html>"))
+    def test_garbage(self):
+        self.assertEqual(parse_naver_api_list(None), [])
+        self.assertEqual(parse_naver_api_list([]), [])
+        self.assertEqual(parse_naver_api_list(["문자열", None, 3]), [])
 
 
-class TestDetailParser(unittest.TestCase):
+class TestNaverApiDetailParser(unittest.TestCase):
     def test_normal(self):
-        d = parse_detail(DETAIL_HTML)
-        self.assertEqual(d["target"], 200000)
+        d = parse_naver_api_detail(NAVER_API_DETAIL)
+        self.assertEqual(d["target"], 320000)
         self.assertEqual(d["rating_raw"], "매수")
-        self.assertIn("반도체 후공정 장비 업체", d["summary"])
+        self.assertEqual(d["naver_prev_target"], 177500)
+        self.assertEqual(d["price_at_write"], 177500)
+        self.assertTrue(d["pdf"].endswith("20260916_company_126967000.pdf"))
+        # HTML 태그는 걷어내고 공백은 한 칸으로 접는다
+        self.assertNotIn("<", d["summary"])
+        self.assertTrue(d["summary"].startswith("2027년 매출액 약 7.1조원"))
         self.assertNotIn("  ", d["summary"])
 
     def test_trailing_attachment_name_stripped(self):
-        html = ('<div class="view_info_1"><em class="money"><strong>1,000</strong></em>'
-                '<em class="coment">매수</em></div>'
-                '<td class="view_cnt">실적이 개선되었다. 20260904163445150_0_ko.pdf</td>')
-        self.assertEqual(parse_detail(html)["summary"], "실적이 개선되었다.")
-
-    def test_multiple_attachment_names_stripped(self):
-        html = ('<div class="view_info_1"><em class="money">없음</em></div>'
-                '<td class="view_cnt">본문 끝. a_기업리포트.pdf 260907_b.pdf</td>')
-        self.assertEqual(parse_detail(html)["summary"], "본문 끝.")
+        # 본문 끝에 딸려 오는 첨부파일 이름은 요약에서 뺀다
+        d = parse_naver_api_detail(NAVER_API_DETAIL)
+        self.assertFalse(d["summary"].endswith(".pdf"))
+        self.assertNotIn("20260916_company_126967000.pdf", d["summary"])
 
     def test_no_target(self):
-        d = parse_detail(DETAIL_HTML_NONE)
-        self.assertIsNone(d["target"])
+        d = parse_naver_api_detail(NAVER_API_DETAIL_NONE)
+        self.assertIsNone(d["target"])            # "0"은 값 없음
+        self.assertIsNone(d["naver_prev_target"])  # None
+        self.assertIsNone(d["price_at_write"])     # ""
+        self.assertIsNone(d["pdf"])
+        self.assertIsNone(d["summary"])
         self.assertEqual(d["rating_raw"], "Not Rated")
         self.assertEqual(normalize_rating(d["rating_raw"]), "NR")
 
     def test_summary_truncated_to_600(self):
-        html = ('<div class="view_info_1"><em class="money">없음</em>'
-                '<em class="coment">매수</em></div>'
-                '<td class="view_cnt">' + ("가" * 900) + "</td>")
-        self.assertEqual(len(parse_detail(html)["summary"]), 600)
+        obj = {"researchContent": {"content": "<p>" + ("가" * 900) + "</p>"}}
+        self.assertEqual(len(parse_naver_api_detail(obj)["summary"]), 600)
 
-    def test_regex_fallback(self):
-        # 셀렉터가 못 잡는 마크업이라도 정규식으로 건진다
-        html = '<div class="wrap">목표가 <em class="money"><strong>88,000</strong></em>' \
-               ' 투자의견 <em class="coment">중립</em></div>'
-        d = parse_detail(html)
-        self.assertEqual(d["target"], 88000)
-        self.assertEqual(d["rating_raw"], "중립")
+    def test_garbage(self):
+        for obj in (None, {}, {"researchContent": None}, {"researchContent": []}):
+            d = parse_naver_api_detail(obj)
+            self.assertIsNone(d["target"])
+            self.assertIsNone(d["rating_raw"])
+            self.assertIsNone(d["summary"])
 
-    def test_side_widget_code_not_used(self):
-        # 상세 파서는 종목코드를 아예 돌려주지 않는다 (사이드 위젯 오염 방지)
-        self.assertNotIn("code", parse_detail(DETAIL_HTML))
+    def test_no_code_field(self):
+        # 상세 파서는 종목코드를 돌려주지 않는다. 목록에서 받은 코드를 쓴다.
+        self.assertNotIn("code", parse_naver_api_detail(NAVER_API_DETAIL))
 
 
 class TestHankyungParser(unittest.TestCase):
@@ -682,20 +698,24 @@ class TestPricePayload(unittest.TestCase):
 
 class TestSectorParser(unittest.TestCase):
     def test_list(self):
-        groups = parse_sector_list(SECTOR_LIST_HTML)
+        groups = parse_sector_list(SECTOR_LIST_PAYLOAD)
         self.assertEqual(groups, [
             ("278", "전기유틸리티"),
-            ("261", "반도체와반도체장비"),   # &amp; 로 이스케이프된 링크도 잡는다
+            ("261", "반도체와반도체장비"),   # 같은 no가 두 번 와도 한 번만
             ("284", "호텔,레스토랑,레저"),   # 업종명의 콤마는 그대로 둔다
         ])
 
     def test_codes(self):
-        self.assertEqual(parse_sector_codes(SECTOR_DETAIL_HTML), ["005930", "000660"])
+        # 형식이 어긋난 코드는 버리고, 영문자를 품는 신형 코드는 살린다
+        self.assertEqual(parse_sector_codes(SECTOR_DETAIL_PAYLOAD),
+                         ["005930", "000660", "0126Z0"])
 
     def test_garbage(self):
-        self.assertEqual(parse_sector_list("<html></html>"), [])
-        self.assertEqual(parse_sector_list(""), [])
+        self.assertEqual(parse_sector_list({}), [])
+        self.assertEqual(parse_sector_list(None), [])
+        self.assertEqual(parse_sector_list({"groups": ["문자열", None]}), [])
         self.assertEqual(parse_sector_codes(None), [])
+        self.assertEqual(parse_sector_codes({"stocks": None}), [])
 
 
 class TestSectorMap(unittest.TestCase):

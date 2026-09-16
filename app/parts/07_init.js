@@ -226,7 +226,7 @@ function importResolved(){
     var code = r.code, mk = r.mk;
     var f = IMP.fix[r.name];
     if(!code && f){
-      if(/^[Aa]?\d{6}$/.test(f)){ code = f.replace(/^[Aa]/, ""); mk = "KR"; }
+      if(impIsCode(f)){ code = impCode(f); mk = "KR"; }
       else { code = f.toUpperCase(); mk = "US"; }
     }
     return code ? { mk:mk, code:code, name:r.name || code, qty:r.qty, avg:r.avg } : null;

@@ -1,6 +1,6 @@
 """리포트 레이더 수집기.
 
-네이버 금융 리서치(종목분석)를 1차 소스로 리포트를 모으고,
+네이버 증권 리서치 API(종목분석)를 1차 소스로 리포트를 모으고,
 네이버에 잘 올라오지 않는 KB증권·NH투자증권·한국투자증권은 각 사 사이트에서 직접 긁는다.
 현재가는 네이버 실시간 시세로, 애널리스트명은 한경 컨센서스로 보강한다.
 결과는 data/reports.json (최근 180일 누적), data/meta.json 으로 저장한다.
@@ -20,6 +20,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 import requests
+from urllib.parse import urlparse
 
 # 윈도우 기본 콘솔(cp949)에서 한글/기호가 깨지지 않게.
 try:
@@ -36,11 +37,11 @@ from parsers import (  # noqa: E402
     apply_target_changes,
     compute_gap,
     normalize_broker,
+    normalize_date,
     normalize_rating,
-    parse_detail,
     parse_hankyung_list,
-    parse_list_last_page,
-    parse_list_page,
+    parse_naver_api_detail,
+    parse_naver_api_list,
     parse_price_payload,
 )
 
@@ -61,8 +62,14 @@ BROWSER_UA = (
     "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 )
 
-NAVER_LIST = "https://finance.naver.com/research/company_list.naver"
-NAVER_READ = "https://finance.naver.com/research/company_read.naver"
+# 2026-09-14경 finance.naver.com의 리서치·시세 페이지가 stock.naver.com으로 302 되면서
+# HTML을 긁던 경로가 통째로 막혔다. 모바일 증권 JSON API로 갈아탔다.
+NAVER_API_LIST = "https://m.stock.naver.com/api/research/company"
+NAVER_API_DETAIL = "https://m.stock.naver.com/api/research/company/%s"
+NAVER_PAGE_SIZE = 100
+# 목록 API에 날짜 파라미터가 없다. 최신순으로 넘기다 범위를 벗어나면 멈추되,
+# page=999에도 200이 오므로 상한을 둔다 (100건 x 60페이지 = 6,000건).
+NAVER_MAX_PAGE = 60
 PRICE_API = "https://polling.finance.naver.com/api/realtime"
 HANKYUNG_LIST = "https://consensus.hankyung.com/analysis/list"
 
@@ -80,19 +87,50 @@ def make_session():
     return s
 
 
-def fetch(session, url, params=None, encoding=None, referer=None):
+def fetch(session, url, params=None, encoding=None, referer=None,
+          allow_redirects=True):
     """실패 시 RETRIES회 재시도. 끝내 실패하면 None."""
     headers = {"Referer": referer} if referer else None
     last = None
     for attempt in range(RETRIES + 1):
         try:
-            resp = session.get(url, params=params, timeout=TIMEOUT, headers=headers)
+            resp = session.get(url, params=params, timeout=TIMEOUT, headers=headers,
+                               allow_redirects=allow_redirects)
             resp.raise_for_status()
             if encoding:
                 # 네이버 리서치는 메타가 utf-8이라 거짓말을 한다. 강제로 디코딩한다.
                 return resp.content.decode(encoding, errors="replace")
             return resp.text
         except Exception as exc:  # 네트워크/HTTP 모두 동일 취급
+            last = exc
+            if attempt < RETRIES:
+                time.sleep(0.8 * (attempt + 1))
+    log("  ! 요청 실패: %s (%s)" % (url, last))
+    return None
+
+
+def fetch_json(session, url, params=None, referer=None):
+    """JSON API 전용 fetch. 다른 호스트로 넘어가면 실패로 본다.
+
+    네이버가 옛 finance 주소를 stock.naver.com으로 302 시키면서 표 없는 HTML을
+    돌려준 적이 있다. 그때 '0건 정상'으로 넘어가지 않도록 리다이렉트를 따르지 않고,
+    최종 URL의 호스트가 요청 호스트와 다르면 실패로 처리한다.
+    """
+    headers = {"Referer": referer} if referer else None
+    want = urlparse(url).netloc
+    last = None
+    for attempt in range(RETRIES + 1):
+        try:
+            resp = session.get(url, params=params, timeout=TIMEOUT, headers=headers,
+                               allow_redirects=False)
+            if resp.is_redirect or resp.is_permanent_redirect:
+                raise RuntimeError("리다이렉트 %s -> %s"
+                                   % (resp.status_code, resp.headers.get("Location")))
+            resp.raise_for_status()
+            if urlparse(resp.url).netloc != want:
+                raise RuntimeError("응답 호스트가 다릅니다: %s" % resp.url)
+            return resp.json()
+        except Exception as exc:  # 네트워크/HTTP/JSON 모두 동일 취급
             last = exc
             if attempt < RETRIES:
                 time.sleep(0.8 * (attempt + 1))
@@ -139,46 +177,39 @@ def write_json_atomic(path, payload):
 # ------------------------------------------------------------- 네이버 목록
 
 def collect_naver(session, date_from, date_to):
-    """기간 내 목록을 페이지 끝까지 훑는다. 목록 요청이 전부 실패하면 None."""
+    """최신순 목록을 페이지로 넘기며 기간 안의 건을 모은다.
+
+    목록 API에는 날짜 파라미터가 없다(itemCode 파라미터도 무시된다). 최신순이므로
+    작성일이 시작일보다 과거로 넘어가면 멈춘다. 한 페이지도 받지 못하면 None을
+    돌려주고, 호출부는 수집을 중단한다.
+    """
     records = []
     seen = set()
-    page = 1
-    last_page = None
     any_ok = False
 
-    while page <= 200:
-        html = fetch(session, NAVER_LIST, params={
-            "searchType": "writeDate",
-            "writeFromDate": date_from,
-            "writeToDate": date_to,
-            "page": page,
-        }, encoding="euc-kr")
-        if html is None:
+    for page in range(1, NAVER_MAX_PAGE + 1):
+        items = fetch_json(session, NAVER_API_LIST,
+                           params={"page": page, "pageSize": NAVER_PAGE_SIZE})
+        if items is None:
             break
         any_ok = True
-        rows = parse_list_page(html)
-        if not rows:
+        if not isinstance(items, list) or not items:
             break
-        # 페이지네이션('맨뒤' 링크 포함)이 알려주는 마지막 페이지를 매번 갱신한다.
-        # 한 페이지에 파싱되는 행 수는 30보다 적을 수 있으므로(코드 없는 행 등)
-        # 행 수로 마지막 페이지를 판단하면 중간에서 멈춘다.
-        seen_last = parse_list_last_page(html)
-        if seen_last is not None:
-            last_page = seen_last if last_page is None else max(last_page, seen_last)
 
-        fresh = [r for r in rows if r["id"] not in seen]
-        if not fresh:
-            # 범위를 넘기면 네이버가 같은 페이지를 되돌려준다. 여기서 멈춘다.
-            break
-        for r in fresh:
-            seen.add(r["id"])
-        records.extend(fresh)
-        if page % 10 == 0 or page == 1:
-            log("  목록 p%d/%s: 누적 %d건" % (page, last_page or "?", len(records)))
+        for rec in parse_naver_api_list(items):
+            day = rec.get("date") or ""
+            if not (date_from <= day <= date_to) or rec["id"] in seen:
+                continue
+            seen.add(rec["id"])
+            records.append(rec)
+        if page == 1 or page % 10 == 0:
+            log("  목록 p%d: 누적 %d건" % (page, len(records)))
 
-        if last_page is not None and page >= last_page:
+        # 가장 오래된 행이 시작일보다 과거면 다음 페이지는 볼 필요가 없다.
+        oldest = min([(normalize_date(it.get("writeDate")) or "9999-99-99")
+                      for it in items if isinstance(it, dict)] or ["9999-99-99"])
+        if oldest < date_from:
             break
-        page += 1
         time.sleep(REQUEST_GAP)
 
     if not any_ok:
@@ -187,23 +218,26 @@ def collect_naver(session, date_from, date_to):
 
 
 def enrich_detail(session, records):
-    """상세에서 목표가·투자의견·요약을 채운다. 실패해도 목록 정보는 남긴다."""
+    """상세에서 목표가·투자의견·요약·PDF를 채운다. 실패해도 목록 정보는 남긴다."""
     ok = 0
     fail = 0
     total = len(records)
     for i, rec in enumerate(records, 1):
-        html = fetch(session, NAVER_READ, params={"nid": rec["nid"], "page": 1},
-                     encoding="euc-kr", referer=NAVER_LIST)
-        if html is None:
+        obj = fetch_json(session, NAVER_API_DETAIL % rec["nid"])
+        if obj is None:
             fail += 1
             rec.setdefault("target", None)
             rec.setdefault("rating_raw", None)
             rec.setdefault("summary", None)
         else:
-            detail = parse_detail(html)
+            detail = parse_naver_api_detail(obj)
             rec["target"] = detail["target"]
             rec["rating_raw"] = detail["rating_raw"]
             rec["summary"] = detail["summary"]
+            if detail["pdf"]:
+                rec["pdf"] = detail["pdf"]
+            rec["naver_prev_target"] = detail["naver_prev_target"]
+            rec["price_at_write"] = detail["price_at_write"]
             ok += 1
         if i % 50 == 0 or i == total:
             log("  상세 %d/%d (성공 %d, 실패 %d)" % (i, total, ok, fail))
@@ -316,7 +350,7 @@ def resolve_sectors(session, args, now):
         return data
 
     log("업종 분류 수집 중...%s" % (" (강제)" if args.refresh_sectors else ""))
-    fresh = sector_mod.collect_sectors(session, fetch, log)
+    fresh = sector_mod.collect_sectors(session, fetch_json, log)
     if not fresh:
         if data:
             log("  ! 업종 분류 수집에 실패했습니다. 기존 파일을 그대로 씁니다.")
@@ -535,6 +569,8 @@ def main(argv=None):
         rec.setdefault("summary", None)
         rec.setdefault("views", None)
         rec.setdefault("target", None)
+        rec.setdefault("naver_prev_target", None)
+        rec.setdefault("price_at_write", None)
 
     # 현재가 갱신
     if args.no_price:
@@ -568,6 +604,28 @@ def main(argv=None):
 
     # 목표가 변동은 전체 이력을 놓고 매번 다시 계산한다.
     apply_target_changes(records)
+    # 우리 이력에 직전 리포트가 없는 건('new')은 네이버 상세가 알려주는
+    # prevGoalPrice로 한 번 더 메운다. 이력이 있으면 그쪽이 우선이다.
+    filled = 0
+    for rec in records:
+        if rec.get("target_change") != "new":
+            continue
+        prev = rec.get("naver_prev_target")
+        if not prev:
+            continue
+        cur = rec.get("target")
+        rec["prev_target"] = prev
+        if cur is None:
+            rec["target_change"] = None
+        elif cur > prev:
+            rec["target_change"] = "up"
+        elif cur < prev:
+            rec["target_change"] = "down"
+        else:
+            rec["target_change"] = "same"
+        filled += 1
+    if filled:
+        log("직전 목표가를 네이버 값으로 채운 건 %d건" % filled)
 
     records.sort(key=lambda r: ((r.get("date") or ""), str(r.get("id") or "")), reverse=True)
 
@@ -583,6 +641,8 @@ def main(argv=None):
             "rating_raw": r.get("rating_raw"), "rating": r.get("rating"),
             "target": r.get("target"), "prev_target": r.get("prev_target"),
             "target_change": r.get("target_change"),
+            "naver_prev_target": r.get("naver_prev_target"),
+            "price_at_write": r.get("price_at_write"),
             "pdf": r.get("pdf"), "url": r.get("url"),
             "summary": r.get("summary"), "views": r.get("views"),
             "price": r.get("price"), "price_date": r.get("price_date"),

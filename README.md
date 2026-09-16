@@ -37,7 +37,7 @@ report-radar/
 │  │  └─ _fonts.css              #   우리다움체 base64 (embed_fonts.py 산출물)
 │  ├─ build.py                   # parts/* 를 이어붙여 ../index.html 생성
 │  ├─ fetch_universe.py          # 코스피·코스닥 전종목 + 시총 + 업종 수집
-│  ├─ universe.json              # 그 결과 (3,922종목)
+│  ├─ universe.json              # 그 결과 (4,296종목: 주식 2,762 / ETF 1,170 / ETN 364)
 │  ├─ embed_fonts.py, fonts/     # TTF → WOFF2 base64 내장
 │  ├─ cloudflare-worker.js       # RSS 프록시 (선택) — PROXY_SETUP.md 참고
 │  ├─ samples/, make_import_samples.py, test_parsers.mjs
@@ -78,13 +78,22 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 
 | 소스 | 쓰임 | 비고 |
 | --- | --- | --- |
-| [네이버 금융 리서치](https://finance.naver.com/research/company_list.naver) | 리포트 목록·목표가·투자의견·요약 | 응답이 **EUC-KR**이다. HTML 메타는 utf-8이라고 거짓말하므로 강제로 디코딩한다 |
+| 네이버 증권 리서치 API (`m.stock.naver.com/api/research/company`) | 리포트 목록·목표가·투자의견·요약·PDF | 목록은 배열, 상세는 `/{researchId}`. **브라우저 UA 필수**, JSON UTF-8. 목록에 날짜 파라미터가 없어 최신순으로 넘기다 범위를 벗어나면 멈춘다(상한 60페이지) |
 | 네이버 실시간 시세 API | 현재가 | 한 번에 100종목씩 조회 |
 | [한경 컨센서스](https://consensus.hankyung.com/analysis/list?report_type=CO) | 애널리스트명 보강, 네이버에 없는 리포트 추가 | **브라우저 UA 필수**. 아니면 본문이 `Block access`로 돌아온다 |
 | [KB증권 리서치](https://rc.kbsec.com/) | KB증권 리포트 (`source: "kb"`) | 목록 JSON에 의견·목표가·요약이 다 들어 있다. **JSON 바디로 POST** 해야 한다(form이면 500) |
 | [NH투자증권 리서치](https://www.nhsec.com/research/boardList.action?rsh_ppr_dit_cd=01) | NH투자증권 리포트 (`source: "nh"`) | 목록엔 의견·목표가가 없어 요약문에서 캔다. 응답 인코딩이 **EUC-KR**인데 본문은 JSON이다 |
 | [한국투자증권 리서치](https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=10) | 한국투자증권 리포트 (`source: "kis"`) | **브라우저 UA 필수**. 의견·목표가는 상세 본문에서 캔다. PDF는 로그인이 필요해 `pdf`가 `null`이다 |
-| [네이버 금융 업종](https://finance.naver.com/sise/sise_group.naver?type=upjong) | 종목의 업종(`industry`)·대분류(`sector`) | 응답이 **EUC-KR**. 업종 목록 1회 + 업종별 종목 79회를 훑는다. **7일마다** 다시 받는다 |
+| 네이버 증권 업종 API (`m.stock.naver.com/api/stocks/industry`) | 종목의 업종(`industry`)·대분류(`sector`) | 업종 목록 1회 + 업종별 종목(`/{no}?page=N&pageSize=100`) 79회를 훑는다. **7일마다** 다시 받는다 |
+| 네이버 증권 시총 API (`m.stock.naver.com/api/stocks/marketValue/{KOSPI\|KOSDAQ}`) | 앱 유니버스(`app/universe.json`)의 코드·종목명·시총 | `app/fetch_universe.py` 전용. ETF·ETN 목록은 `finance.naver.com/api/sise/etfItemList.nhn`·`etnItemList.nhn` |
+
+> 2026-09-14경 `finance.naver.com`의 리서치·시세·업종 페이지가 `stock.naver.com`으로 302 되면서
+> HTML을 긁던 경로가 통째로 막혔다(네이버 소스 0건). 위 모바일 증권 JSON API로 갈아탔고,
+> 같은 사고를 조용히 넘기지 않으려고 네이버 요청은 **리다이렉트를 따르지 않고**
+> 최종 호스트가 다르면 실패로 처리한다. 목록 API 한 페이지도 못 받으면 수집을 중단한다.
+>
+> 향후: 산업분석 `/api/research/industry`, 시황 `/api/research/market` 도 같은 모양으로 열려 있다.
+> 지금은 종목분석(`/api/research/company`)만 쓴다.
 
 이 세 곳은 네이버 리서치에 리포트를 거의 올리지 않아 각 사 사이트에서 직접 긁는다.
 소스 우선순위는 **네이버 > KB·NH·한투 > 한경**이다. `(종목코드, 작성일, 증권사 정규화명)`으로
@@ -176,8 +185,10 @@ python -m http.server 3491
   "target": 200000,
   "prev_target": 180000,
   "target_change": "up",
+  "naver_prev_target": 180000,
+  "price_at_write": 152000,
   "pdf": "https://stock.pstatic.net/.../20260907_company_169484000.pdf",
-  "url": "https://finance.naver.com/research/company_read.naver?nid=96032",
+  "url": "https://m.stock.naver.com/research/company/96032",
   "summary": "…",
   "views": 4031,
   "price": 152000,
@@ -195,8 +206,17 @@ python -m http.server 3491
 - **`target_change`** — 같은 `code` + 같은 `broker`의 **직전(더 오래된 날짜)** 리포트
   목표가와 비교한 결과. `up`/`down`/`same`, 직전 리포트가 없으면 `new`,
   둘 중 하나라도 목표가가 없으면 `null`. 매 실행마다 전체 이력을 놓고 다시 계산한다.
+  우리 이력에 직전 리포트가 없어 `new`가 될 건은 네이버가 알려주는 `naver_prev_target`이
+  있으면 그 값으로 `prev_target`을 채우고 다시 판정한다.
+- **`naver_prev_target`·`price_at_write`** — 네이버 상세가 주는 직전 목표가(`prevGoalPrice`)와
+  작성일 종가(`priceAtWriteDate`). 우리가 이력으로 계산하는 `prev_target`과는 별개 필드이고,
+  네이버 소스가 아닌 리포트에서는 `null`이다.
 - **`source`** — `naver`·`kb`·`nh`·`kis`·`hankyung`. `id`는 `소스:원본키` 꼴이다
   (`naver:96032`, `kb:20260904133704237K`, `nh:000000000000147095`, `kis:159058`).
+- **`code`** — 종목코드. 2026년부터 영문자를 품는 신형 코드가 섞여 나온다
+  (`0126Z0` 삼성에피스홀딩스, `00680K` 미래에셋증권2우B, `0167A0` SOL AI반도체TOP2플러스).
+  여섯 자리이고 첫 자리는 늘 숫자다. 수집기·앱 모두 `\d{6}`이 아니라
+  `[0-9][0-9A-Z]{5}`로 판정한다. 시세 API도 영문자 코드를 그대로 받는다.
 - 중복 판정 키는 `id`다. 이미 저장된 리포트의 본문은 건드리지 않고,
   `price`·`gap`·`prev_target`·`target_change`만 실행할 때마다 새로 채운다.
 - 작성일이 180일보다 오래된 건은 저장할 때 걸러낸다.
@@ -208,9 +228,9 @@ python -m http.server 3491
 
 ## 업종 분류
 
-**출처는 [네이버 금융 업종](https://finance.naver.com/sise/sise_group.naver?type=upjong)** 이다.
-업종 목록에서 업종 79개를 읽고, 업종마다 상세 페이지를 열어 소속 종목코드를 모은다
-(요청 간격 0.4초, 총 80회 정도). 결과는 `data/sectors.json`에 이렇게 쌓인다.
+**출처는 네이버 증권 업종 API(`https://m.stock.naver.com/api/stocks/industry`)** 다.
+업종 목록에서 업종 79개를 읽고, 업종마다 `/{no}?page=N&pageSize=100`을 열어 소속 종목코드를
+모은다(요청 간격 0.4초, 총 80회 정도). 결과는 `data/sectors.json`에 이렇게 쌓인다.
 
 ```json
 {

@@ -137,7 +137,7 @@ function load(){
     /* v2 -> v3: 미국 주식 지원 종료. 남아 있는 미국 종목·설정을 제거하고 1회만 안내한다. */
     if(!(o.v >= 3)){
       var removed = 0;
-      var isUS = function(x){ return x && (x.mk === "US" || !/^\d{6}$/.test(String(x.code || ""))); };
+      var isUS = function(x){ return x && (x.mk === "US" || !/^[0-9][0-9A-Z]{5}$/.test(String(x.code || ""))); };
       (o.wlGroups || []).forEach(function(g){
         var before = (g.items || []).length;
         g.items = (g.items || []).filter(function(x){ return !isUS(x); });
