@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-09-17T09:00:24+09:00",
-"count": 2459,
+"updated_at": "2026-09-17T10:47:12+09:00",
+"count": 2471,
 "latest_date": "2026-09-17",
 "brokers": [
 "DS투자증권",
@@ -27,5 +27,32 @@
 "한국투자증권",
 "한화투자증권",
 "현대차증권"
-]
+],
+"source_status": {
+"naver": {
+"last_date": "2026-09-17",
+"new_run": 12,
+"total": 1703
+},
+"hankyung": {
+"last_date": "2026-09-16",
+"new_run": 0,
+"total": 222
+},
+"kb": {
+"last_date": "2026-09-16",
+"new_run": 0,
+"total": 220
+},
+"nh": {
+"last_date": "2026-09-17",
+"new_run": 0,
+"total": 175
+},
+"kis": {
+"last_date": "2026-09-17",
+"new_run": 0,
+"total": 151
+}
+}
 }

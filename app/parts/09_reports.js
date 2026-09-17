@@ -365,6 +365,43 @@ function rpAgg(rows){
 function rpPeriodLabel(){
   return { "1":"오늘", "3":"최근 3일", "7":"최근 1주", "30":"최근 1개월", "all":"전체 기간" }[RP.period] || "";
 }
+
+/* ---------- 소스별 최신일 ---------- */
+/* 소스 하나가 조용히 멈춰도 총 건수만 보면 눈치채기 어렵다. 개요 소제목 옆에
+   소스별 최신 리포트 날짜를 적고, 영업일 기준으로 밀린 소스는 경고색으로 둔다.
+   (실제 경보는 scraper/check_sources.py 가 Actions 에서 낸다) */
+const RP_SRC_ORDER = ["naver", "kb", "nh", "kis", "hankyung"];
+const RP_SRC_LABEL = { naver:"naver", kb:"kb", nh:"nh", kis:"kis", hankyung:"한경" };
+const RP_SRC_STALE_BD = 2;   // 이만큼 영업일이 비면 경고색
+
+function rpBizDaysSince(from, to){
+  /* from 다음날부터 to 까지의 영업일 수 (주말 제외) */
+  var n = 0, d = new Date(from.getTime());
+  d.setDate(d.getDate() + 1);
+  while(d <= to){
+    var w = d.getDay();
+    if(w >= 1 && w <= 5) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return n;
+}
+function rpSourceStatusHtml(){
+  var st = RMETA && RMETA.source_status;
+  if(!st) return "";
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var out = [];
+  RP_SRC_ORDER.forEach(function(k){
+    var s = st[k];
+    if(!s || !s.last_date) return;
+    var p = String(s.last_date).split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var stale = rpBizDaysSince(d, today) >= RP_SRC_STALE_BD;
+    out.push('<span class="' + (stale ? "down" : "") + '" title="' +
+             esc(k + " 최신 " + s.last_date + " · 보관 " + fmt(s.total || 0) + "건") + '">' +
+             esc(RP_SRC_LABEL[k] || k) + " " + esc(String(s.last_date).slice(5)) + "</span>");
+  });
+  return out.length ? '<span class="src">' + out.join(" · ") + "</span>" : "";
+}
 function rpRenderStats(rows){
   var a = rpAgg(rows), n = rows.length || 1;
   var html = rpOvi("리포트", fmt(rows.length), "", "전체 " + fmt(RPT.length) + "건");
@@ -377,7 +414,7 @@ function rpRenderStats(rows){
   html += rpOvi("평균 괴리율", a.avgGap === null ? "-" : fmtPct(a.avgGap), dirCls(a.avgGap),
                 a.gapN ? fmt(a.gapN) + "건 기준" : "");
   $("#rpStats").innerHTML = html;
-  $("#rpOvSub").textContent = rpPeriodLabel();
+  $("#rpOvSub").innerHTML = esc(rpPeriodLabel()) + rpSourceStatusHtml();
 }
 
 /* ---------- 표 머리 ---------- */

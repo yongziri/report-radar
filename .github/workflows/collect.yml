@@ -56,8 +56,15 @@ jobs:
             git push origin HEAD:main
           fi
 
+      # 소스가 조용히 멈춘 경우를 잡는다. 데이터 커밋·push 다음에 두어야
+      # 여기서 잡이 실패해도 그날 모은 데이터는 남고, 메일 알림만 온다.
+      - name: 소스 정지 점검
+        run: python scraper/check_sources.py
+
   deploy:
     needs: collect
+    # 수집 잡이 소스 경보로 실패해도 배포는 그대로 돌린다.
+    if: always()
     runs-on: ubuntu-latest
     environment:
       name: github-pages

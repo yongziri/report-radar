@@ -57,6 +57,10 @@ REPORTS_PATH = os.path.join(DATA_DIR, "reports.json")
 META_PATH = os.path.join(DATA_DIR, "meta.json")
 SECTORS_PATH = os.path.join(DATA_DIR, "sectors.json")
 
+# meta.json 의 source_status 에 항상 넣어 두는 소스. 한 소스가 통째로 사라져도
+# 항목이 남아 있어야 정지를 알아챌 수 있다.
+KNOWN_SOURCES = ("naver", "hankyung", "kb", "nh", "kis")
+
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -444,6 +448,28 @@ def resolve_range(args, today):
     return d_from.isoformat(), d_to.isoformat()
 
 
+def build_source_status(records, before_ids):
+    """소스별 {최신 리포트 날짜, 이번 실행 신규 건수, 보관 건수}.
+
+    before_ids 는 이번 실행 전에 이미 갖고 있던 id 집합이다.
+    """
+    status = {}
+    for src in KNOWN_SOURCES:
+        status[src] = {"last_date": None, "new_run": 0, "total": 0}
+    for r in records:
+        src = r.get("source")
+        if not src:
+            continue
+        st = status.setdefault(src, {"last_date": None, "new_run": 0, "total": 0})
+        st["total"] += 1
+        d = r.get("date")
+        if d and (st["last_date"] is None or d > st["last_date"]):
+            st["last_date"] = d
+        if r.get("id") not in before_ids:
+            st["new_run"] += 1
+    return status
+
+
 def main(argv=None):
     args = parse_args(argv)
     now = datetime.now(KST)
@@ -658,6 +684,8 @@ def main(argv=None):
         "count": len(records),
         "latest_date": max(dates) if dates else None,
         "brokers": broker_names,
+        # 소스가 조용히 멈춘 것을 scraper/check_sources.py 가 잡을 수 있게 남긴다.
+        "source_status": build_source_status(records, existing_ids),
     }
 
     rating_dist = {}
@@ -667,6 +695,9 @@ def main(argv=None):
         source_dist[r["source"]] = source_dist.get(r["source"], 0) + 1
     log("총 %d건 | 소스 %s | 레이팅 %s | 증권사 %d곳 | 상세 실패 %d건"
         % (len(records), source_dist, rating_dist, len(broker_names), detail_fail))
+    for src, st in meta["source_status"].items():
+        log("  소스 %-8s 최신 %s | 이번 신규 %d건 | 보관 %d건"
+            % (src, st["last_date"] or "-", st["new_run"], st["total"]))
     log_sector_stats(records)
 
     if args.dry_run:

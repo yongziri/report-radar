@@ -4,6 +4,7 @@
        python -m unittest discover -s scraper
 """
 
+import datetime
 import os
 import sys
 import unittest
@@ -37,6 +38,10 @@ from parsers import (  # noqa: E402
     parse_nh_summary,
     parse_price_payload,
     to_int,
+)
+from check_sources import (  # noqa: E402
+    business_days_since,
+    stale_sources,
 )
 from sectors import (  # noqa: E402
     SECTOR_MAP,
@@ -755,6 +760,62 @@ class TestSectorStale(unittest.TestCase):
         self.assertTrue(is_stale(None, self.now()))
         self.assertTrue(is_stale({}, self.now()))
         self.assertTrue(is_stale({"updated_at": "어제"}, self.now()))
+
+
+class TestSourceStale(unittest.TestCase):
+    """소스 정지 판정. 2026-09-14(월) ~ 09-18(금), 09-19(토), 09-21(월)."""
+
+    def status(self, **last):
+        # 기본은 전부 어제(09-16 수) 까지 들어온 정상 상태
+        base = {}
+        for src in ("naver", "hankyung", "kb", "nh", "kis"):
+            base[src] = {"last_date": last.get(src, "2026-09-16"),
+                         "new_run": 0, "total": 100}
+        return base
+
+    def names(self, status, today):
+        return [s["source"] for s in stale_sources(status, today)]
+
+    def test_business_days_since(self):
+        d = datetime.date
+        self.assertEqual(business_days_since(d(2026, 9, 16), d(2026, 9, 17)), 1)
+        self.assertEqual(business_days_since(d(2026, 9, 15), d(2026, 9, 17)), 2)
+        self.assertEqual(business_days_since(d(2026, 9, 18), d(2026, 9, 21)), 1)  # 주말 건너뜀
+        self.assertEqual(business_days_since(d(2026, 9, 17), d(2026, 9, 17)), 0)
+
+    def test_weekday_ok(self):
+        self.assertEqual(self.names(self.status(), datetime.date(2026, 9, 17)), [])
+
+    def test_weekday_stale(self):
+        # naver 는 월요일이 마지막(3영업일 공백) → 경보, hankyung 은 3영업일까지 봐준다
+        st = self.status(naver="2026-09-14", hankyung="2026-09-15")
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 17)), ["naver"])
+
+    def test_hankyung_has_longer_limit(self):
+        st = self.status(hankyung="2026-09-14")   # 3영업일 공백
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 17)), ["hankyung"])
+
+    def test_weekend_never_alerts(self):
+        st = self.status(naver="2026-09-10", kb="2026-09-01")
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 19)), [])  # 토
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 20)), [])  # 일
+
+    def test_monday_boundary(self):
+        # 월요일 아침: 금요일이 마지막이면 정상
+        st = self.status()
+        for k in st:
+            st[k]["last_date"] = "2026-09-18"
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 21)), [])
+        # 목요일이 마지막이면 금요일 하루가 통째로 비었으므로 경보
+        st["naver"]["last_date"] = "2026-09-17"
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 21)), ["naver"])
+
+    def test_missing_or_broken(self):
+        st = self.status()
+        st["naver"]["last_date"] = None
+        del st["kb"]                      # 항목 자체가 없으면 건너뛴다
+        self.assertEqual(self.names(st, datetime.date(2026, 9, 17)), ["naver"])
+        self.assertEqual(stale_sources(None, datetime.date(2026, 9, 17)), [])
 
 
 class TestSmallHelpers(unittest.TestCase):
