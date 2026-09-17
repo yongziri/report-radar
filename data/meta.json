@@ -1,5 +1,5 @@
 {
-"updated_at": "2026-09-17T11:29:05+09:00",
+"updated_at": "2026-09-17T11:39:36+09:00",
 "count": 2472,
 "latest_date": "2026-09-17",
 "brokers": [
@@ -36,7 +36,7 @@
 },
 "hankyung": {
 "last_date": "2026-09-17",
-"new_run": 1,
+"new_run": 0,
 "total": 223
 },
 "kb": {
