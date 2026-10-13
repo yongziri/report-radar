@@ -1,5 +1,5 @@
 {
-"updated_at": "2026-10-13T11:47:51+09:00",
+"updated_at": "2026-10-13T13:45:32+09:00",
 "count": 3181,
 "latest_date": "2026-10-13",
 "brokers": [
@@ -31,27 +31,27 @@
 "source_status": {
 "naver": {
 "last_date": "2026-10-13",
-"new_run": 37,
+"new_run": 0,
 "total": 2163
 },
 "hankyung": {
 "last_date": "2026-10-13",
-"new_run": 3,
+"new_run": 0,
 "total": 303
 },
 "kb": {
 "last_date": "2026-10-13",
-"new_run": 5,
+"new_run": 0,
 "total": 279
 },
 "nh": {
 "last_date": "2026-10-13",
-"new_run": 8,
+"new_run": 0,
 "total": 243
 },
 "kis": {
 "last_date": "2026-10-13",
-"new_run": 3,
+"new_run": 0,
 "total": 193
 }
 }
