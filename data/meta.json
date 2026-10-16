@@ -1,5 +1,5 @@
 {
-"updated_at": "2026-10-16T11:27:34+09:00",
+"updated_at": "2026-10-16T14:28:42+09:00",
 "count": 3371,
 "latest_date": "2026-10-16",
 "brokers": [
@@ -31,12 +31,12 @@
 "source_status": {
 "naver": {
 "last_date": "2026-10-16",
-"new_run": 18,
+"new_run": 0,
 "total": 2291
 },
 "hankyung": {
 "last_date": "2026-10-16",
-"new_run": 11,
+"new_run": 0,
 "total": 336
 },
 "kb": {
