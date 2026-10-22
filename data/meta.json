@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-10-22T09:20:57+09:00",
-"count": 3582,
+"updated_at": "2026-10-22T11:39:33+09:00",
+"count": 3603,
 "latest_date": "2026-10-22",
 "brokers": [
 "DS투자증권",
@@ -31,13 +31,13 @@
 "source_status": {
 "naver": {
 "last_date": "2026-10-22",
-"new_run": 27,
-"total": 2436
+"new_run": 19,
+"total": 2455
 },
 "hankyung": {
 "last_date": "2026-10-22",
-"new_run": 3,
-"total": 371
+"new_run": 2,
+"total": 373
 },
 "kb": {
 "last_date": "2026-10-21",
@@ -46,12 +46,12 @@
 },
 "nh": {
 "last_date": "2026-10-22",
-"new_run": 1,
+"new_run": 0,
 "total": 251
 },
 "kis": {
 "last_date": "2026-10-22",
-"new_run": 1,
+"new_run": 0,
 "total": 209
 }
 }
