@@ -161,6 +161,24 @@ def normalize_broker(name):
     return s
 
 
+def name_is_broker(name, broker, title=None):
+    """종목명이 곧 증권사명이고, 제목도 그 회사 얘기가 아니면 True.
+
+    증권사가 자기 회사 리포트를 내는 일은 사실상 없다. 원문이 종목 칸을 잘못 채운 것으로 본다.
+    제목에 종목명이 그대로 들어 있으면(공백 무시) 그 회사에 관한 글로 보고 False.
+    """
+    if not name or not broker:
+        return False
+    # 'LS'(LS증권)·'SK'(SK증권)·'현대차'(현대차증권)처럼 증권사 모회사 이름과 겹치는
+    # 종목이 많다. 종목명 자체가 증권사 이름 꼴('…증권'·'…금융투자')일 때만 본다.
+    if not re.search(r"증권|금융투자", str(name)):
+        return False
+    if normalize_broker(name) != normalize_broker(broker):
+        return False
+    squeeze = lambda v: re.sub(r"\s+", "", str(v or ""))
+    return squeeze(name) not in squeeze(title)
+
+
 # -------------------------------------------- 네이버 리서치 API 파서
 
 # 2026-09-14경 finance.naver.com의 리서치 페이지가 stock.naver.com으로 302 되면서
@@ -279,13 +297,19 @@ def parse_hankyung_list(html):
         if not code:
             continue
 
+        broker = cell_text[5] or ""
+        # 한경 원문 자체가 종목 자리에 증권사 자신을 적어 둔 행이 있다
+        # (예: '한화투자증권(003530) 3Q26 Preview: 메탈은 줄고 방산은 이연된 3분기',
+        #  첨부 파일명은 Poongsan). 진짜 종목을 알 길이 없으니 버린다.
+        if name_is_broker(name, broker, title):
+            continue
+
         # 적정가격 0은 '제시 안 함'이라는 뜻이다. 목표가 없음으로 둔다.
         target = to_int(cell_text[2])
         if target is not None and target <= 0:
             target = None
         rating_raw = cell_text[3] or None
         analyst = cell_text[4] or None
-        broker = cell_text[5] or ""
 
         pdf = None
         for a in tr.find_all("a", href=True):
@@ -316,17 +340,40 @@ def parse_hankyung_list(html):
 # --------------------------------------------- 본문에서 의견·목표가 뽑아내기
 
 # NH 요약문과 한국투자증권 상세 본문에는 의견·목표가 칸이 따로 없다. 문장에서 캔다.
+_RATING_WORDS = (r"(매수|중립|매도|비중확대|비중축소|Strong\s*Buy|Buy|Hold|Neutral|Sell|"
+                 r"Outperform|Underperform|Marketperform|Overweight|Underweight|Not\s*Rated|NR)")
 _OPINION_RE = re.compile(
-    r"투자의견\s*[:：]?\s*(?:을|를)?\s*['\"]?"
-    r"(매수|중립|매도|비중확대|비중축소|Strong\s*Buy|Buy|Hold|Neutral|Sell|"
-    r"Outperform|Underperform|Marketperform|Overweight|Underweight|Not\s*Rated|NR)",
-    re.IGNORECASE)
+    r"투자의견\s*[:：]?\s*(?:을|를)?\s*['\"]?" + _RATING_WORDS, re.IGNORECASE)
+# '투자의견 중립에서 매수로 상향'은 뒤쪽(바뀐 뒤) 의견이 맞다.
+_OPINION_TO_RE = re.compile(
+    r"['\"]?\s*(?:에서|→|->)\s*['\"]?" + _RATING_WORDS, re.IGNORECASE)
 _TARGET_WORD = re.compile(r"목표주가")
-_TARGET_NUM = re.compile(r"([\d,]+)\s*원")
+# '16만5,000원'·'16.5만원'·'44만원' 같은 만 단위 표기도 잡는다.
+# 예전에는 '([\d,]+)\s*원'만 봐서 '16만5,000원'을 5,000원으로 읽었다(NH 롯데웰푸드).
+_TARGET_NUM = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*만\s*(?:(\d[\d,]*)\s*)?원|(\d[\d,]*)\s*원")
 # '기존 170,000원', '기존 목표주가 50,000원'처럼 직전 목표가를 가리키는 숫자는 건너뛴다.
 _PREV_TARGET = re.compile(r"기존\s*(?:목표주가\s*(?:를|은|는|도)?\s*)?$")
+# '목표주가는 12개월 선행 EPS 3,898원에 …'처럼 주당 지표를 가리키는 숫자도 건너뛴다.
+# (한투 파마리서치·HL만도·한국타이어에서 EPS를 목표가로 읽었다)
+_PER_SHARE = re.compile(r"EPS|BPS|DPS|SPS|CPS|주당|순이익|배당금", re.IGNORECASE)
 # '목표주가' 뒤 이 글자 수 안에서만 금액을 찾는다. 너무 넓히면 본문 숫자를 물어 온다.
 _TARGET_WINDOW = 40
+# 주당 지표를 건너뛴 경우에는 그 숫자 뒤로 이만큼 더 본다
+# ('… EPS 3,898원에 멀티플 13.3배를 적용하여 52,000원을 제시').
+_TARGET_EXTEND = 90
+
+
+def _target_value(num):
+    """_TARGET_NUM 매치 -> 원 단위 정수. 못 읽으면 None."""
+    if num.group(1) is not None:
+        try:
+            man = float(num.group(1).replace(",", ""))
+        except ValueError:
+            return None
+        rest = to_int(num.group(2)) or 0
+        return int(round(man * 10000)) + rest
+    return to_int(num.group(3))
 
 
 def extract_opinion_from_text(text):
@@ -339,14 +386,28 @@ def extract_opinion_from_text(text):
     m = _OPINION_RE.search(s)
     if m:
         rating_raw = _WS.sub(" ", m.group(1)).strip()
+        to = _OPINION_TO_RE.match(s, m.end())
+        if to:
+            rating_raw = _WS.sub(" ", to.group(1)).strip()
 
     target = None
     for kw in _TARGET_WORD.finditer(s):
-        window = s[kw.end():kw.end() + _TARGET_WINDOW]
-        for num in _TARGET_NUM.finditer(window):
-            if _PREV_TARGET.search(s[:kw.end()] + window[:num.start()]):
+        pos = kw.end()
+        end = kw.end() + _TARGET_WINDOW
+        seg_start = kw.end()
+        while True:
+            num = _TARGET_NUM.search(s, pos, min(end, len(s)))
+            if num is None:
+                break
+            pos = num.end()
+            before = s[seg_start:num.start()]
+            seg_start = num.end()
+            if _PREV_TARGET.search(s[:num.start()]):
                 continue  # 기존 목표가는 건너뛰고 다음 금액을 본다
-            value = to_int(num.group(1))
+            if _PER_SHARE.search(before):
+                end = max(end, num.end() + _TARGET_EXTEND)
+                continue
+            value = _target_value(num)
             if value:
                 target = value
                 break

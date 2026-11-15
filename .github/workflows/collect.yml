@@ -39,6 +39,11 @@ jobs:
 
       - run: pip install -r scraper/requirements.txt
 
+      # 파서 테스트가 깨지면 수집하지 않고 잡을 실패시킨다(메일 알림).
+      # 배포 잡은 if: always() 라서 기존 데이터로 계속 배포된다.
+      - name: 수집기 파서 테스트
+        run: python scraper/test_parsers.py
+
       - name: 리포트 수집
         run: python scraper/collect.py
 
@@ -46,7 +51,8 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data
+          # -A: 지워진 파일(옛 v1 reports.json, 보관 기간이 지난 달 파일)도 함께 올린다
+          git add -A data
           # 바뀐 게 없으면 커밋을 건너뛴다 (빈 커밋으로 이력을 더럽히지 않는다)
           if git diff --cached --quiet; then
             echo "변경 없음 — 커밋 생략"
@@ -74,6 +80,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 화면 파서 테스트
+        run: node app/test_parsers.mjs
+
+      # 배포되는 index.html 은 늘 app/parts 에서 새로 조립한 것이다 (표준 라이브러리만 씀).
+      - name: 화면 빌드
+        run: python app/build.py
 
       - uses: actions/configure-pages@v5
         with:

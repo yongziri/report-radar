@@ -39,6 +39,9 @@ from parsers import (  # noqa: E402
     parse_price_payload,
     to_int,
 )
+from parsers import name_is_broker  # noqa: E402
+import normalize as norm  # noqa: E402
+import store  # noqa: E402
 from check_sources import (  # noqa: E402
     business_days_since,
     stale_sources,
@@ -816,6 +819,431 @@ class TestSourceStale(unittest.TestCase):
         del st["kb"]                      # 항목 자체가 없으면 건너뛴다
         self.assertEqual(self.names(st, datetime.date(2026, 9, 17)), ["naver"])
         self.assertEqual(stale_sources(None, datetime.date(2026, 9, 17)), [])
+
+
+# ------------------------------------------------- 2026-11 신뢰도·형식 v2
+
+# 한경 원문이 종목 칸에 증권사 자신을 적은 행 (2026-10-19 실측, 첨부 파일명은 Poongsan).
+HANKYUNG_SELF_HTML = """
+<html><body><table><tbody>
+  <tr>
+    <td class="first txt_number">2026-10-19</td>
+    <td class="text_l">
+      <a href="/analysis/downpdf?report_idx=653063" target="_blank">한화투자증권(003530) 3Q26 Preview: 메탈은 줄고 방산은 이연된 3분기 </a>
+      <div class="layerPop"><div id="content_653063" class="pop01 disNone">
+        <strong>한화투자증권(003530) 3Q26 Preview: 메탈은 줄고 방산은 이연된 3분기 </strong>
+      </div></div>
+    </td>
+    <td class="text_r txt_number">98,000</td>
+    <td>\r\nBuy                                </td>
+    <td>권지우</td>
+    <td>한화투자증권</td>
+    <td><div class="dv_input"><a class="chart_btn" href="/chart/view_frame?report_type=CO&amp;business_code=003530"><img alt="차트"/></a></div></td>
+    <td><div class="dv_input"><a href="/analysis/downpdf?report_idx=653063" title="261018_Poongsan 3Q26 Preview v1.0(1).pdf"><img alt="p.pdf"/></a></div></td>
+  </tr>
+  <tr>
+    <td class="first txt_number">2026-10-19</td>
+    <td class="text_l"><a href="/analysis/downpdf?report_idx=653070">대신증권(003540) 대신증권, 배당 확대 기대</a></td>
+    <td class="text_r txt_number">30,000</td><td>Buy</td><td>김애널</td><td>LS증권</td>
+    <td><a class="chart_btn" href="/chart/view_frame?report_type=CO&amp;business_code=003540">차트</a></td>
+  </tr>
+</tbody></table></body></html>
+"""
+
+
+class TestHankyungNameIsBroker(unittest.TestCase):
+    def test_self_row_dropped(self):
+        rows = parse_hankyung_list(HANKYUNG_SELF_HTML)
+        # 한화투자증권이 낸 '한화투자증권' 리포트(실제로는 풍산)는 버리고,
+        # 다른 증권사가 낸 대신증권 리포트는 남긴다
+        self.assertEqual([r["code"] for r in rows], ["003540"])
+
+    def test_name_is_broker(self):
+        self.assertTrue(name_is_broker("한화투자증권", "한화투자증권", "3Q26 Preview: 메탈은 줄고"))
+        self.assertTrue(name_is_broker("대신증권", "대신 증권", "Qlex 판매 확대와 신규 계약 효과 확인"))
+        # 제목이 그 회사 얘기면 정상
+        self.assertFalse(name_is_broker("대신증권", "대신증권", "대신증권 3Q 리뷰"))
+        # 증권사 모회사와 이름이 겹치는 일반 종목은 해당 없음
+        self.assertFalse(name_is_broker("LS", "LS증권", "보수적으로 봐도 주가 상승여력 충분"))
+        self.assertFalse(name_is_broker("SK", "SK증권", "실적개선과 주주환원"))
+        self.assertFalse(name_is_broker("현대차", "현대차증권", "CID 2026"))
+        self.assertFalse(name_is_broker(None, "KB증권", "x"))
+
+    def test_normalize_drops_hankyung_flags_others(self):
+        recs = [
+            {"id": "hankyung:1", "source": "hankyung", "name": "한화투자증권",
+             "broker": "한화투자증권", "title": "다시 늘어나는 미수금"},
+            {"id": "naver:1", "source": "naver", "name": "한화투자증권",
+             "broker": "한화투자증권", "title": "다시 늘어나는 미수금"},
+            {"id": "naver:2", "source": "naver", "name": "삼성전자",
+             "broker": "한화투자증권", "title": "x", "suspect": "name_is_broker"},
+        ]
+        out, dropped, flagged = norm.drop_or_flag_name_is_broker(recs)
+        self.assertEqual((dropped, flagged), (1, 1))
+        self.assertEqual([r["id"] for r in out], ["naver:1", "naver:2"])
+        self.assertEqual(out[0]["suspect"], "name_is_broker")
+        self.assertNotIn("suspect", out[1])  # 더 이상 해당하지 않으면 지운다
+
+
+class TestTargetExtractionFixes(unittest.TestCase):
+    """2026-11 실측 오파싱 사례."""
+
+    def test_man_unit(self):
+        # NH 롯데웰푸드: 예전엔 5,000원으로 읽었다
+        self.assertEqual(
+            extract_opinion_from_text("투자의견 Buy 및 목표주가 16만5,000원 유지."),
+            ("Buy", 165000))
+        self.assertEqual(extract_opinion_from_text("목표주가 16.5만원으로 상향")[1], 165000)
+        self.assertEqual(extract_opinion_from_text("목표주가 9만원 유지")[1], 90000)
+
+    def test_eps_is_not_target(self):
+        # 한투 파마리서치: '44만원(12MF EPS 23,068원 …)' → 44만원
+        self.assertEqual(extract_opinion_from_text(
+            "목표주가를 44만원(12MF EPS 23,068원, Target PER 19.2배)으로 하향")[1], 440000)
+        # 한투 한국타이어: '목표주가는 12개월 선행 EPS 추정치 10,718원에 …' → 앞의 9만원
+        self.assertEqual(extract_opinion_from_text(
+            "투자의견 매수와 목표주가 9만원을 유지한다. 목표주가는 12개월 선행 EPS 추정치 "
+            "10,718원에 P/E 멀티플 8.7배를 적용한 값이다.")[1], 90000)
+
+    def test_eps_skipped_then_target_found(self):
+        # 한투 HL만도: EPS 3,898원은 건너뛰고 뒤의 52,000원
+        self.assertEqual(extract_opinion_from_text(
+            "목표주가는 12개월 예상 선행 EPS 3,898원에 글로벌 경쟁사 평균 멀티플 11.1배를 "
+            "적용하고, 액추에이터 사업 진출 가치를 반영해 20% 할증한 13.3배를 적용하여 "
+            "52,000원을 제시한다")[1], 52000)
+
+    def test_eps_only_gives_none(self):
+        self.assertIsNone(extract_opinion_from_text("목표주가 산정 기준 EPS 3,898원")[1])
+
+    def test_rating_change_takes_new_one(self):
+        self.assertEqual(extract_opinion_from_text("투자의견 중립에서 매수로 상향한다")[0], "매수")
+        self.assertEqual(extract_opinion_from_text("투자의견 Hold → Buy 상향")[0], "Buy")
+
+    def test_reparse_nh_targets(self):
+        recs = [
+            {"id": "nh:1", "source": "nh", "target": 5000,
+             "summary": "투자의견 Buy 및 목표주가 16만5,000원 유지."},
+            {"id": "nh:2", "source": "nh", "target": 70000,
+             "summary": "요약이 잘려서 목표가가 안 보인다"},
+            {"id": "kb:1", "source": "kb", "target": 5000,
+             "summary": "목표주가 16만5,000원"},
+        ]
+        self.assertEqual(norm.reparse_nh_targets(recs), 1)
+        self.assertEqual([r["target"] for r in recs], [165000, 70000, 5000])
+
+
+def _rec(rid, source, title, **kw):
+    base = {"id": rid, "source": source, "code": "005930", "date": "2026-11-10",
+            "broker": "하나증권", "title": title, "analyst": None, "target": None,
+            "rating_raw": None, "summary": None, "pdf": None}
+    base.update(kw)
+    return base
+
+
+class TestDedupe(unittest.TestCase):
+    def ids(self, records):
+        return sorted(r["id"] for r in records)
+
+    def test_same_title_whitespace_merged_and_filled(self):
+        recs = [
+            _rec("hankyung:2", "hankyung", "실적둔화에도 견조한 보유 CSM 순증",
+                 analyst="김애널", pdf="hk.pdf", target=750000),
+            _rec("naver:1", "naver", "실적 둔화에도 견조한 보유 CSM 순증",
+                 broker="하나 증권", rating_raw="매수", summary="요약"),
+        ]
+        out, merged = norm.dedupe_records(recs)
+        self.assertEqual(merged, 1)
+        self.assertEqual(len(out), 1)
+        keep = out[0]
+        self.assertEqual(keep["id"], "naver:1")            # 네이버 우선
+        self.assertEqual(keep["analyst"], "김애널")         # 빈 칸은 채운다
+        self.assertEqual(keep["target"], 750000)
+        self.assertEqual(keep["pdf"], "hk.pdf")
+        self.assertEqual(keep["summary"], "요약")           # 있는 값은 그대로
+
+    def test_same_source_different_titles_kept(self):
+        recs = [
+            _rec("kb:1", "kb", "아이온2 흥행 확인, 다음 모멘텀을 기다리며", target=380000),
+            _rec("kb:2", "kb", "3Q26 실적 및 컨퍼런스 콜 요약", target=440000),
+        ]
+        out, merged = norm.dedupe_records(recs)
+        self.assertEqual(merged, 0)
+        self.assertEqual(self.ids(out), ["kb:1", "kb:2"])
+
+    def test_cross_source_different_titles_kept_unless_hankyung(self):
+        recs = [_rec("naver:1", "naver", "3Q 리뷰"), _rec("kis:1", "kis", "컨퍼런스콜 요약")]
+        self.assertEqual(norm.dedupe_records(recs)[1], 0)
+        recs = [_rec("naver:1", "naver", "3Q26 Review: 기대치 하회. 장기 전망 유지"),
+                _rec("hankyung:1", "hankyung", "3Q26 Review: 기대치 하회 (수정)",
+                     analyst="박애널")]
+        out, merged = norm.dedupe_records(recs)
+        self.assertEqual((merged, self.ids(out)), (1, ["naver:1"]))
+        self.assertEqual(out[0]["analyst"], "박애널")
+
+    def test_hankyung_attaches_to_most_similar(self):
+        recs = [
+            _rec("naver:1", "naver", "2026년 3분기 컨퍼런스콜 요약"),
+            _rec("naver:2", "naver", "3Q 실적 부진, 하지만 매수로 대응해야"),
+            _rec("hankyung:1", "hankyung", "3Q 실적 부진 하지만 매수로 대응", analyst="한"),
+        ]
+        out, merged = norm.dedupe_records(recs)
+        self.assertEqual(merged, 1)
+        by_id = {r["id"]: r for r in out}
+        self.assertEqual(sorted(by_id), ["naver:1", "naver:2"])
+        self.assertEqual(by_id["naver:2"]["analyst"], "한")
+        self.assertIsNone(by_id["naver:1"]["analyst"])
+
+    def test_hankyung_pair_different_titles_kept(self):
+        recs = [_rec("hankyung:1", "hankyung", "바이오 부문 감익 불구"),
+                _rec("hankyung:2", "hankyung", "기다려지는 미래")]
+        self.assertEqual(norm.dedupe_records(recs)[1], 0)
+
+    def test_truncated_title_and_more_complete_kept(self):
+        recs = [
+            _rec("naver:98033", "naver", "3Q26 Review: 계절성 사라진 역대급 실적"),
+            _rec("naver:98113", "naver", "3Q26 Review: 계절성 사라진 역대급 실적",
+                 target=390000, rating_raw="매수"),
+            _rec("naver:95894", "naver", "악재 충분히 반영한 주가, 다시 내일을 논하..",
+                 date="2026-09-01"),
+            _rec("naver:95886", "naver", "악재 충분히 반영한 주가, 다시 내일을 논하다",
+                 date="2026-09-01", target=55000),
+        ]
+        out, merged = norm.dedupe_records(recs)
+        self.assertEqual(merged, 2)
+        self.assertEqual(self.ids(out), ["naver:95886", "naver:98113"])
+
+    def test_different_key_not_merged(self):
+        recs = [_rec("naver:1", "naver", "같은 제목"),
+                _rec("naver:2", "naver", "같은 제목", date="2026-11-11"),
+                _rec("naver:3", "naver", "같은 제목", broker="KB증권")]
+        self.assertEqual(norm.dedupe_records(recs)[1], 0)
+
+    def test_idempotent(self):
+        recs = [
+            _rec("hankyung:2", "hankyung", "A B", analyst="김"),
+            _rec("naver:1", "naver", "AB"),
+            _rec("kb:1", "kb", "다른 리포트"),
+        ]
+        once, m1 = norm.dedupe_records(recs)
+        twice, m2 = norm.dedupe_records([dict(r) for r in once])
+        self.assertEqual(m1, 1)
+        self.assertEqual(m2, 0)
+        self.assertEqual(once, twice)
+
+
+class TestRatingInference(unittest.TestCase):
+    def test_inherits_most_recent_prior(self):
+        recs = [
+            {"id": "a", "code": "1", "broker": "KB증권", "date": "2026-08-01", "target": 100, "rating": "HOLD"},
+            {"id": "b", "code": "1", "broker": "KB 증권", "date": "2026-09-01", "target": 110, "rating": "BUY"},
+            {"id": "c", "code": "1", "broker": "KB증권", "date": "2026-10-01", "target": 120, "rating": "NR"},
+            # 같은 날 건은 '직전'이 아니다
+            {"id": "d", "code": "2", "broker": "KB증권", "date": "2026-10-01", "target": 50, "rating": "NR"},
+            {"id": "e", "code": "2", "broker": "KB증권", "date": "2026-10-01", "target": 50, "rating": "BUY"},
+            # 목표가가 없으면 승계하지 않는다
+            {"id": "f", "code": "1", "broker": "KB증권", "date": "2026-10-02", "target": None, "rating": "NR"},
+            # 다른 증권사의 의견은 쓰지 않는다
+            {"id": "g", "code": "1", "broker": "NH투자증권", "date": "2026-10-03", "target": 90, "rating": "NR"},
+        ]
+        self.assertEqual(norm.infer_ratings(recs), 1)
+        by_id = {r["id"]: r for r in recs}
+        self.assertEqual(by_id["c"]["rating"], "BUY")
+        self.assertTrue(by_id["c"]["rating_inferred"])
+        for rid in ("a", "b", "d", "e", "f", "g"):
+            self.assertNotIn("rating_inferred", by_id[rid], rid)
+        self.assertEqual(by_id["d"]["rating"], "NR")
+        self.assertEqual(by_id["g"]["rating"], "NR")
+
+    def test_rerun_is_stable(self):
+        recs = [
+            {"id": "a", "code": "1", "broker": "X", "date": "2026-08-01", "target": 1, "rating_raw": "매수"},
+            {"id": "b", "code": "1", "broker": "X", "date": "2026-09-01", "target": 1, "rating_raw": None},
+        ]
+        for _ in range(2):
+            norm.renormalize_ratings(recs)
+            self.assertEqual(norm.infer_ratings(recs), 1)
+        self.assertEqual(recs[1]["rating"], "BUY")
+
+
+class TestTargetRange(unittest.TestCase):
+    def recs(self):
+        return [
+            # 본인 price_at_write 기준: 5,000 / 126,900 → 범위 밖
+            {"id": "nh:1", "code": "280360", "date": "2026-11-10", "target": 5000,
+             "price_at_write": 126900},
+            # 기준가가 없으면 같은 종목 인접일 리포트의 price_at_write
+            {"id": "kb:1", "code": "011070", "date": "2026-11-09", "target": 2000000},
+            {"id": "naver:1", "code": "011070", "date": "2026-11-12", "target": 900000,
+             "price_at_write": 600000},
+            # 그것도 없으면 현재가
+            {"id": "kis:1", "code": "204320", "date": "2026-07-31", "target": 52000},
+            {"id": "kis:2", "code": "204320", "date": "2026-07-31", "target": 3898},
+            # 목표가 없음 → 판정 안 함
+            {"id": "x", "code": "204320", "date": "2026-07-31", "target": None},
+            # 종목명=증권사 표시는 그대로 둔다
+            {"id": "y", "code": "003530", "date": "2026-07-31", "target": 1,
+             "suspect": "name_is_broker", "price_at_write": 1000},
+        ]
+
+    def test_flags(self):
+        recs = self.recs()
+        ids = {r["id"] for r in recs}
+        stats = norm.evaluate_target_range(recs, ids, {"204320": 34750})
+        by_id = {r["id"]: r for r in recs}
+        self.assertEqual(by_id["nh:1"].get("suspect"), "target_range")
+        self.assertEqual(by_id["kb:1"].get("suspect"), "target_range")   # 2,000,000/600,000
+        self.assertNotIn("suspect", by_id["naver:1"])
+        self.assertNotIn("suspect", by_id["kis:1"])
+        self.assertEqual(by_id["kis:2"].get("suspect"), "target_range")
+        self.assertNotIn("suspect", by_id["x"])
+        self.assertEqual(by_id["y"]["suspect"], "name_is_broker")
+        self.assertEqual(stats["flagged"], 3)
+        self.assertEqual((stats["own"], stats["near"], stats["current"]), (2, 1, 2))
+
+    def test_only_listed_ids_evaluated(self):
+        recs = self.recs()
+        # 이미 판정된 건은 다시 보지 않는다 (주가가 움직여도 결과 유지)
+        recs[3]["suspect"] = "target_range"
+        norm.evaluate_target_range(recs, {"nh:1"}, {"204320": 999999999})
+        self.assertEqual(recs[3]["suspect"], "target_range")
+        self.assertNotIn("suspect", recs[4])
+        # 목표가가 바뀌어 다시 판정하면 풀린다
+        norm.evaluate_target_range(recs, {"kis:1"}, {"204320": 34750})
+        self.assertNotIn("suspect", recs[3])
+
+
+class TestStoreV2(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.layout = store.Layout(self.tmp)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def records(self):
+        return [
+            {"id": "naver:2", "source": "naver", "date": "2026-11-03", "code": "005930",
+             "name": "삼성전자", "title": "B", "broker": "하나증권", "rating": "BUY",
+             "rating_raw": "매수", "target": 300000, "summary": "요약 B", "views": 3,
+             "suspect": "target_range"},
+            {"id": "kb:1", "source": "kb", "date": "2026-10-30", "code": "000660",
+             "name": "SK하이닉스", "title": "A", "broker": "KB증권", "rating": "BUY",
+             "rating_raw": None, "target": 100, "summary": None, "rating_inferred": True},
+            {"id": "naver:3", "source": "naver", "date": "2026-11-03", "code": "000660",
+             "name": "SK하이닉스", "title": "C", "broker": "DS투자증권", "rating": "NR",
+             "summary": "요약 C", "detail_tries": 0},
+        ]
+
+    def save(self, records, prices=None):
+        meta_base = {"updated_at": "2026-11-15T10:00:00+09:00", "count": len(records)}
+        return store.save_v2(self.layout, [dict(r) for r in records],
+                             prices or {"005930": {"p": 209000, "d": "2026-11-14"}},
+                             meta_base, "2026-11-15T10:00:00+09:00")
+
+    def read(self, path):
+        with open(path, "rb") as f:
+            return f.read()
+
+    def test_month_split_and_fields(self):
+        import json as _json
+        _, meta = self.save(self.records())
+        self.assertEqual(meta["data_version"], 2)
+        self.assertEqual([m["month"] for m in meta["months"]], ["2026-11", "2026-10"])
+        self.assertEqual([m["count"] for m in meta["months"]], [2, 1])
+        nov = _json.loads(self.read(self.layout.month_path("2026-11")).decode("utf-8"))
+        self.assertEqual([r["id"] for r in nov], ["naver:3", "naver:2"])  # 날짜·id 내림차순
+        self.assertEqual(list(nov[1].keys())[:20], list(store.RECORD_FIELDS))
+        for gone in ("summary", "price", "price_date", "gap", "detail_tries"):
+            self.assertNotIn(gone, nov[0])
+        self.assertTrue(nov[1]["has_summary"])
+        self.assertEqual(nov[1]["suspect"], "target_range")
+        oct_ = _json.loads(self.read(self.layout.month_path("2026-10")).decode("utf-8"))
+        self.assertTrue(oct_[0]["rating_inferred"])
+        self.assertNotIn("has_summary", oct_[0])
+        sums = _json.loads(self.read(self.layout.summary_path("2026-11")).decode("utf-8"))
+        self.assertEqual(sums, {"naver:3": "요약 C", "naver:2": "요약 B"})
+        self.assertEqual(self.read(self.layout.summary_path("2026-10")), b"{}\n")
+        prices = _json.loads(self.read(self.layout.prices_path).decode("utf-8"))
+        self.assertEqual(prices["prices"]["005930"], {"p": 209000, "d": "2026-11-14"})
+        meta_file = _json.loads(self.read(self.layout.meta_path).decode("utf-8"))
+        self.assertEqual(meta_file["months"][0]["v"],
+                         store.content_version(self.read(self.layout.month_path("2026-11"))))
+        self.assertEqual(meta_file["months"][0]["sv"],
+                         store.content_version(self.read(self.layout.summary_path("2026-11"))))
+        self.assertEqual(meta_file["prices_v"],
+                         store.content_version(self.read(self.layout.prices_path)))
+        self.assertEqual(len(meta_file["months"][0]["v"]), 10)
+
+    def test_stable_bytes_and_untouched_files(self):
+        self.save(self.records())
+        first = {p: self.read(p) for p in (self.layout.month_path("2026-11"),
+                                           self.layout.month_path("2026-10"),
+                                           self.layout.summary_path("2026-11"),
+                                           self.layout.meta_path)}
+        # 순서를 뒤섞어 다시 저장해도 같은 바이트, 바뀐 파일 없음
+        changed, _ = self.save(list(reversed(self.records())))
+        self.assertEqual(changed, [])
+        for path, data in first.items():
+            self.assertEqual(self.read(path), data)
+        # 11월 건 하나만 바꾸면 11월 파일과 meta만 바뀐다
+        recs = self.records()
+        recs[0]["target"] = 310000
+        changed, _ = self.save(recs)
+        self.assertEqual(sorted(os.path.basename(p) for p in changed),
+                         ["2026-11.json", "meta.json"])
+
+    def test_load_roundtrip(self):
+        self.save(self.records())
+        loaded = {r["id"]: r for r in store.load_v2(self.layout)}
+        self.assertEqual(loaded["naver:2"]["summary"], "요약 B")
+        self.assertIsNone(loaded["kb:1"]["summary"])
+        self.assertNotIn("has_summary", loaded["naver:2"])
+        self.assertTrue(self.layout.is_v2())
+
+    def test_old_months_removed(self):
+        self.save(self.records())
+        recs = [r for r in self.records() if r["date"] >= "2026-11"]
+        changed, meta = self.save(recs)
+        self.assertFalse(os.path.exists(self.layout.month_path("2026-10")))
+        self.assertFalse(os.path.exists(self.layout.summary_path("2026-10")))
+        self.assertEqual([m["month"] for m in meta["months"]], ["2026-11"])
+
+    def test_month_cutoff(self):
+        self.assertEqual(norm.month_cutoff(datetime.date(2026, 11, 15), 730), "2024-11")
+
+    def test_v1_migration(self):
+        import json as _json
+        v1 = []
+        for r in self.records():
+            r = dict(r)
+            r.pop("suspect", None)
+            r.pop("rating_inferred", None)
+            r.update({"price": 1000, "price_date": "2026-11-14", "gap": 1.0})
+            v1.append(r)
+        # 같은 리포트가 한경에도 있는 v1 중복
+        v1.append({"id": "hankyung:9", "source": "hankyung", "date": "2026-11-03",
+                   "code": "005930", "name": "삼성전자", "title": "B ", "broker": "하나 증권",
+                   "analyst": "홍길동", "target": 300000, "price": 209000,
+                   "price_date": "2026-11-14", "gap": 43.5})
+        with open(self.layout.v1_path, "w", encoding="utf-8") as f:
+            _json.dump(v1, f, ensure_ascii=False)
+        self.assertFalse(self.layout.is_v2())
+
+        records, prices = store.load_v1(self.layout)
+        self.assertEqual(len(records), 4)
+        self.assertNotIn("price", records[0])
+        self.assertEqual(prices["005930"], {"p": 209000, "d": "2026-11-14"})
+        records, merged = norm.dedupe_records(records)
+        self.assertEqual(merged, 1)
+        _, meta = self.save(records, prices)
+        self.assertFalse(os.path.exists(self.layout.v1_path))   # v1은 지운다
+        self.assertTrue(self.layout.is_v2())
+        self.assertEqual(sum(m["count"] for m in meta["months"]), 3)
+        loaded = {r["id"]: r for r in store.load_v2(self.layout)}
+        self.assertEqual(loaded["naver:2"]["analyst"], "홍길동")
+        self.assertNotIn("hankyung:9", loaded)
 
 
 class TestSmallHelpers(unittest.TestCase):

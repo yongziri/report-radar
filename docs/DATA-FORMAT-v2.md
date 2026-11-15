@@ -35,7 +35,8 @@ v1은 `data/reports.json` 한 파일(전체 레코드 배열, 요약·현재가 
   - `suspect`: 문자열. 값이 의심스러운 이유. 예 `"target_range"`(목표가가 기준가의 0.3~3배 밖), `"name_is_broker"`. 앱은 이 레코드를 통계에서 빼고 "확인 필요"로 표시한다.
   - `rating_inferred`: `true`면 원문에 의견이 없어 같은 종목+증권사의 직전 의견을 이어받은 것.
   - `has_summary`: `true`면 summaries 파일에 요약이 있다.
-- 같은 (code, date, 정규화한 broker)는 한 건만 존재한다.
+- 같은 (code, date, 정규화한 broker, 공백·문장부호를 뗀 title)은 한 건만 존재한다. 같은 증권사가 같은 날 같은 종목에 제목이 다른 리포트를 두 건 내는 경우(실적 리뷰 + 컨퍼런스콜 요약 등)는 둘 다 둔다.
+  - `detail_tries`: 수집기 내부용. 상세 재요청 실패 횟수(3회면 포기). 앱은 무시한다.
 
 ### `data/summaries/YYYY-MM.json`
 `{ "<id>": "<요약 본문>" }`. 앱은 그 달의 행을 처음 펼칠 때 받는다.

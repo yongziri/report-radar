@@ -3,13 +3,16 @@
 네이버 증권 리서치 API(종목분석)를 1차 소스로 리포트를 모으고,
 네이버에 잘 올라오지 않는 KB증권·NH투자증권·한국투자증권은 각 사 사이트에서 직접 긁는다.
 현재가는 네이버 실시간 시세로, 애널리스트명은 한경 컨센서스로 보강한다.
-결과는 data/reports.json (최근 180일 누적), data/meta.json 으로 저장한다.
+결과는 형식 v2(docs/DATA-FORMAT-v2.md)로 저장한다: data/reports/YYYY-MM.json(월별 리포트,
+최근 730일), data/summaries/YYYY-MM.json(요약), data/prices.json(현재가), data/meta.json.
+v1 data/reports.json 이 남아 있으면 처음 실행 때 읽어서 v2로 옮기고 지운다.
 
 사용 예:
     python scraper/collect.py                 # 최근 3일 + 가격 갱신
     python scraper/collect.py --days 45       # 초기 백필
     python scraper/collect.py --from 2026-08-01 --to 2026-08-31
     python scraper/collect.py --dry-run --no-hankyung --no-brokers
+    python scraper/collect.py --migrate-only     # 네트워크 없이 v1→v2 이전·정규화만
 """
 
 import argparse
@@ -32,13 +35,13 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import brokers  # noqa: E402
+import normalize as norm  # noqa: E402
 import sectors as sector_mod  # noqa: E402
+import store  # noqa: E402
 from parsers import (  # noqa: E402
     apply_target_changes,
-    compute_gap,
     normalize_broker,
     normalize_date,
-    normalize_rating,
     parse_hankyung_list,
     parse_naver_api_detail,
     parse_naver_api_list,
@@ -46,15 +49,17 @@ from parsers import (  # noqa: E402
 )
 
 KST = timezone(timedelta(hours=9))
-RETENTION_DAYS = 180
+RETENTION_DAYS = 730  # 달 단위로 지운다 (보관 시작일이 속한 달까지 남긴다)
+# 상세에서 의견·목표가를 못 뽑은 건은 이 횟수까지만 다시 요청한다.
+# 원래 의견이 없는 리포트가 매 실행 재요청되던 것을 막는다.
+MAX_DETAIL_TRIES = 3
 REQUEST_GAP = 0.4
 TIMEOUT = 15
 RETRIES = 2
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "data")
-REPORTS_PATH = os.path.join(DATA_DIR, "reports.json")
-META_PATH = os.path.join(DATA_DIR, "meta.json")
+LAYOUT = store.Layout(DATA_DIR)
 SECTORS_PATH = os.path.join(DATA_DIR, "sectors.json")
 
 # meta.json 의 source_status 에 항상 넣어 두는 소스. 한 소스가 통째로 사라져도
@@ -145,15 +150,18 @@ def fetch_json(session, url, params=None, referer=None):
 # ------------------------------------------------------------ 저장 / 불러오기
 
 def load_reports():
-    if not os.path.exists(REPORTS_PATH):
-        return []
-    try:
-        with open(REPORTS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception as exc:
-        log("  ! 기존 reports.json을 읽지 못했습니다 (%s). 빈 목록으로 시작합니다." % exc)
-        return []
+    """(레코드, 이전 가격 {code: {p, d}}, v1에서 옮기는 중인지).
+
+    data/reports/ 에 월별 파일이 있으면 v2로 읽는다. 없고 v1 reports.json이 있으면
+    v1을 읽고 migrating=True를 돌려준다 (저장할 때 v2로 쓰고 v1 파일을 지운다).
+    """
+    if LAYOUT.is_v2():
+        return store.load_v2(LAYOUT), store.load_prices(LAYOUT), False
+    if os.path.exists(LAYOUT.v1_path):
+        records, prices = store.load_v1(LAYOUT)
+        log("v1 reports.json %d건을 읽었습니다 — 이번 실행에서 v2로 옮깁니다." % len(records))
+        return records, prices, True
+    return [], {}, False
 
 
 def load_sectors():
@@ -434,6 +442,10 @@ def parse_args(argv=None):
     p.add_argument("--refresh-sectors", action="store_true",
                    help="업종 분류를 강제로 다시 수집 (기본은 7일마다)")
     p.add_argument("--dry-run", action="store_true", help="저장하지 않고 요약만 출력")
+    p.add_argument("--migrate-only", action="store_true",
+                   help="네트워크 수집 없이 저장된 데이터의 v1→v2 이전·정규화만 한다")
+    p.add_argument("--refetch-kis", action="store_true",
+                   help="저장된 한투 리포트 전부의 상세를 다시 받아 의견·목표가를 다시 읽는다")
     return p.parse_args(argv)
 
 
@@ -470,35 +482,59 @@ def build_source_status(records, before_ids):
     return status
 
 
+def note_detail_result(records):
+    """상세를 시도한 건의 재시도 횟수를 갱신한다. 의견을 얻었으면 횟수를 지운다."""
+    for rec in records:
+        if rec.get("rating_raw") is None:
+            rec["detail_tries"] = int(rec.get("detail_tries") or 0) + 1
+        else:
+            rec.pop("detail_tries", None)
+
+
+def can_retry(rec):
+    return int(rec.get("detail_tries") or 0) < MAX_DETAIL_TRIES
+
+
 def main(argv=None):
     args = parse_args(argv)
     now = datetime.now(KST)
     today = now.date()
     date_from, date_to = resolve_range(args, today)
+    if args.migrate_only:
+        args.no_hankyung = args.no_brokers = args.no_price = True
 
-    log("리포트 레이더 수집 시작 — 범위 %s ~ %s (KST %s)"
-        % (date_from, date_to, now.strftime("%Y-%m-%d %H:%M")))
+    log("리포트 레이더 수집 시작 — 범위 %s ~ %s (KST %s)%s"
+        % (date_from, date_to, now.strftime("%Y-%m-%d %H:%M"),
+           " [--migrate-only: 수집 없이 이전·정규화만]" if args.migrate_only else ""))
 
     session = make_session()
 
-    fetched = collect_naver(session, date_from, date_to)
-    if fetched is None:
-        log("네이버 목록을 한 건도 받지 못했습니다. 중단합니다.")
-        return 1
-    log("네이버 목록 %d건" % len(fetched))
-
-    sector_data = resolve_sectors(session, args, now)
-
-    existing = load_reports()
+    existing, old_prices, migrating = load_reports()
     existing_ids = {r.get("id") for r in existing}
+    # 목표가 범위 판정은 건마다 한 번만 한다. 이번 실행에서 새로 생긴 건과
+    # 목표가가 바뀐 건만 다시 보려고 불러온 시점의 목표가를 적어 둔다.
+    target_before = {r.get("id"): r.get("target") for r in existing}
+
+    if args.migrate_only:
+        fetched = []
+        sector_data = load_sectors()
+    else:
+        fetched = collect_naver(session, date_from, date_to)
+        if fetched is None:
+            log("네이버 목록을 한 건도 받지 못했습니다. 중단합니다.")
+            return 1
+        log("네이버 목록 %d건" % len(fetched))
+        sector_data = resolve_sectors(session, args, now)
+
     new_records = [r for r in fetched if r["id"] not in existing_ids]
 
     # 이전 실행에서 상세를 못 받은 네이버 건(rating_raw가 없음)은 이번 범위 안이면 다시 시도한다.
+    # 원래 의견이 없는 리포트도 있으므로 MAX_DETAIL_TRIES번까지만.
     retry_records = []
-    for rec in existing:
+    for rec in existing if not args.migrate_only else []:
         if rec.get("source") != "naver" or rec.get("rating_raw") is not None:
             continue
-        if not (date_from <= (rec.get("date") or "") <= date_to):
+        if not (date_from <= (rec.get("date") or "") <= date_to) or not can_retry(rec):
             continue
         nid = str(rec.get("id") or "").split(":", 1)[-1]
         if not nid.isdigit():
@@ -514,6 +550,7 @@ def main(argv=None):
     if detail_targets:
         log("상세 수집 중...")
         _, detail_fail = enrich_detail(session, detail_targets)
+        note_detail_result(detail_targets)
     for rec in retry_records:
         rec.pop("nid", None)
 
@@ -528,6 +565,14 @@ def main(argv=None):
 
     records = list(merged.values())
 
+    # 한투 상세를 저장된 전체 건에 대해 다시 읽는다 (추출 규칙을 고친 뒤 한 번 돌리는 용도).
+    if args.refetch_kis:
+        kis_all = [r for r in records if r.get("source") == "kis"]
+        log("한투 상세 다시 읽기 %d건" % len(kis_all))
+        brokers.enrich_kis(session, kis_all, overwrite=True)
+        for rec in kis_all:
+            rec.pop("detail_tries", None)
+
     # 증권사 직접 수집(KB·NH·한투). 네이버 다음, 한경보다 위 우선순위다.
     if not args.no_brokers:
         # NH·한투는 건별로 요약/상세를 한 번 더 받아야 해서, 이미 저장된 id는 건너뛴다.
@@ -539,6 +584,8 @@ def main(argv=None):
         kis_rows = brokers.collect_kis(session, date_from, date_to, known_ids=known_ids)
         log("한국투자증권 %d건" % len(kis_rows))
         broker_rows = kb_rows + nh_rows + kis_rows
+        # 이번에 처음 요약·상세를 받은 nh/kis 건은 첫 시도로 센다.
+        note_detail_result([r for r in nh_rows + kis_rows if r["id"] not in known_ids])
 
         if broker_rows:
             in_range = [r for r in records
@@ -557,11 +604,12 @@ def main(argv=None):
         for source, enrich in (("nh", brokers.enrich_nh), ("kis", brokers.enrich_kis)):
             retry = [r for r in records
                      if r.get("source") == source and r.get("rating_raw") is None
-                     and r.get("id") not in fetched_ids
+                     and r.get("id") not in fetched_ids and can_retry(r)
                      and date_from <= (r.get("date") or "") <= date_to]
             if retry:
                 log("%s 의견 재시도 %d건" % (source, len(retry)))
                 enrich(session, retry)
+                note_detail_result(retry)
 
     # 한경 보강. 이번 수집 범위에 해당하는 레코드에만 애널리스트명을 채운다.
     if not args.no_hankyung:
@@ -580,17 +628,20 @@ def main(argv=None):
         except Exception as exc:
             log("  ! 한경 보강 실패 (무시하고 진행): %s" % exc)
 
-    # 보관 기간 정리
-    cutoff = (today - timedelta(days=RETENTION_DAYS)).isoformat()
+    # v1에서 옮길 때 한 번: NH 목표가를 저장된 요약에서 고친 규칙으로 다시 읽는다.
+    if migrating:
+        fixed = norm.reparse_nh_targets(records)
+        log("NH 목표가 재추출로 바로잡은 건 %d건" % fixed)
+
+    # 보관 기간 정리 (달 단위)
+    cutoff_month = norm.month_cutoff(today, RETENTION_DAYS)
     before = len(records)
-    records = [r for r in records if (r.get("date") or "") >= cutoff]
+    records = [r for r in records if (r.get("date") or "")[:7] >= cutoff_month]
     dropped = before - len(records)
     if dropped:
-        log("보관 기간(%d일) 지난 %d건 제거" % (RETENTION_DAYS, dropped))
+        log("보관 기간(%d일, %s 이전 달) 지난 %d건 제거" % (RETENTION_DAYS, cutoff_month, dropped))
 
-    # 레이팅 정규화 (기존 건도 규칙이 바뀌었을 수 있으니 매번 다시)
     for rec in records:
-        rec["rating"] = normalize_rating(rec.get("rating_raw"))
         rec.setdefault("analyst", None)
         rec.setdefault("summary", None)
         rec.setdefault("views", None)
@@ -598,32 +649,39 @@ def main(argv=None):
         rec.setdefault("naver_prev_target", None)
         rec.setdefault("price_at_write", None)
 
-    # 현재가 갱신
+    # ---- 정규화 패스 (전체 레코드, 매 실행, 멱등)
+    # 1) 종목명이 증권사 자신인 건: 한경은 버리고, 나머지는 suspect
+    records, nb_dropped, nb_flagged = norm.drop_or_flag_name_is_broker(records)
+    if nb_dropped or nb_flagged:
+        log("종목명=증권사명: 한경 %d건 제거, %d건 확인 필요 표시" % (nb_dropped, nb_flagged))
+    # 2) 같은 (종목, 날짜, 증권사) 중복 병합
+    records, dup_merged = norm.dedupe_records(records)
+    if dup_merged:
+        log("중복 병합 %d건" % dup_merged)
+    # 3) 레이팅 정규화 (규칙이 바뀌었을 수 있으니 매번) + 직전 의견 승계
+    norm.renormalize_ratings(records)
+    inferred = norm.infer_ratings(records)
+    if inferred:
+        log("직전 의견 승계(rating_inferred) %d건" % inferred)
+
+    # 현재가 갱신 (data/prices.json). 못 받은 종목은 이전 값을 그대로 둔다.
+    codes = sorted({r.get("code") for r in records if r.get("code")})
+    prices = {c: old_prices[c] for c in codes if c in old_prices}
     if args.no_price:
         log("현재가 갱신 생략")
-        for rec in records:
-            rec.setdefault("price", None)
-            rec.setdefault("price_date", None)
-            rec["gap"] = compute_gap(rec.get("target"), rec.get("price"))
     else:
-        codes = sorted({r.get("code") for r in records if r.get("code")})
         log("현재가 조회 %d종목..." % len(codes))
-        prices = fetch_prices(session, codes)
-        log("현재가 %d종목 수신" % len(prices))
+        fetched_prices = fetch_prices(session, codes)
+        log("현재가 %d종목 수신" % len(fetched_prices))
         price_date = today.isoformat()
+        for code, info in fetched_prices.items():
+            prices[code] = {"p": info["price"], "d": price_date}
         for rec in records:
-            info = prices.get(rec.get("code"))
-            if info:
-                rec["price"] = info["price"]
-                rec["price_date"] = price_date
-                # 종목명은 네이버 시세의 정식 명칭을 우선한다.
-                # (KB "AI 실적속보: 종목명 (코드)" 처럼 제목에서 잘라낸 이름이 섞여 들어오는 것을 바로잡는다)
-                if info.get("name"):
-                    rec["name"] = info["name"]
-            else:
-                rec.setdefault("price", None)
-                rec.setdefault("price_date", None)
-            rec["gap"] = compute_gap(rec.get("target"), rec.get("price"))
+            info = fetched_prices.get(rec.get("code"))
+            # 종목명은 네이버 시세의 정식 명칭을 우선한다.
+            # (KB "AI 실적속보: 종목명 (코드)" 처럼 제목에서 잘라낸 이름이 섞여 들어오는 것을 바로잡는다)
+            if info and info.get("name"):
+                rec["name"] = info["name"]
 
     # 업종은 매 실행마다 전체 레코드에 다시 붙인다 (분류표가 바뀌었을 수 있다).
     apply_sectors(records, sector_data)
@@ -653,28 +711,20 @@ def main(argv=None):
     if filled:
         log("직전 목표가를 네이버 값으로 채운 건 %d건" % filled)
 
-    records.sort(key=lambda r: ((r.get("date") or ""), str(r.get("id") or "")), reverse=True)
+    # 목표가 범위 점검: 새 건·목표가가 바뀐 건만 (v1에서 옮길 때는 전부). 결과는 레코드에 남는다.
+    if migrating:
+        eval_ids = {r.get("id") for r in records}
+    else:
+        eval_ids = {r.get("id") for r in records
+                    if r.get("id") not in target_before
+                    or target_before.get(r.get("id")) != r.get("target")}
+    cur_prices = {c: v.get("p") for c, v in prices.items()}
+    range_stats = norm.evaluate_target_range(records, eval_ids, cur_prices)
+    log("목표가 범위 점검 %d건 (기준가 본인 %d / 인접 %d / 현재가 %d / 없음 %d) → 확인 필요 %d건"
+        % (len(eval_ids), range_stats["own"], range_stats["near"], range_stats["current"],
+           range_stats["none"], range_stats["flagged"]))
 
-    # 필드 순서를 스키마대로 정리
-    ordered = []
-    for r in records:
-        ordered.append({
-            "id": r.get("id"), "source": r.get("source"), "date": r.get("date"),
-            "code": r.get("code"), "name": r.get("name"),
-            "industry": r.get("industry"), "sector": r.get("sector"),
-            "title": r.get("title"),
-            "broker": r.get("broker"), "analyst": r.get("analyst"),
-            "rating_raw": r.get("rating_raw"), "rating": r.get("rating"),
-            "target": r.get("target"), "prev_target": r.get("prev_target"),
-            "target_change": r.get("target_change"),
-            "naver_prev_target": r.get("naver_prev_target"),
-            "price_at_write": r.get("price_at_write"),
-            "pdf": r.get("pdf"), "url": r.get("url"),
-            "summary": r.get("summary"), "views": r.get("views"),
-            "price": r.get("price"), "price_date": r.get("price_date"),
-            "gap": r.get("gap"),
-        })
-    records = ordered
+    store.sort_records(records)
 
     # 지역변수 이름은 brokers 모듈과 겹치지 않게 둔다.
     broker_names = sorted({r["broker"] for r in records if r.get("broker")})
@@ -690,11 +740,15 @@ def main(argv=None):
 
     rating_dist = {}
     source_dist = {}
+    suspect_dist = {}
     for r in records:
         rating_dist[r["rating"]] = rating_dist.get(r["rating"], 0) + 1
         source_dist[r["source"]] = source_dist.get(r["source"], 0) + 1
-    log("총 %d건 | 소스 %s | 레이팅 %s | 증권사 %d곳 | 상세 실패 %d건"
-        % (len(records), source_dist, rating_dist, len(broker_names), detail_fail))
+        if r.get("suspect"):
+            suspect_dist[r["suspect"]] = suspect_dist.get(r["suspect"], 0) + 1
+    log("총 %d건 | 소스 %s | 레이팅 %s | 증권사 %d곳 | 상세 실패 %d건 | 확인 필요 %s"
+        % (len(records), source_dist, rating_dist, len(broker_names), detail_fail,
+           suspect_dist))
     for src, st in meta["source_status"].items():
         log("  소스 %-8s 최신 %s | 이번 신규 %d건 | 보관 %d건"
             % (src, st["last_date"] or "-", st["new_run"], st["total"]))
@@ -704,9 +758,12 @@ def main(argv=None):
         log("--dry-run: 저장하지 않았습니다.")
         return 0
 
-    write_json_atomic(REPORTS_PATH, records)
-    write_json_atomic(META_PATH, meta)
-    log("저장 완료: %s (%d건), %s" % (REPORTS_PATH, len(records), META_PATH))
+    changed, meta = store.save_v2(LAYOUT, records, prices, meta,
+                                  now.isoformat(timespec="seconds"))
+    log("저장 완료: %d건, 월 %d개, 바뀐 파일 %d개"
+        % (len(records), len(meta["months"]), len(changed)))
+    for path in changed:
+        log("  %s" % os.path.relpath(path, ROOT))
     return 0
 
 
