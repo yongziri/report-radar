@@ -5,13 +5,24 @@
 파일이 커서 파트로 쪼개 관리한다. 조립 순서는 PARTS 참조.
 네이버의 79개 세부 업종은 트리맵 구획으로 쓰기엔 너무 잘게 쪼개져 있어
 (상위 150종목이 45개 업종에 흩어짐) Finviz 식 대분류 12개로 묶어서 넣는다.
+
+산출물 (저장소 루트):
+  index.html  — 앱 본체
+  fonts.css   — 우리다움체(base64). index.html 이 fonts.css?v=<해시> 로 참조해 브라우저가 캐시한다.
+  sw.js       — 서비스 워커. app/sw.src.js 에 빌드 ID·폰트 주소를 찍어 만든다.
+                빌드 ID 가 바뀌면 sw.js 바이트가 바뀌어 새 배포 시 이전 캐시가 교체된다.
 """
+import hashlib
 import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARTS_DIR = os.path.join(HERE, "parts")
-OUT = os.path.join(HERE, os.pardir, "index.html")
+ROOT = os.path.normpath(os.path.join(HERE, os.pardir))
+OUT = os.path.join(ROOT, "index.html")
+FONTS_OUT = os.path.join(ROOT, "fonts.css")
+SW_SRC = os.path.join(HERE, "sw.src.js")
+SW_OUT = os.path.join(ROOT, "sw.js")
 
 PARTS = [
     ("01_head.html", None),        # <!doctype> ~ </style></head>
@@ -113,10 +124,15 @@ def main():
     else:
         fonts_css = "/* 폰트 없음: python embed_fonts.py 를 먼저 실행하세요 */"
         print("  ! parts/_fonts.css 없음 — 폰트 미내장으로 빌드")
+    fonts_css += "\n"
+    with open(FONTS_OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write(fonts_css)
+    fonts_hash = hashlib.sha256(fonts_css.encode("utf-8")).hexdigest()[:10]
+    fonts_href = "fonts.css?v=" + fonts_hash
 
     html = assemble()
     repl = {
-        "__FONTS__": fonts_css,
+        "__FONTS_HREF__": fonts_href,
         "__KR_KOSPI__": pack(kospi, industries),
         "__KR_KOSDAQ__": pack(kosdaq, industries),
         "__SECTORS__": ";".join(BROAD_NAMES),
@@ -129,7 +145,18 @@ def main():
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(html)
 
+    # 서비스 워커: 빌드 ID 는 산출물 내용 해시 — 내용이 같으면 sw.js 도 바이트 단위로 같다
+    with open(SW_SRC, encoding="utf-8") as f:
+        sw = f.read()
+    build_id = hashlib.sha256((html + fonts_css + sw).encode("utf-8")).hexdigest()[:12]
+    for token, val in (("__BUILD_ID__", build_id), ("__FONTS_HREF__", fonts_href)):
+        assert token in sw, "placeholder %s not found in sw.src.js" % token
+        sw = sw.replace(token, val)
+    with open(SW_OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write(sw)
+
     print("wrote", os.path.normpath(OUT))
+    print("  fonts.css %d bytes (%s) / sw.js build %s" % (len(fonts_css), fonts_href, build_id))
     print("  KOSPI %d / KOSDAQ %d / 업종 %d / 대분류 %d / bytes %d"
           % (len(kospi), len(kosdaq), len(ind_names), len(BROAD_NAMES), len(html)))
 

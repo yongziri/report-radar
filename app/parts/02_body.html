@@ -10,21 +10,22 @@
     </div>
     <div class="hd-r">
       <span class="scanind hide" id="scanInd"></span>
+      <span class="qstat hide" id="qStat" role="status" aria-live="polite"></span>
       <span class="upd" id="upd">갱신 없음</span>
       <button class="btn" id="btnRefresh">새로고침</button>
       <button class="btn on" id="btnAuto">자동갱신 ON</button>
-      <button class="btn" id="btnTheme">🌙</button>
+      <button class="btn" id="btnTheme" aria-label="밝은/어두운 테마 전환" title="테마 전환">🌙</button>
       <button class="btn" id="btnSet">설정</button>
     </div>
   </div>
-  <nav class="tabs">
-    <button data-tab="dash" class="act">대시보드</button>
-    <button data-tab="rep">리포트</button>
-    <button data-tab="acct">계좌</button>
-    <button data-tab="anal">종목분석</button>
-    <button data-tab="cmp">기업분석</button>
-    <button data-tab="scr">스크리너</button>
-    <button data-tab="alr">알림</button>
+  <nav class="tabs" role="tablist" aria-label="화면 전환">
+    <button role="tab" id="tabbtn-dash" aria-controls="tab-dash" aria-selected="true" tabindex="0" data-tab="dash" class="act">대시보드</button>
+    <button role="tab" id="tabbtn-rep" aria-controls="tab-rep" aria-selected="false" tabindex="-1" data-tab="rep">리포트</button>
+    <button role="tab" id="tabbtn-acct" aria-controls="tab-acct" aria-selected="false" tabindex="-1" data-tab="acct">계좌</button>
+    <button role="tab" id="tabbtn-anal" aria-controls="tab-anal" aria-selected="false" tabindex="-1" data-tab="anal">종목분석</button>
+    <button role="tab" id="tabbtn-cmp" aria-controls="tab-cmp" aria-selected="false" tabindex="-1" data-tab="cmp">기업분석</button>
+    <button role="tab" id="tabbtn-scr" aria-controls="tab-scr" aria-selected="false" tabindex="-1" data-tab="scr">스크리너</button>
+    <button role="tab" id="tabbtn-alr" aria-controls="tab-alr" aria-selected="false" tabindex="-1" data-tab="alr">알림</button>
   </nav>
  </div>
 </header>
@@ -32,7 +33,7 @@
 <main class="wrap">
 
 <!-- ============ 대시보드 ============ -->
-<section class="tab act" id="tab-dash">
+<section class="tab act" id="tab-dash" role="tabpanel" aria-labelledby="tabbtn-dash">
   <div class="panel">
     <div class="ptitle">시장 개요</div>
     <div class="pbody">
@@ -110,7 +111,7 @@
 
   <div class="panel">
     <div class="ptitle">관심종목 <span class="sub" id="wlCnt"></span>
-      <span class="sp"><div class="srch" id="srchWl"><input type="text" placeholder="종목명 · 코드 · 티커 검색"><div class="sug"></div></div></span>
+      <span class="sp"><div class="srch" id="srchWl"><input type="text" placeholder="종목명 · 코드 검색"><div class="sug"></div></div></span>
     </div>
     <div class="pbody" style="padding-bottom:0;display:flex;gap:5px;flex-wrap:wrap;align-items:center">
       <div class="presets" id="wlTabs"></div>
@@ -155,7 +156,7 @@
 </section>
 
 <!-- ============ 리포트 ============ -->
-<section class="tab" id="tab-rep">
+<section class="tab" id="tab-rep" role="tabpanel" aria-labelledby="tabbtn-rep">
   <div class="note hide" id="rpNotice"></div>
 
   <div id="rpApp">
@@ -266,7 +267,7 @@
 </section>
 
 <!-- ============ 계좌 ============ -->
-<section class="tab" id="tab-acct">
+<section class="tab" id="tab-acct" role="tabpanel" aria-labelledby="tabbtn-acct">
   <div class="panel">
     <div class="ptitle">전체 계좌 <span class="sub" id="acTotSub"></span>
       <span class="sp">
@@ -294,8 +295,8 @@
       <button class="btn xs" id="acAdd">+ 계좌</button>
       <button class="btn xs" id="acRen">이름변경</button>
       <button class="btn xs" id="acDel">계좌삭제</button>
-      <button class="btn xs" id="acLeft">◀</button>
-      <button class="btn xs" id="acRight">▶</button>
+      <button class="btn xs" id="acLeft" aria-label="선택 계좌를 왼쪽으로 이동" title="계좌 순서 왼쪽으로">◀</button>
+      <button class="btn xs" id="acRight" aria-label="선택 계좌를 오른쪽으로 이동" title="계좌 순서 오른쪽으로">▶</button>
     </div>
     <div class="pbody"><div class="ovw" id="acSum"></div></div>
     <div class="tbw"><table class="actbl">
@@ -310,7 +311,7 @@
 </section>
 
 <!-- ============ 종목분석 ============ -->
-<section class="tab" id="tab-anal">
+<section class="tab" id="tab-anal" role="tabpanel" aria-labelledby="tabbtn-anal">
   <div class="panel">
     <div class="ptitle"><span id="anTitle">종목 분석</span> <span class="sub" id="anSub"></span>
       <span class="sp">
@@ -364,7 +365,7 @@
 </section>
 
 <!-- ============ 기업분석 ============ -->
-<section class="tab" id="tab-cmp">
+<section class="tab" id="tab-cmp" role="tabpanel" aria-labelledby="tabbtn-cmp">
   <div class="panel">
     <div class="ptitle"><span id="cmpTitle">기업분석</span> <span class="sub" id="cmpSub"></span>
       <span class="sp">
@@ -391,7 +392,7 @@
 </section>
 
 <!-- ============ 스크리너 ============ -->
-<section class="tab" id="tab-scr">
+<section class="tab" id="tab-scr" role="tabpanel" aria-labelledby="tabbtn-scr">
   <div class="panel">
     <div class="ptitle">국내 스크리너 <span class="sub">코스피 300 + 코스닥 200</span>
       <span class="sp">
@@ -458,7 +459,7 @@
 </section>
 
 <!-- ============ 알림 ============ -->
-<section class="tab" id="tab-alr">
+<section class="tab" id="tab-alr" role="tabpanel" aria-labelledby="tabbtn-alr">
   <div class="panel">
     <div class="ptitle">알림 규칙
       <span class="sp">
@@ -518,7 +519,7 @@
 
 <div class="mask" id="mask">
  <div class="modal">
-  <h3>설정 <button id="setClose">&times;</button></h3>
+  <h3>설정 <button id="setClose" aria-label="설정 닫기">&times;</button></h3>
   <div class="bd">
     <div class="fld">
       <label>등락 색상 규칙</label>
@@ -562,7 +563,7 @@
 <!-- ============ 잔고 가져오기 ============ -->
 <div class="mask" id="impMask">
  <div class="modal" style="max-width:960px">
-  <h3>계좌 잔고 가져오기 <button id="impClose">&times;</button></h3>
+  <h3>계좌 잔고 가져오기 <button id="impClose" aria-label="잔고 가져오기 닫기">&times;</button></h3>
   <div class="bd">
     <div class="fld">
       <label>1. 잔고 데이터 입력</label>

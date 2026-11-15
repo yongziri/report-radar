@@ -51,9 +51,10 @@ function acctNum(val, onChange, w){
   el.onchange = function(){ onChange(el.value === "" ? 0 : Number(el.value)); };
   return el;
 }
-function acctBtn(label, on, dis){
+function acctBtn(label, on, dis, aria){
   var b = document.createElement("button");
   b.className = "btn xs"; b.textContent = label; b.disabled = !!dis;
+  if(aria){ b.setAttribute("aria-label", aria); b.title = aria; }
   b.onclick = on;
   return b;
 }
@@ -104,14 +105,14 @@ function renderAcctRows(acc){
     /* 순서 이동 */
     td[10].appendChild(acctBtn("▲", function(){
       items.splice(i-1, 0, items.splice(i, 1)[0]); save(); renderAccounts();
-    }, i === 0));
+    }, i === 0, it.name + " 위로 이동"));
     td[10].appendChild(acctBtn("▼", function(){
       items.splice(i+1, 0, items.splice(i, 1)[0]); save(); renderAccounts();
-    }, i === items.length - 1));
+    }, i === items.length - 1, it.name + " 아래로 이동"));
     /* 삭제 */
     td[11].appendChild(acctBtn("×", function(){
       items.splice(i, 1); save(); renderAccounts(); renderPortfolio();
-    }));
+    }, false, it.name + " 삭제"));
     tr.querySelector(".acnm").onclick = function(){
       selectStock({ mk:it.mk || "KR", code:it.code, name:it.name });
       showTab("anal");

@@ -4,9 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>공도 투자 연구소</title>
+<meta name="theme-color" content="#22262F">
+<script>/* PWA 매니페스트 — file:// 에서는 CORS 오류만 내므로 http(s)에서만 연결 */
+(function(){ if(location.protocol === "file:") return;
+  var l = document.createElement("link"); l.rel = "manifest"; l.href = "manifest.webmanifest"; document.head.appendChild(l); })();</script>
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<!-- 우리다움체 (TTF->WOFF2 무손실, 서브셋 없음, font-display:swap). 내용 해시로 캐시 무효화 — build.py 가 채운다 -->
+<link rel="stylesheet" href="__FONTS_HREF__">
 <style>
-/* ===== 우리다움체 내장 (TTF->WOFF2 무손실 변환, 서브셋 없음) ===== */
-__FONTS__
 /* ===== Finviz 다크 토큰 ===== */
 :root{
   --bg:#22262F; --panel:#353945; --panel2:#2C303A; --line:#4C5263; --line2:#5C6377;
@@ -77,6 +83,14 @@ nav.tabs button{background:none;border:none;border-bottom:2px solid transparent;
   padding:7px 15px;font-size:12px;font-weight:600;color:var(--tx2);white-space:nowrap}
 nav.tabs button:hover{color:var(--tx);background:var(--panel2)}
 nav.tabs button.act{color:var(--link);border-bottom-color:var(--link)}
+/* 키보드 포커스 표시 (마우스 클릭에는 나타나지 않음) */
+:focus-visible{outline:2px solid var(--link);outline-offset:1px}
+nav.tabs button:focus-visible{outline-offset:-2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:1px solid var(--link);outline-offset:0}
+.tile:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+/* 시세 지연 표시 (헤더) — 연속 실패 중에만 보인다 */
+.qstat{font-size:10.5px;color:var(--down);font-weight:600;white-space:nowrap;
+  border:1px solid var(--down-bg);border-radius:2px;padding:1px 5px}
 main{padding:10px 0 26px}
 .tab{display:none}.tab.act{display:block}
 
@@ -413,6 +427,6 @@ select.on{color:var(--tx);border-color:var(--link)}
 .toast.err{border-left-color:var(--down-bg)}
 .toast.ok{border-left-color:var(--up-bg)}
 footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font-size:10.5px;line-height:1.7}
-@media(max-width:760px){.upd{display:none}#chart{height:400px}.tmap{height:420px}}
+@media(max-width:760px){.upd{display:none}#chart{height:400px}.tmap{height:420px}.qstat .qt{display:none}}
 </style>
 </head>
