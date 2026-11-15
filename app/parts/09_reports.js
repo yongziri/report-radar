@@ -1,6 +1,8 @@
 /* =========================================================================
    증권사 리포트 — 리포트 탭 + 대시보드·종목분석 연동
-   데이터: data/reports.json · data/meta.json (scraper/ 수집 결과)
+   데이터 v2 (docs/DATA-FORMAT-v2.md): data/meta.json → data/prices.json?v= ·
+   data/reports/YYYY-MM.json?v= (필요한 달만) · data/summaries/YYYY-MM.json?v= (행을 펼칠 때).
+   meta.json 에 months 가 없으면 v1 data/reports.json 한 파일을 읽는다.
    시세·유니버스·트리맵·테마는 앱의 기존 것을 그대로 쓴다(중복 구현 없음).
    ========================================================================= */
 
@@ -8,7 +10,13 @@ const RP_LS = "rr:filters:v1";                       // stock-helper 키와 분�
 const RP_RATINGS = ["BUY","HOLD","SELL","NR"];
 const RP_UNCL = "미분류";
 const RP_PAGE = 500;                                 // 표를 한 번에 그리는 행 수
-const RP_VIEWS = ["reports","stocks","sectors","heat"];
+const RP_VIEWS = ["reports","stocks","sectors","heat","changes"];
+const RP_MARGIN_DAYS = 35;                           // 시작 시 기간 필터보다 더 받아 둘 날 수
+const RP_IDLE_DAYS = 100;                            // 첫 렌더 뒤 한가할 때 넓힐 범위 (종목분석 3개월)
+const RP_SUSPECT_TIP = {
+  target_range:"목표가가 기준가의 0.3~3배 범위 밖",
+  name_is_broker:"종목명이 증권사 이름과 같음 (종목 매핑 오류 의심)"
+};
 const RP_DATA_IV = 300000;                           // 리포트 갱신 확인 주기 (5분)
 const RP_LIVE_MAX = 120;                             // 한 번에 시세를 붙이는 종목 수 상한
 /* 대분류. scraper/sectors.py 의 SECTOR_ORDER 와 같은 순서다 (네이버 업종 대분류와 다름) */
@@ -30,6 +38,18 @@ let rpHeatByCode = {};
 let rpAcItems = [], rpAcIndex = -1, rpAcOpen = false;
 let rpDataTimer = null;
 
+/* v2 로더 상태 */
+let RP_V2 = false;               // meta.json 에 months 가 있으면 true
+let RP_PRICES = {};              // code -> {p, d} (data/prices.json)
+let rpMonthData = {};            // "YYYY-MM" -> { v, rows }
+let rpMonthPending = {};         // "YYYY-MM" -> Promise (중복 요청 방지)
+let rpMonthFail = {};            // "YYYY-MM" -> 오류 메시지
+let rpLoadProg = null;           // { done, total } 여러 달을 받는 중
+let rpBootP = null;              // 첫 적재 Promise
+let rpSumCache = {};             // "YYYY-MM" -> { id: 요약 }
+let rpSumState = {};             // "YYYY-MM" -> "loading" | "ok" | "error"
+let rpUpdFail = "";              // 마지막 갱신 확인 실패 시각 (HH:MM)
+
 const RP = {
   period:"7",        // 1 | 3 | 7 | 30 | all
   ratings:[],        // 비어 있으면 전체
@@ -41,7 +61,8 @@ const RP = {
   q:"",              // Enter 로 확정한 자유 텍스트
   view:"reports",
   sortKey:"date", sortDir:"desc",
-  heatColor:"gap"    // gap | buy
+  heatColor:"gap",   // gap | buy
+  suspect:""         // "" 전체 | hide 확인 필요 숨김 | only 확인 필요만
 };
 
 /* ---------- 작은 도우미 ---------- */
@@ -78,20 +99,41 @@ function rpLoadState(){
 
 /* ---------- 시세: 앱의 QUOTES(naverRealtime) 를 그대로 쓴다 ---------- */
 function rpQuote(code){ return code ? QUOTES["KR:" + code] : null; }
+/* 종목 현재가: 실시간 시세 → data/prices.json → (v1 레코드의 price) */
+function rpCodePrice(code){
+  var q = rpQuote(code);
+  if(q && q.ok && q.price > 0) return q.price;
+  var p = code ? RP_PRICES[code] : null;
+  return (p && p.p > 0) ? p.p : null;
+}
 function rpPrice(r){
-  var q = rpQuote(r.code);
-  return (q && q.ok && q.price > 0) ? q.price : r.price;
+  return rpCodePrice(r.code) || (r.price > 0 ? r.price : null);
 }
 function rpLive(r){
   var q = rpQuote(r.code);
   return (q && q.ok && q.price > 0) ? q : null;
 }
-/* 목표가 대비 괴리율. 실시간가가 있으면 그 값으로 다시 계산한다 */
+/* 괴리율 계산은 여기 한 곳에서만 한다: (목표가 − 가격) / 가격 × 100, 소수 둘째 자리 */
+function rpGapPct(target, price){
+  if(typeof target !== "number" || !(price > 0)) return null;
+  return Math.round((target - price) / price * 10000) / 100;
+}
+/* 목표가 대비 현재 괴리율 */
 function rpGapOf(r){
   if(typeof r.target !== "number") return null;
   var p = rpPrice(r);
-  if(!p) return (r.gap === null || r.gap === undefined) ? null : r.gap;
-  return Math.round((r.target - p) / p * 10000) / 100;
+  if(!p) return (typeof r.gap === "number") ? r.gap : null;     // v1 레코드의 저장값
+  return rpGapPct(r.target, p);
+}
+/* 발간 시점 괴리율 (price_at_write 가 있을 때) */
+function rpGapAtWrite(r){ return rpGapPct(r.target, r.price_at_write); }
+/* 통계에 넣을 레코드인지 (suspect 는 목록에만 남기고 모든 통계에서 뺀다) */
+function rpStatOk(r){ return !r.suspect; }
+function rpMedian(v){
+  if(!v.length) return null;
+  var s = v.slice().sort(function(a,b){ return a - b; });
+  var m = s.length >> 1;
+  return Math.round((s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2) * 100) / 100;
 }
 
 /* 지금 시세를 붙일 종목 코드 — refreshAll() 이 기존 타이머로 함께 조회한다 */
@@ -109,22 +151,152 @@ function rpQuoteCodes(){
 }
 
 /* ---------- 데이터 적재 ---------- */
-function rpFetchJson(path){
-  return fetch(path, { cache:"no-store" }).then(function(r){
+/* noStore: meta.json·v1 reports.json 처럼 주소가 같은 채 내용이 바뀌는 파일에만 쓴다.
+   ?v= 가 붙은 파일은 브라우저·서비스 워커 캐시를 그대로 쓴다. */
+function rpFetchJson(path, noStore){
+  return fetch(path, noStore ? { cache:"no-store" } : undefined).then(function(r){
     if(!r.ok) throw new Error(path + " " + r.status);
     return r.json();
   });
 }
+function rpIsV2Meta(m){ return !!(m && Array.isArray(m.months) && m.months.length); }
+function rpMetaMonths(){ return (RP_V2 && RMETA && RMETA.months) ? RMETA.months : []; }
+function rpMonthInfo(month){
+  var ms = rpMetaMonths();
+  for(var i=0;i<ms.length;i++) if(ms[i].month === month) return ms[i];
+  return null;
+}
+function rpBaseISO(){
+  var base = (RMETA && RMETA.latest_date) ? RMETA.latest_date : rpTodayISO();
+  var today = rpTodayISO();
+  return base > today ? today : base;
+}
+/* days 만큼 덮으려면 몇 일부터 있어야 하는지. days 가 없거나 Infinity 면 null(전체) */
+function rpFloorForDays(days){
+  if(!days || !isFinite(days)) return null;
+  return rpShiftISO(rpBaseISO(), -(Math.max(1, Math.ceil(days)) - 1));
+}
+/* 메모리에 연속으로 올라온 범위의 시작일. 전부 올라왔으면 null, 하나도 없으면 "9999-12-31" */
+function rpLoadedFloor(){
+  if(!RP_V2) return null;
+  var ms = rpMetaMonths(), last = null;
+  for(var i=0;i<ms.length;i++){
+    if(!rpMonthData[ms[i].month]) return last ? last + "-01" : "9999-12-31";
+    last = ms[i].month;
+  }
+  return null;
+}
+function rpCovers(floor){
+  var lf = rpLoadedFloor();
+  if(lf === null) return true;
+  return floor !== null && floor !== undefined && lf <= floor;
+}
+function rpIsPartial(){ return rpLoadedFloor() !== null; }
+function rpTotalCount(){
+  return (RP_V2 && RMETA && typeof RMETA.count === "number") ? RMETA.count : RPT.length;
+}
+
+/* 한 달치 리포트 파일. v 가 바뀌었으면 다시 받는다 */
+function rpFetchMonth(mo){
+  var key = mo.month + "@" + mo.v;
+  if(rpMonthPending[key]) return rpMonthPending[key];
+  var p = rpFetchJson("data/reports/" + mo.month + ".json?v=" + encodeURIComponent(mo.v))
+    .then(function(rows){
+      rpMonthData[mo.month] = { v:mo.v, rows:Array.isArray(rows) ? rows : [] };
+      delete rpMonthFail[mo.month];
+    }, function(err){
+      rpMonthFail[mo.month] = (err && err.message) ? err.message : String(err);
+      throw err;
+    })
+    .then(function(){ delete rpMonthPending[key]; }, function(err){ delete rpMonthPending[key]; throw err; });
+  rpMonthPending[key] = p;
+  return p;
+}
+/* 올라온 달들을 최신순으로 이어 RPT 를 새 배열로 만든다 (차트는 배열 동일성으로 변화를 감지) */
+function rpMerge(){
+  var out = [];
+  rpMetaMonths().forEach(function(mo){
+    var d = rpMonthData[mo.month];
+    if(d) for(var i=0;i<d.rows.length;i++) out.push(d.rows[i]);
+  });
+  RPT = out;
+}
+/* 여러 달을 병렬로 받는다. 진행 상황은 rpLoadProg 로 보인다 */
+function rpLoadMonths(list){
+  if(!list.length) return Promise.resolve(0);
+  var prog = rpLoadProg || (rpLoadProg = { done:0, total:0 });
+  var jobs = list.map(function(mo){
+    var fresh = !rpMonthPending[mo.month + "@" + mo.v];     // 이미 받는 중인 달은 진행률에 두 번 세지 않는다
+    if(fresh) prog.total++;
+    return rpFetchMonth(mo).then(function(){ return 1; }, function(){ return 0; })
+      .then(function(ok){ if(fresh){ prog.done++; rpRenderLoadNote(); } return ok; });
+  });
+  rpRenderLoadNote();
+  return Promise.all(jobs).then(function(res){
+    if(rpLoadProg === prog && prog.done >= prog.total) rpLoadProg = null;
+    rpRenderLoadNote();
+    return res.reduce(function(s, v){ return s + v; }, 0);
+  });
+}
+function rpMissingMonths(floor){
+  var fm = floor ? floor.slice(0, 7) : "";
+  return rpMetaMonths().filter(function(mo){
+    var d = rpMonthData[mo.month];
+    return (!fm || mo.month >= fm) && !(d && d.v === mo.v);
+  });
+}
+function rpLoadPrices(){
+  if(!RMETA || !RMETA.prices_v) return Promise.resolve();
+  return rpFetchJson("data/prices.json?v=" + encodeURIComponent(RMETA.prices_v)).then(function(j){
+    RP_PRICES = (j && j.prices) ? j.prices : {};
+  }).catch(function(err){
+    console.warn("prices.json 적재 실패:", err && err.message ? err.message : err);
+  });
+}
+
+/* 적어도 days 일치 리포트가 메모리에 올라오면 resolve. v1 이거나 이미 있으면 바로 resolve.
+   days 를 생략하거나 Infinity 면 전체. 종목분석 차트(05)·컨센서스 패널이 부른다. */
+function rpEnsureHistory(days){
+  if(!rpBootP) return Promise.resolve();
+  return rpBootP.then(function(){
+    if(!RP_V2 || !RP_READY) return;
+    var floor = rpFloorForDays(days);
+    if(rpCovers(floor)) return;
+    var miss = rpMissingMonths(floor).filter(function(mo){ return !rpMonthData[mo.month]; });
+    if(!miss.length) return;
+    return rpLoadMonths(miss).then(function(n){
+      if(n){ rpMerge(); rpDataChanged(false); }
+    });
+  });
+}
+
+function rpLoadV1(meta){
+  return rpFetchJson("data/reports.json", true).then(function(list){
+    RP_V2 = false;
+    RMETA = meta;
+    RPT = Array.isArray(list) ? list : [];
+  });
+}
+function rpLoadV2(meta){
+  RP_V2 = true;
+  RMETA = meta;
+  var floor = (RP.period === "all") ? null
+    : rpFloorForDays((parseInt(RP.period, 10) || 1) + RP_MARGIN_DAYS);
+  var need = rpMissingMonths(floor);
+  if(!need.length) need = [meta.months[0]];
+  return Promise.all([rpLoadPrices(), rpLoadMonths(need)]).then(function(res){
+    if(!res[1]) throw new Error("data/reports/" + need[0].month + ".json 을 읽을 수 없습니다");
+    rpMerge();
+  });
+}
 function rpLoad(){
-  return Promise.all([
-    rpFetchJson("data/reports.json"),
-    rpFetchJson("data/meta.json").catch(function(){ return null; })
-  ]).then(function(res){
-    RPT = Array.isArray(res[0]) ? res[0] : [];
-    RMETA = res[1];
+  rpBootP = rpFetchJson("data/meta.json", true).catch(function(){ return null; }).then(function(m){
+    return rpIsV2Meta(m) ? rpLoadV2(m) : rpLoadV1(m);
+  }).then(function(){
     RP_READY = true;
     rpRebuild();
     rpShowNotice("");
+    if(!rpDataTimer) rpDataTimer = setInterval(rpCheckUpdate, RP_DATA_IV);
     if(!RPT.length){
       rpShowNotice("수집된 리포트가 없습니다. <code>python scraper/collect.py --days 45</code> 를 먼저 실행하세요.");
       return;
@@ -132,9 +304,13 @@ function rpLoad(){
     rpBuildControls();
     rpRender();
     rpRenderToday();
-    if(AN.sel) rpRenderAnal();
+    rpRenderAnal();                            // 종목분석 패널·차트 (지수·미선택이면 알아서 감춘다)
     if(SCREEN.length) applyFilter();          // 스크리너 리포트 컬럼 채우기
-    if(!rpDataTimer) rpDataTimer = setInterval(rpCheckUpdate, RP_DATA_IV);
+    /* 한가할 때 종목분석 컨센서스(3개월)에 필요한 범위까지 넓힌다 */
+    if(RP_V2){
+      var idle = window.requestIdleCallback || function(fn){ return setTimeout(fn, 1500); };
+      idle(function(){ rpEnsureHistory(RP_IDLE_DAYS); }, { timeout:4000 });
+    }
   }).catch(function(err){
     RP_READY = false;
     var isFile = location.protocol === "file:";
@@ -144,31 +320,110 @@ function rpLoad(){
         ? "<code>file://</code> 로 열면 보안 정책 때문에 JSON을 읽을 수 없습니다. " +
           "프로젝트 폴더에서 <code>python -m http.server 3491</code> 을 실행한 뒤 " +
           "<code>http://localhost:3491</code> 로 접속하세요."
-        : "<code>data/reports.json</code> 을 읽을 수 없습니다. 수집을 먼저 실행했는지 확인하세요.<br>" +
+        : "<code>data/</code> 의 리포트 파일을 읽을 수 없습니다. 수집을 먼저 실행했는지 확인하세요.<br>" +
           "<code>python scraper/collect.py --days 45</code>") +
       '<br><span style="color:var(--tx3)">' + esc(err && err.message ? err.message : err) + "</span>");
     console.warn("리포트 데이터 적재 실패:", err);
   });
+  return rpBootP;
 }
 
-/* 5분마다 meta 만 확인하고, 바뀐 경우에만 본문을 다시 받는다 */
+/* 데이터가 바뀐 뒤 다시 그리기. 숨은 탭은 rpRender 래퍼(07)가 보류한다 */
+function rpDataChanged(full){
+  rpRebuild();
+  rpBuildControls();
+  rpRender(true);
+  rpRenderToday();
+  rpRenderAnal();
+  if(full && SCREEN.length) applyFilter();
+}
+
+/* 5분마다 meta 만 확인하고, v 가 바뀐 달·prices 만 다시 받는다 */
 function rpCheckUpdate(){
   if(document.hidden) return;
-  rpFetchJson("data/meta.json").then(function(m){
-    if(!m || !m.updated_at) return null;
-    if(RMETA && RMETA.updated_at === m.updated_at) return null;
-    return rpFetchJson("data/reports.json").then(function(list){
-      if(!Array.isArray(list)) return;
-      RMETA = m; RPT = list;
-      rpRebuild();
-      rpBuildControls();
-      rpRenderKeep();
-      rpRenderToday();
-      if(AN.sel) rpRenderAnal();
+  rpFetchJson("data/meta.json", true).then(function(m){
+    if(!m || !m.updated_at) throw new Error("meta.json 형식 오류");
+    var wasFail = !!rpUpdFail;
+    rpUpdFail = "";
+    if(!rpIsV2Meta(m) || !RP_V2){
+      /* v1 (또는 v1↔v2 전환): 바뀐 경우에만 처음부터 다시 적재 */
+      if(RMETA && RMETA.updated_at === m.updated_at && rpIsV2Meta(m) === RP_V2){ if(wasFail) rpUpdated(); return; }
+      if(rpIsV2Meta(m)){ rpMonthData = {}; rpSumCache = {}; rpSumState = {}; }
+      return (rpIsV2Meta(m) ? rpLoadV2(m) : rpLoadV1(m)).then(function(){ rpDataChanged(true); });
+    }
+    var old = RMETA, lf = rpLoadedFloor();
+    var lfm = lf === null ? "" : lf.slice(0, 7);
+    var keep = {};
+    m.months.forEach(function(mo){ keep[mo.month] = mo; });
+    /* 보관 기간이 지나 meta 에서 빠진 달은 메모리에서도 지운다 */
+    Object.keys(rpMonthData).forEach(function(k){ if(!keep[k]) delete rpMonthData[k]; });
+    /* 요약: sv 가 바뀐 달은 캐시를 버린다 (펼친 행이 있으면 다시 받는다) */
+    Object.keys(rpSumCache).concat(Object.keys(rpSumState)).forEach(function(k){
+      var oi = null;
+      (old.months || []).forEach(function(mo){ if(mo.month === k) oi = mo; });
+      if(!keep[k] || !oi || oi.sv !== keep[k].sv){ delete rpSumCache[k]; delete rpSumState[k]; }
+    });
+    var pricesChanged = !old || old.prices_v !== m.prices_v;
+    RMETA = m;
+    /* 올라와 있던 달 중 v 가 바뀐 것 + 올라온 범위 안의 새 달(새 달은 항상 최신) */
+    var reload = m.months.filter(function(mo){
+      var d = rpMonthData[mo.month];
+      if(d) return d.v !== mo.v;
+      return lfm === "" || mo.month >= lfm;
+    });
+    var jobs = [];
+    if(pricesChanged) jobs.push(rpLoadPrices());
+    if(reload.length) jobs.push(rpLoadMonths(reload));
+    if(!jobs.length){
+      if(old.updated_at !== m.updated_at || wasFail){ rpRender(true); rpUpdated(); }
+      return;
+    }
+    return Promise.all(jobs).then(function(){
+      rpMerge();
+      rpDataChanged(true);
     });
   }).catch(function(err){
+    var d = new Date();
+    rpUpdFail = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+    rpUpdated();
     console.warn("리포트 갱신 확인 실패:", err && err.message ? err.message : err);
   });
+}
+
+/* ---------- 요약 (v2: 달별 파일을 행을 처음 펼칠 때 받는다) ---------- */
+function rpHasSum(r){ return !!((r.summary && r.summary.length) || r.has_summary); }
+function rpSumMonth(r){ return String(r.date || "").slice(0, 7); }
+function rpSumText(r){
+  if(r.summary) return r.summary;
+  var c = rpSumCache[rpSumMonth(r)];
+  return c ? (c[r.id] || "") : "";
+}
+function rpLoadSummary(month){
+  if(rpSumState[month] === "loading" || rpSumState[month] === "ok") return;
+  var mi = rpMonthInfo(month);
+  if(!mi){ rpSumState[month] = "error"; return; }
+  rpSumState[month] = "loading";
+  var url = "data/summaries/" + month + ".json" + (mi.sv ? "?v=" + encodeURIComponent(mi.sv) : "");
+  rpFetchJson(url, !mi.sv).then(function(j){
+    rpSumCache[month] = (j && typeof j === "object") ? j : {};
+    rpSumState[month] = "ok";
+  }, function(err){
+    rpSumState[month] = "error";
+    console.warn("요약 적재 실패:", err && err.message ? err.message : err);
+  }).then(function(){ rpRender(true); });
+}
+/* 펼친 요약 행의 본문 HTML (불러오는 중·실패 상태 포함) */
+function rpSumHtml(r){
+  var t = rpSumText(r);
+  if(t) return esc(t);
+  if(!RP_V2) return '<span class="flat">요약 없음</span>';
+  var mo = rpSumMonth(r), st = rpSumState[mo];
+  if(!st){ rpLoadSummary(mo); st = rpSumState[mo]; }
+  if(st === "loading") return '<span class="flat">요약을 불러오는 중…</span>';
+  if(st === "error")
+    return '<span class="down">요약을 불러오지 못했습니다.</span> ' +
+           '<button class="btn xs" data-sumretry="' + esc(mo) + '">다시 시도</button>';
+  return '<span class="flat">요약 없음</span>';
 }
 
 function rpRebuild(){
@@ -233,10 +488,13 @@ function rpFiltered(opts){
   var rs = RP.ratings, cs = RP.changes, bs = RP.brokers, cd = RP.codes;
   var ss = opts.skipSector ? [] : RP.sectors;
   var ind = opts.skipIndustry ? "" : RP.industry;
+  var sus = RP.suspect;
   var out = [];
   for(var i=0;i<RPT.length;i++){
     var r = RPT[i];
     if(cd.length && cd.indexOf(r.code) < 0) continue;
+    if(sus === "hide" && r.suspect) continue;
+    if(sus === "only" && !r.suspect) continue;
     if(floor && (r.date || "") < floor) continue;
     if(rs.length && rs.indexOf(r.rating) < 0) continue;
     if(cs.length && cs.indexOf(r.target_change) < 0) continue;
@@ -339,9 +597,26 @@ function rpStockCell(code, name, industry, sector){
          (industry ? '<span class="rind" title="' + esc((sector || RP_UNCL) + " · " + industry) + '">' +
                      esc(industry) + "</span>" : "");
 }
-function rpBadge(rating, raw){
+/* inferred: rating_inferred — 원문에 의견이 없어 직전 의견을 이어받은 것 (점선 테두리) */
+function rpBadge(rating, raw, inferred){
   var v = rating || "NR";
-  return '<span class="rbadge ' + esc(v) + '" title="' + esc(raw || "") + '">' + esc(v) + "</span>";
+  var tip = inferred ? "원문에 의견 없음 — 직전 의견 유지로 추정" : (raw || "");
+  return '<span class="rbadge ' + esc(v) + (inferred ? " inf" : "") + '" title="' + esc(tip) + '">' +
+         esc(v) + "</span>";
+}
+function rpBadgeOf(r){ return rpBadge(r.rating, r.rating_raw, !!r.rating_inferred); }
+/* suspect 레코드 표시 */
+function rpSuspectTag(r){
+  if(!r.suspect) return "";
+  var why = RP_SUSPECT_TIP[r.suspect] || r.suspect;
+  return '<span class="rsus" title="' + esc("확인 필요: " + why + " — 통계에서 제외") + '">확인 필요</span>';
+}
+/* 리포트 한 건의 괴리율 셀: 현재 괴리율 + 발간 시 괴리율(작은 글씨) */
+function rpRecGapCell(r){
+  var w = rpGapAtWrite(r);
+  return rpGapCell(rpGapOf(r)) +
+    (w === null ? "" : '<span class="rsub gw" title="발간일 기준가 ' + fmt(r.price_at_write) +
+                       '원 대비">발간 시 ' + fmtPct(w) + "</span>");
 }
 
 /* ---------- 개요 ---------- */
@@ -349,17 +624,21 @@ function rpOvi(k, v, cls, c){
   return '<div class="ovi sm"><div class="k">' + k + '</div><div class="v ' + (cls||"") + '">' + v + "</div>" +
          (c ? '<div class="c">' + c + "</div>" : "") + "</div>";
 }
+/* 통계 요약. suspect 레코드는 세지 않고 a.sus 로만 센다. a.n = 통계에 들어간 건수 */
 function rpAgg(rows){
-  var a = { BUY:0, HOLD:0, SELL:0, NR:0, up:0, down:0, gapSum:0, gapN:0 };
+  var a = { BUY:0, HOLD:0, SELL:0, NR:0, up:0, down:0, n:0, sus:0 }, gaps = [];
   for(var i=0;i<rows.length;i++){
     var r = rows[i];
+    if(!rpStatOk(r)){ a.sus++; continue; }
+    a.n++;
     if(a[r.rating] !== undefined) a[r.rating]++;
     if(r.target_change === "up") a.up++;
     else if(r.target_change === "down") a.down++;
     var g = rpGapOf(r);
-    if(typeof g === "number"){ a.gapSum += g; a.gapN++; }
+    if(typeof g === "number") gaps.push(g);
   }
-  a.avgGap = a.gapN ? Math.round(a.gapSum / a.gapN * 100) / 100 : null;
+  a.gapN = gaps.length;
+  a.medGap = rpMedian(gaps);
   return a;
 }
 function rpPeriodLabel(){
@@ -403,15 +682,17 @@ function rpSourceStatusHtml(){
   return out.length ? '<span class="src">' + out.join(" · ") + "</span>" : "";
 }
 function rpRenderStats(rows){
-  var a = rpAgg(rows), n = rows.length || 1;
-  var html = rpOvi("리포트", fmt(rows.length), "", "전체 " + fmt(RPT.length) + "건");
+  var a = rpAgg(rows), n = a.n || 1;
+  var html = rpOvi("리포트", fmt(rows.length), "",
+                   "전체 " + fmt(rpTotalCount()) + "건" +
+                   (a.sus ? ' · <span title="확인 필요 레코드는 아래 통계에서 제외">확인 필요 ' + fmt(a.sus) + "</span>" : ""));
   RP_RATINGS.forEach(function(k){
     html += rpOvi(k, fmt(a[k]), k === "BUY" ? "up" : (k === "SELL" ? "down" : ""),
                   Math.round(a[k] / n * 100) + "%");
   });
   html += rpOvi("목표가 상향", fmt(a.up), "up");
   html += rpOvi("하향", fmt(a.down), "down");
-  html += rpOvi("평균 괴리율", a.avgGap === null ? "-" : fmtPct(a.avgGap), dirCls(a.avgGap),
+  html += rpOvi("괴리율 중앙값", a.medGap === null ? "-" : fmtPct(a.medGap), dirCls(a.medGap),
                 a.gapN ? fmt(a.gapN) + "건 기준" : "");
   $("#rpStats").innerHTML = html;
   $("#rpOvSub").innerHTML = esc(rpPeriodLabel()) + rpSourceStatusHtml();
@@ -438,21 +719,64 @@ const RP_COLS = [
   { key:"rating", label:"의견",     al:"c", get:function(r){ return RP_RATINGS.indexOf(r.rating); } },
   { key:"target", label:"목표주가", get:function(r){ return r.target; } },
   { key:"price",  label:"현재가",   get:function(r){ return rpPrice(r); } },
-  { key:"gap",    label:"괴리율",   get:function(r){ return rpGapOf(r); } }
+  { key:"gap",    label:"괴리율",   get:function(r){ return rpGapOf(r); } },
+  { key:"views",  label:"조회",     get:function(r){ return typeof r.views === "number" ? r.views : null; } }
 ];
 
+/* 좁은 화면(≤768px)에서는 리포트·목표가 변경 목록을 카드로 그린다 */
+function rpIsMobile(){ return !!(window.matchMedia && window.matchMedia("(max-width:768px)").matches); }
+function rpMoreBtn(total, lim){
+  return '<button class="btn" id="rpMore">더 보기 (+' + fmt(RP_PAGE) + ") · 남은 " + fmt(total - lim) + "건</button>";
+}
+/* 카드 한 장. head: 첫 줄 오른쪽(목표가·괴리율 등) HTML */
+function rpCardHtml(r, head){
+  var link = r.pdf || r.url || "#";
+  var hasSum = rpHasSum(r), open = hasSum && rpOpenSum[r.id];
+  return '<div class="rcard' + (hasSum ? " hs" : "") + (open ? " open" : "") + '"' +
+         (hasSum ? ' data-csum="' + esc(r.id) + '"' : "") + ">" +
+    '<div class="l1"><span class="nm">' +
+      (r.code ? '<a class="tk rpgo" href="#" data-go="' + esc(r.code) + '">' + esc(rpName(r.code, r.name)) + "</a>"
+              : '<span class="tk">' + esc(r.name || "") + "</span>") +
+      " " + rpBadgeOf(r) + rpSuspectTag(r) + '</span><span class="v">' + head + "</span></div>" +
+    '<div class="l2"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
+      esc(r.title || "") + "</a></div>" +
+    '<div class="l3">' + esc(r.broker || "") + (r.analyst ? "(" + esc(r.analyst) + ")" : "") +
+      " · " + esc((r.date || "").slice(2)) +
+      (typeof r.views === "number" ? " · 조회 " + fmt(r.views) : "") +
+      (hasSum ? '<span class="tg">' + (open ? "요약 접기 ▴" : "요약 ▾") + "</span>" : "") + "</div>" +
+    (open ? '<div class="sum">' + rpSumHtml(r) + "</div>" : "") +
+    "</div>";
+}
+function rpShowCards(on){
+  $("#rpCards").classList.toggle("hide", !on);
+  $("#rpTable").parentNode.classList.toggle("hide", on);
+}
+
 function rpRenderReports(rows){
-  $("#rpThead").innerHTML = rpHead(RP_COLS);
   var keys = {};
   RP_COLS.forEach(function(c){ if(c.get) keys[c.key] = c.get; });
   rows = rpSortRows(rows, keys);
+  var total = rows.length, lim = Math.min(total, RP_LIMIT), html = [];
+
+  if(rpIsMobile()){
+    for(var m=0;m<lim;m++){
+      var rc = rows[m], g = rpGapOf(rc);
+      html.push(rpCardHtml(rc, rpTargetCell(rc) +
+        (g === null ? "" : ' <span class="' + dirCls(g) + '">' + fmtPct(g) + "</span>")));
+    }
+    if(total > lim) html.push('<div class="rcmore">' + rpMoreBtn(total, lim) + "</div>");
+    $("#rpCards").innerHTML = html.join("");
+    rpShowCards(true);
+    return total;
+  }
+  rpShowCards(false);
+  $("#rpThead").innerHTML = rpHead(RP_COLS);
 
   // 정렬·집계는 전체 기준으로 끝내고 그리는 행 수만 끊는다
-  var total = rows.length, lim = Math.min(total, RP_LIMIT), html = [];
   for(var i=0;i<lim;i++){
     var r = rows[i];
     var link = r.pdf || r.url || "#";
-    var hasSum = !!(r.summary && r.summary.length);
+    var hasSum = rpHasSum(r);
     var open = hasSum && rpOpenSum[r.id];
     html.push("<tr>");
     html.push('<td class="l dt">' + esc((r.date || "").slice(2)) + "</td>");
@@ -463,20 +787,20 @@ function rpRenderReports(rows){
                         (open ? "true" : "false") + '">' + (open ? "▴" : "▾") + "</button>" : "") + "</td>");
     html.push('<td class="l">' + esc(r.broker || "") +
               (r.analyst ? '<span class="rsub">' + esc(r.analyst) + "</span>" : "") + "</td>");
-    html.push('<td class="c">' + rpBadge(r.rating, r.rating_raw) + "</td>");
-    html.push("<td>" + rpTargetCell(r) + "</td>");
+    html.push('<td class="c">' + rpBadgeOf(r) + "</td>");
+    html.push("<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>");
     html.push("<td>" + rpPriceCell(r) + "</td>");
-    html.push("<td>" + rpGapCell(rpGapOf(r)) + "</td>");
+    html.push("<td>" + rpRecGapCell(r) + "</td>");
+    html.push('<td class="dt">' + (typeof r.views === "number" ? fmt(r.views) : "") + "</td>");
     html.push("</tr>");
     if(open){
       html.push('<tr class="sumrow"><td class="l wr" colspan="' + RP_COLS.length + '">' +
-                esc(r.summary) + "</td></tr>");
+                rpSumHtml(r) + "</td></tr>");
     }
   }
   if(total > lim){
     html.push('<tr class="morerow"><td class="c" colspan="' + RP_COLS.length + '">' +
-              '<button class="btn" id="rpMore">더 보기 (+' + fmt(RP_PAGE) + ") · 남은 " +
-              fmt(total - lim) + "건</button></td></tr>");
+              rpMoreBtn(total, lim) + "</td></tr>");
   }
   $("#rpTbody").innerHTML = html.join("");
   return total;
@@ -499,7 +823,7 @@ function rpGroupByStock(rows){
   var map = {};
   for(var i=0;i<rows.length;i++){
     var r = rows[i];
-    if(!r.code) continue;
+    if(!r.code || !rpStatOk(r)) continue;     // 확인 필요 레코드는 종목 통계에서 뺀다
     var g = map[r.code];
     if(!g){
       g = map[r.code] = { code:r.code, name:rpName(r.code, r.name), industry:null, sector:null, n:0,
@@ -526,7 +850,7 @@ function rpGroupByStock(rows){
       s.max = Math.max.apply(null, s.targets);
       s.min = Math.min.apply(null, s.targets);
     }else s.avg = s.max = s.min = null;
-    s.gap = (s.price && s.avg) ? Math.round((s.avg - s.price) / s.price * 10000) / 100 : null;
+    s.gap = s.avg ? rpGapPct(s.avg, s.price) : null;
     s.buyRatio = s.n ? Math.round(s.BUY / s.n * 1000) / 10 : null;
     out.push(s);
   }
@@ -603,6 +927,7 @@ function rpGroupBySector(rows){
   var map = {};
   for(var i=0;i<rows.length;i++){
     var r = rows[i];
+    if(!rpStatOk(r)) continue;                // 확인 필요 레코드는 업종 통계에서 뺀다
     var sname = r.sector || RP_UNCL, iname = r.industry || RP_UNCL;
     var g = map[sname] || (map[sname] = rpNewAgg(sname, sname));
     rpAddAgg(g, r);
@@ -787,17 +1112,152 @@ function rpInitHeatEvents(){
   });
 }
 
+/* ---------- 목표가 변경 피드 ---------- */
+function rpChgPct(r){
+  return rpGapPct(r.target, r.prev_target);           // 같은 식: (새 − 직전) / 직전 × 100
+}
+const RP_CCOLS = [
+  { key:"date",   label:"날짜",                al:"l", get:function(r){ return r.date; } },
+  { key:"name",   label:"종목",                al:"l", get:function(r){ return r.name; } },
+  { key:"broker", label:"증권사(애널리스트)",  al:"l", get:function(r){ return r.broker; } },
+  { key:"target", label:"직전 → 새 목표가",    get:function(r){ return r.target; } },
+  { key:"chg",    label:"변경률",              get:function(r){ return rpChgPct(r); } },
+  { key:"rating", label:"의견",                al:"c", get:function(r){ return RP_RATINGS.indexOf(r.rating); } },
+  { key:"price",  label:"현재가",              get:function(r){ return rpPrice(r); } },
+  { key:"gap",    label:"괴리율",              get:function(r){ return rpGapOf(r); } }
+];
+/* 기본(날짜) 정렬: 날짜 → 같은 날은 |변경률| 큰 순 */
+function rpSortChanges(rows, keys){
+  if(RP.sortKey !== "date" && keys[RP.sortKey]) return rpSortRows(rows, keys);
+  var dir = (RP.sortKey === "date" && RP.sortDir === "asc") ? 1 : -1;
+  return rows.slice().sort(function(x, y){
+    var c = String(x.date || "").localeCompare(String(y.date || "")) * dir;
+    if(c) return c;
+    return Math.abs(rpChgPct(y) || 0) - Math.abs(rpChgPct(x) || 0);
+  });
+}
+/* 방향별로 리비전한 증권사 수가 많은 종목 top n (확인 필요 제외) */
+function rpTopRevisers(rows, dir, n){
+  var map = {};
+  rows.forEach(function(r){
+    if(r.target_change !== dir || !r.code || !rpStatOk(r)) return;
+    var g = map[r.code] || (map[r.code] = { code:r.code, name:rpName(r.code, r.name), b:{}, k:0 });
+    var bk = r.broker || "?";
+    if(!g.b[bk]){ g.b[bk] = 1; g.k++; }
+  });
+  return Object.keys(map).map(function(c){ return map[c]; })
+    .sort(function(a, b){ return b.k - a.k || a.name.localeCompare(b.name, "ko"); }).slice(0, n);
+}
+function rpRenderChgSum(rows){
+  var up = 0, down = 0, codes = {};
+  rows.forEach(function(r){
+    if(!rpStatOk(r)) return;
+    if(r.target_change === "up") up++; else down++;
+    if(r.code) codes[r.code] = 1;
+  });
+  function top(list, cls){
+    if(!list.length) return '<span class="flat">-</span>';
+    return list.map(function(g, i){
+      return '<span class="ti">' + (i + 1) + '. <a class="tk rpgo" href="#" data-go="' + esc(g.code) + '">' +
+             esc(g.name) + '</a> <b class="' + cls + '">' + g.k + "곳</b></span>";
+    }).join("");
+  }
+  $("#rpChgSum").innerHTML =
+    '<div class="cnt"><span class="up">상향 <b>' + fmt(up) + '</b></span>' +
+    '<span class="down">하향 <b>' + fmt(down) + "</b></span>" +
+    "<span>종목 <b>" + fmt(Object.keys(codes).length) + "</b></span>" +
+    '<span class="flat">확인 필요 레코드 제외</span></div>' +
+    '<div class="tops"><div><span class="k">상향이 많은 종목</span>' + top(rpTopRevisers(rows, "up", 5), "up") + "</div>" +
+    '<div><span class="k">하향이 많은 종목</span>' + top(rpTopRevisers(rows, "down", 5), "down") + "</div></div>";
+}
+function rpChgCell(r){
+  return '<span class="flat">' + fmt(r.prev_target) + "</span> → <b>" + fmt(r.target) + "</b>";
+}
+function rpRenderChanges(rows){
+  rows = rows.filter(function(r){ return r.target_change === "up" || r.target_change === "down"; });
+  rpRenderChgSum(rows);
+  var keys = {};
+  RP_CCOLS.forEach(function(c){ if(c.get) keys[c.key] = c.get; });
+  rows = rpSortChanges(rows, keys);
+  var total = rows.length, lim = Math.min(total, RP_LIMIT), html = [];
+
+  if(rpIsMobile()){
+    for(var m=0;m<lim;m++){
+      var rc = rows[m], pc = rpChgPct(rc);
+      html.push(rpCardHtml(rc, rpChgCell(rc) +
+        (pc === null ? "" : ' <span class="' + dirCls(pc) + '">' + fmtPct(pc) + "</span>")));
+    }
+    if(total > lim) html.push('<div class="rcmore">' + rpMoreBtn(total, lim) + "</div>");
+    $("#rpCards").innerHTML = html.join("");
+    rpShowCards(true);
+    return total;
+  }
+  rpShowCards(false);
+  $("#rpThead").innerHTML = rpHead(RP_CCOLS);
+  for(var i=0;i<lim;i++){
+    var r = rows[i], p = rpChgPct(r);
+    html.push("<tr>" +
+      '<td class="l dt">' + esc((r.date || "").slice(2)) + "</td>" +
+      '<td class="l">' + rpStockCell(r.code, r.name, r.industry, r.sector) + "</td>" +
+      '<td class="l">' + esc(r.broker || "") +
+        (r.analyst ? '<span class="rsub">' + esc(r.analyst) + "</span>" : "") + "</td>" +
+      "<td>" + rpChgCell(r) + rpSuspectTag(r) + "</td>" +
+      '<td><b class="' + dirCls(p) + '">' + (p === null ? "-" : fmtPct(p)) + "</b></td>" +
+      '<td class="c">' + rpBadgeOf(r) + "</td>" +
+      "<td>" + rpPriceCell(r) + "</td>" +
+      "<td>" + rpRecGapCell(r) + "</td></tr>");
+  }
+  if(total > lim){
+    html.push('<tr class="morerow"><td class="c" colspan="' + RP_CCOLS.length + '">' +
+              rpMoreBtn(total, lim) + "</td></tr>");
+  }
+  $("#rpTbody").innerHTML = html.join("");
+  return total;
+}
+
+/* ---------- 부분 적재 안내 ---------- */
+/* 지금 보는 기간이 메모리에 다 올라오지 않았으면(또는 받는 중이면) 목록 위에 알린다 */
+function rpRenderLoadNote(){
+  var el = $("#rpLoadNote");
+  if(!el) return;
+  var html = "";
+  if(RP_V2 && RP_READY){
+    var floor = rpPeriodFloor(), lf = rpLoadedFloor();
+    var fails = Object.keys(rpMonthFail);
+    if(rpLoadProg && !rpCovers(floor)){
+      html = '<span class="spin"></span>이전 리포트를 불러오는 중… ' + rpLoadProg.done + " / " + rpLoadProg.total +
+             "개월 · <b>지금 목록은 일부 데이터(" + esc(lf.slice(5)) + " 이후, " + fmt(RPT.length) + " / " +
+             fmt(rpTotalCount()) + "건) 기준</b>입니다.";
+    }else if(!rpCovers(floor)){
+      html = "<b>일부 데이터 기준:</b> " + esc(lf) + " 이후 리포트만 불러왔습니다 (" + fmt(RPT.length) + " / " +
+             fmt(rpTotalCount()) + "건)" +
+             (fails.length ? ' · <span class="down">' + esc(fails.join(", ")) + " 불러오기 실패</span>" : "") +
+             ' <button class="btn xs" id="rpLoadAll">전체 불러오기</button>';
+    }
+  }
+  el.innerHTML = html;
+  el.classList.toggle("hide", !html);
+}
+
 /* ---------- 전체 렌더 ---------- */
 function rpRender(keepLimit){
   if(!RP_READY) return;
   if(!keepLimit) RP_LIMIT = RP_PAGE;
+  /* 지금 기간이 아직 메모리에 없으면(예: "전체") 나머지 달을 병렬로 받고, 받는 동안은 안내를 띄운다 */
+  var floor = rpPeriodFloor();
+  if(RP_V2 && !rpCovers(floor)) rpEnsureHistory(RP.period === "all" ? Infinity : parseInt(RP.period, 10));
+  rpRenderLoadNote();
+  var partial = RP_V2 && !rpCovers(floor);
+
   var rows = rpFiltered();
   rpRenderStats(rows);
   rpRenderSelbar();
 
-  var heat = RP.view === "heat";
+  var heat = RP.view === "heat", chg = RP.view === "changes";
   $("#rpTablePanel").classList.toggle("hide", heat);
   $("#rpHeatPanel").classList.toggle("hide", !heat);
+  $("#rpChgSum").classList.toggle("hide", !chg);
+  if(!heat && RP.view !== "reports" && !chg) rpShowCards(false);
 
   var shown, count;
   if(heat){
@@ -811,11 +1271,16 @@ function rpRender(keepLimit){
     $("#rpTableTitle").textContent = "종목별";
     shown = rpRenderStocks(rows);
     count = "종목 " + fmt(shown) + "개 / 리포트 " + fmt(rows.length) + "건";
+  }else if(chg){
+    $("#rpTableTitle").textContent = "목표가 변경";
+    shown = rpRenderChanges(rows);
+    count = "변경 " + fmt(shown) + "건 / 리포트 " + fmt(rows.length) + "건";
   }else{
     $("#rpTableTitle").textContent = "리포트";
     shown = rpRenderReports(rows);
-    count = fmt(rows.length) + "건 / 전체 " + fmt(RPT.length) + "건";
+    count = fmt(rows.length) + "건 / 전체 " + fmt(rpTotalCount()) + "건";
   }
+  if(partial) count += " · 일부 데이터";
   $("#rpCount").textContent = count;
   $("#rpCount2").textContent = count;
 
@@ -840,8 +1305,15 @@ function rpRenderKeep(){
   window.scrollTo(0, y);
 }
 function rpUpdated(){
-  if(!RMETA || !RMETA.updated_at) return;
-  $("#rpUpd").textContent = "리포트 " + RMETA.updated_at.replace("T", " ").slice(5, 16) + " 기준";
+  var el = $("#rpUpd");
+  if(!el) return;
+  var html = (RMETA && RMETA.updated_at)
+    ? "리포트 " + esc(RMETA.updated_at.replace("T", " ").slice(5, 16)) + " 기준" : "";
+  if(rpUpdFail){
+    html += (html ? " · " : "") + '<span class="down" title="5분 주기 갱신 확인(data/meta.json)이 실패했습니다. 화면은 마지막으로 받은 데이터입니다.">갱신 실패 ' +
+            esc(rpUpdFail) + "</span>";
+  }
+  el.innerHTML = html;
 }
 function rpShowNotice(html){
   var n = $("#rpNotice");
@@ -887,6 +1359,10 @@ function rpSyncControls(){
   $$("[data-rrating]").forEach(function(b){ b.classList.toggle("act", RP.ratings.indexOf(b.dataset.rrating) >= 0); });
   $$("[data-rchange]").forEach(function(b){ b.classList.toggle("act", RP.changes.indexOf(b.dataset.rchange) >= 0); });
   $$("[data-rsector]").forEach(function(b){ b.classList.toggle("act", RP.sectors.indexOf(b.dataset.rsector) >= 0); });
+  $$("[data-rsus]").forEach(function(b){ b.classList.toggle("act", RP.suspect === b.dataset.rsus); });
+  $$("[data-rsort]").forEach(function(b){
+    b.classList.toggle("act", RP.view === "reports" && RP.sortKey === b.dataset.rsort && RP.sortDir === "desc");
+  });
   $("#rpBrokerSum").textContent = RP.brokers.length ? "증권사 " + RP.brokers.length + "곳 ▾" : "증권사 전체 ▾";
   rpRenderIndustrySelect();
 }
@@ -1045,17 +1521,18 @@ function rpRenderToday(){
   var day = "";
   for(var i=0;i<RPT.length;i++){ if((RPT[i].date || "") > day) day = RPT[i].date || ""; }
   var rows = RPT.filter(function(r){ return r.date === day; });
-  var a = rpAgg(rows);
-  var ups = rows.filter(function(r){ return r.target_change === "up"; })
+  var a = rpAgg(rows);          // 확인 필요 레코드는 통계·목록에서 뺀다
+  var ups = rows.filter(function(r){ return r.target_change === "up" && rpStatOk(r); })
     .sort(function(x, y){ return (rpGapOf(y) || 0) - (rpGapOf(x) || 0); }).slice(0, 8);
 
   var head = '<div class="ovw" style="gap:16px">' +
     rpOvi("리포트", fmt(rows.length), "", day.slice(5) + (day === rpTodayISO() ? " (오늘)" : " (최근 영업일)")) +
-    rpOvi("BUY 비율", (rows.length ? Math.round(a.BUY / rows.length * 100) : 0) + "%", "up",
+    rpOvi("BUY 비율", (a.n ? Math.round(a.BUY / a.n * 100) : 0) + "%", "up",
           "BUY " + a.BUY + "건") +
     rpOvi("목표가 상향", fmt(a.up), "up") +
     rpOvi("하향", fmt(a.down), "down") +
-    rpOvi("평균 괴리율", a.avgGap === null ? "-" : fmtPct(a.avgGap), dirCls(a.avgGap)) + "</div>";
+    rpOvi("괴리율 중앙값", a.medGap === null ? "-" : fmtPct(a.medGap), dirCls(a.medGap),
+          a.gapN ? fmt(a.gapN) + "건 기준" : "") + "</div>";
 
   var list = ups.length
     ? '<table class="rtbl" style="margin-top:6px"><tbody>' + ups.map(function(r){
@@ -1083,30 +1560,41 @@ function rpRenderAnal(){
     $("#anRepBody").innerHTML = '<tr><td class="l" colspan="7" style="color:var(--tx3)">리포트 데이터를 불러오는 중…</td></tr>';
     return;
   }
+  /* 컨센서스: 최근 3개월. 아직 메모리에 없으면 받아 온 뒤 다시 그린다 (전역 rpRenderAnal 을 다시 불러 차트도 갱신) */
+  var floor = rpShiftISO(rpTodayISO(), -92);
+  var loading = RP_V2 && !rpCovers(floor);
+  if(loading && !rpRenderAnal.pending){
+    rpRenderAnal.pending = true;
+    rpEnsureHistory(RP_IDLE_DAYS).then(function(){
+      rpRenderAnal.pending = false;
+      if(rpCovers(floor)) rpRenderAnal();
+    });
+  }
   var list = rpByCode[it.code] || [];
   if(!list.length){
-    $("#anRepSub").textContent = "최근 리포트 없음";
+    var none = loading ? "리포트를 불러오는 중…" : "최근 리포트 없음";
+    $("#anRepSub").textContent = none;
     $("#anRepCons").innerHTML = "";
-    $("#anRepBody").innerHTML = '<tr><td class="l" colspan="7" style="color:var(--tx3)">최근 리포트 없음</td></tr>';
+    $("#anRepBody").innerHTML = '<tr><td class="l" colspan="7" style="color:var(--tx3)">' + none + "</td></tr>";
     return;
   }
-  /* 컨센서스: 최근 3개월 */
-  var floor = rpShiftISO(rpTodayISO(), -92);
   var recent = list.filter(function(r){ return (r.date || "") >= floor; });
   if(!recent.length) recent = list.slice(0, 10);
-  var tg = recent.map(function(r){ return r.target; }).filter(function(v){ return typeof v === "number"; });
-  var buy = recent.filter(function(r){ return r.rating === "BUY"; }).length;
-  var q = QUOTES["KR:" + it.code];
-  var price = (q && q.ok && q.price > 0) ? q.price : null;
+  var stat = recent.filter(rpStatOk);                // 확인 필요 레코드는 컨센서스에서 뺀다
+  var tg = stat.map(function(r){ return r.target; }).filter(function(v){ return typeof v === "number"; });
+  var buy = stat.filter(function(r){ return r.rating === "BUY"; }).length;
+  var price = rpCodePrice(it.code);
   var avg = tg.length ? Math.round(tg.reduce(function(s, v){ return s + v; }, 0) / tg.length) : null;
-  var gap = (avg && price) ? Math.round((avg - price) / price * 10000) / 100 : null;
+  var gap = avg ? rpGapPct(avg, price) : null;
+  var sus = recent.length - stat.length;
 
-  $("#anRepSub").textContent = "전체 " + fmt(list.length) + "건 · 최근 3개월 " + fmt(recent.length) + "건";
+  $("#anRepSub").textContent = (rpIsPartial() ? "불러온 범위 " : "전체 ") + fmt(list.length) + "건 · 최근 3개월 " +
+    fmt(recent.length) + "건" + (sus ? " (확인 필요 " + sus + "건 제외)" : "") + (loading ? " · 불러오는 중…" : "");
   $("#anRepCons").innerHTML = '<div class="ovw" style="gap:16px">' +
     rpOvi("평균 목표가", avg ? fmt(avg) : "-", "", tg.length ? tg.length + "개 증권사" : "목표가 없음") +
     rpOvi("최고", tg.length ? fmt(Math.max.apply(null, tg)) : "-") +
     rpOvi("최저", tg.length ? fmt(Math.min.apply(null, tg)) : "-") +
-    rpOvi("BUY 비율", Math.round(buy / recent.length * 100) + "%", "up", "BUY " + buy + "건") +
+    rpOvi("BUY 비율", (stat.length ? Math.round(buy / stat.length * 100) : 0) + "%", "up", "BUY " + buy + "건") +
     rpOvi("현재가 대비", gap === null ? "-" : fmtPct(gap), dirCls(gap),
           price ? fmt(price) + "원 기준" : "시세 없음") + "</div>";
 
@@ -1118,9 +1606,9 @@ function rpRenderAnal(){
       '<td class="l" style="color:var(--tx3)">' + esc(r.analyst || "") + "</td>" +
       '<td class="l wr"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
         esc(r.title || "") + "</a></td>" +
-      '<td class="c">' + rpBadge(r.rating, r.rating_raw) + "</td>" +
-      "<td>" + rpTargetCell(r) + "</td>" +
-      "<td>" + rpGapCell(rpGapOf(r)) + "</td></tr>";
+      '<td class="c">' + rpBadgeOf(r) + "</td>" +
+      "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +
+      "<td>" + rpRecGapCell(r) + "</td></tr>";
   }).join("");
 }
 
@@ -1135,11 +1623,12 @@ function rpAnnotate(list){
     var n = 0, sum = 0, cnt = 0;
     for(var i=0;i<rs.length;i++){
       if((rs[i].date || "") < floor) break;        // 최신순 정렬이라 여기서 끊는다
+      if(!rpStatOk(rs[i])) continue;              // 확인 필요 레코드는 세지 않는다
       n++;
       if(typeof rs[i].target === "number"){ sum += rs[i].target; cnt++; }
     }
     q.rep1m = n;
-    q.repGap = (cnt && q.price > 0) ? Math.round((sum/cnt - q.price) / q.price * 10000) / 100 : null;
+    q.repGap = cnt ? rpGapPct(sum / cnt, q.price) : null;
   });
 }
 
@@ -1157,16 +1646,23 @@ function rpBind(){
     };
   });
   $("#rpFilters").onclick = function(e){
-    var b = e.target.closest("[data-rrating],[data-rchange],[data-rsector]"); if(!b) return;
+    var b = e.target.closest("[data-rrating],[data-rchange],[data-rsector],[data-rsus],[data-rsort]"); if(!b) return;
     if(b.dataset.rrating) rpToggle(RP.ratings, b.dataset.rrating);
     else if(b.dataset.rchange) rpToggle(RP.changes, b.dataset.rchange);
+    else if(b.dataset.rsus) RP.suspect = (RP.suspect === b.dataset.rsus) ? "" : b.dataset.rsus;
+    else if(b.dataset.rsort){
+      /* 빠른 정렬 칩 (많이 본 순): 다시 누르면 날짜순으로 */
+      if(RP.view === "reports" && RP.sortKey === b.dataset.rsort && RP.sortDir === "desc"){
+        RP.sortKey = "date"; RP.sortDir = "desc";
+      }else{ RP.view = "reports"; RP.sortKey = b.dataset.rsort; RP.sortDir = "desc"; }
+    }
     else rpToggle(RP.sectors, b.dataset.rsector);
     rpRender();
   };
   $("#rpIndustry").onchange = function(){ RP.industry = this.value; rpRender(); };
   $("#rpReset").onclick = function(){
     RP.ratings = []; RP.changes = []; RP.brokers = []; RP.sectors = [];
-    RP.industry = ""; RP.codes = []; RP.q = ""; RP.period = "7";
+    RP.industry = ""; RP.codes = []; RP.q = ""; RP.period = "7"; RP.suspect = "";
     RP.sortKey = "date"; RP.sortDir = "desc";
     $("#rpQ").value = ""; rpSetAc(false);
     rpRenderBrokerList(); rpRender();
@@ -1238,15 +1734,48 @@ function rpBind(){
       if(th){ e.preventDefault(); th.click(); }
     }
   });
+  /* 요약 "다시 시도" (표·카드 공통) */
+  function sumRetry(e){
+    var rb = e.target.closest("button[data-sumretry]");
+    if(!rb) return false;
+    delete rpSumState[rb.dataset.sumretry];
+    rpLoadSummary(rb.dataset.sumretry);
+    rpRender(true);
+    return true;
+  }
+  /* 모바일 카드: 종목 → 종목분석, 제목 → 원문, 그 밖을 누르면 요약 펼침 */
+  $("#rpCards").addEventListener("click", function(e){
+    var go = e.target.closest("[data-go]");
+    if(go){ e.preventDefault(); rpGotoAnal(go.dataset.go); return; }
+    if(e.target.closest("#rpMore")){ RP_LIMIT += RP_PAGE; rpRenderKeep(); return; }
+    if(sumRetry(e)) return;
+    if(e.target.closest("a")) return;
+    var c = e.target.closest("[data-csum]");
+    if(!c || e.target.closest(".sum")) return;
+    var id = c.dataset.csum;
+    if(rpOpenSum[id]) delete rpOpenSum[id]; else rpOpenSum[id] = true;
+    rpRenderKeep();
+  });
+  $("#rpChgSum").addEventListener("click", function(e){
+    var go = e.target.closest("[data-go]");
+    if(go){ e.preventDefault(); rpGotoAnal(go.dataset.go); }
+  });
+  $("#rpLoadNote").addEventListener("click", function(e){
+    if(!e.target.closest("#rpLoadAll")) return;
+    rpMonthFail = {};
+    rpEnsureHistory(Infinity);
+    rpRenderLoadNote();
+  });
   $("#rpTbody").addEventListener("click", function(e){
     var go = e.target.closest("[data-go]");
     if(go){ e.preventDefault(); rpGotoAnal(go.dataset.go); return; }
     if(e.target.closest("#rpMore")){ RP_LIMIT += RP_PAGE; rpRenderKeep(); return; }
+    if(sumRetry(e)) return;
     var b = e.target.closest("button[data-sum]");
     if(b){
       var id = b.dataset.sum;
       if(rpOpenSum[id]) delete rpOpenSum[id]; else rpOpenSum[id] = true;
-      rpRender(true);
+      rpRenderKeep();
       return;
     }
     var caret = e.target.closest("button[data-secopen]");
@@ -1286,11 +1815,12 @@ function rpBind(){
 function rpInit(){
   rpLoadState();
   var VALID = ["date","name","broker","rating","target","price","gap","n","avg","max","min",
-               "industry","stocks","buy","up","last"];
+               "industry","stocks","buy","up","last","views","chg"];
   if(VALID.indexOf(RP.sortKey) < 0) RP.sortKey = "date";
   if(RP.sortDir !== "asc" && RP.sortDir !== "desc") RP.sortDir = "desc";
   if(RP_VIEWS.indexOf(RP.view) < 0) RP.view = "reports";
   if(RP.heatColor !== "buy") RP.heatColor = "gap";
+  if(RP.suspect !== "hide" && RP.suspect !== "only") RP.suspect = "";
   ["ratings","changes","brokers","sectors","codes"].forEach(function(k){
     if(!Array.isArray(RP[k])) RP[k] = [];
   });

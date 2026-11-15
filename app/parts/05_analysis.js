@@ -2,14 +2,133 @@
    종목분석 — Finviz 식 스탯 그리드 + 캔들 차트
    ========================================================================= */
 const AN = { sel:null, bars:[], period:"1y", tf:"day",
-             ma:{5:true,20:true,60:true,120:false}, hover:-1, loading:false };
+             ma:{5:true,20:true,60:true,120:false}, hover:-1, loading:false,
+             tgtDots:[], tgtCache:null, tgtAsked:0, tgtSrc:null, tgtSrcN:-1, tgtDrawn:0 };
 const MA_COLORS = { 5:"#E8B339", 20:"#34C062", 60:"#2F91EF", 120:"#C06CE0" };
+const TGT_CONS_COLOR = "#FF8A3D";          // 목표가 컨센서스 계단선
+const TGT_WIN = 90;                        // 컨센서스: 증권사별 최근 목표가를 이 일수 안에서만
+const TGT_CLAMP = 2.5;                     // y축 확장 상한: 보이는 가격 범위의 배수
 
 function renderMaLegend(){
   $("#maLeg").innerHTML = [5,20,60,120].map(function(p){
     return '<button data-ma="' + p + '" class="' + (AN.ma[p]?"on":"") + '" style="color:' + MA_COLORS[p] + '">' +
            '<span class="dot"></span>MA' + p + '</button>';
-  }).join("");
+  }).join("") +
+    '<button data-tgt="1" class="' + (tgtOn()?"on":"") + '" style="color:' + TGT_CONS_COLOR + '" ' +
+    'title="증권사 목표주가 이력 표시">' + '<span class="dot"></span>목표가</button>';
+}
+
+/* ---------- 목표주가 이력 오버레이 (09_reports.js 의 rpByCode 를 읽기 전용으로 사용) ---------- */
+function tgtOn(){ return !(S.settings && S.settings.anTgt === false); }   // 기본 켜짐
+function tgtYmd(iso){ return String(iso || "").replace(/-/g, "").slice(0, 8); }
+function tgtShiftYmd(ymd, days){
+  var d = new Date(Date.UTC(+ymd.slice(0,4), +ymd.slice(4,6)-1, +ymd.slice(6,8)) + days*86400000);
+  return d.toISOString().slice(0,10).replace(/-/g, "");
+}
+function tgtDaysSince(ymd){
+  var t = Date.UTC(+ymd.slice(0,4), +ymd.slice(4,6)-1, +ymd.slice(6,8));
+  return Math.max(0, Math.ceil((Date.now() - t) / 86400000));
+}
+/* 해당 종목의 목표가 있는 리포트 (suspect 제외), 날짜 오름차순 */
+function tgtRecords(code){
+  if(typeof RP_READY === "undefined" || !RP_READY || typeof rpByCode === "undefined") return null;
+  var list = rpByCode[code];
+  if(!list) return { list:null, recs:[] };
+  var recs = [];
+  for(var i=0;i<list.length;i++){
+    var r = list[i];
+    if(r.suspect || typeof r.target !== "number" || !(r.target > 0) || !r.date) continue;
+    recs.push({ r:r, d:tgtYmd(r.date), b:r.broker || ("?" + (r.id || i)) });
+  }
+  recs.sort(function(a,b){ return a.d < b.d ? -1 : (a.d > b.d ? 1 : 0); });
+  return { list:list, recs:recs };
+}
+/* 날짜 D 기준 컨센서스: 최근 TGT_WIN 일 안의 증권사별 최신 목표가 */
+function tgtConsAt(latest, D){
+  var floor = tgtShiftYmd(D, -TGT_WIN), vals = [];
+  for(var b in latest){ if(latest[b].d >= floor) vals.push(latest[b].r.target); }
+  return vals;
+}
+function tgtCompute(bars, code){
+  if(typeof RP_READY === "undefined" || !RP_READY || typeof rpByCode === "undefined") return null;
+  var c = AN.tgtCache, cur = rpByCode[code];
+  if(c && c.bars === bars && c.code === code && c.list === cur && c.ln === (cur ? cur.length : 0)) return c;
+  var src = tgtRecords(code);
+  if(!src) return null;
+  var recs = src.recs, n = bars.length;
+  var dots = [], cons = new Array(n), latest = {}, p = 0;
+  var first = n ? bars[0].d : "", lastD = n ? bars[n-1].d : "";
+  /* 점: 리포트 날짜가 속한 봉 (그 날짜 이하의 마지막 봉) */
+  var bi = 0;
+  for(var k=0;k<recs.length && n;k++){
+    var d = recs[k].d;
+    if(d < first) continue;
+    while(bi < n-1 && bars[bi+1].d <= d) bi++;
+    dots.push({ i:(d > lastD ? n-1 : bi), v:recs[k].r.target, r:recs[k].r });
+  }
+  /* 계단선: 봉마다 컨센서스 */
+  for(var i=0;i<n;i++){
+    var D = bars[i].d;
+    if(i === n-1 && todayStr() > D) D = todayStr();      // 마지막 봉은 오늘까지 반영
+    while(p < recs.length && recs[p].d <= D){ latest[recs[p].b] = recs[p]; p++; }
+    var vals = tgtConsAt(latest, D);
+    cons[i] = vals.length ? vals.reduce(function(s, v){ return s + v; }, 0) / vals.length : null;
+  }
+  /* 요약: 오늘 기준 */
+  var all = {};
+  recs.forEach(function(x){ all[x.b] = x; });
+  var now = tgtConsAt(all, todayStr());
+  AN.tgtCache = { bars:bars, list:src.list, code:code, ln:src.list ? src.list.length : 0, dots:dots, cons:cons,
+                  sum:{ k:now.length,
+                        avg:now.length ? now.reduce(function(s, v){ return s + v; }, 0) / now.length : null,
+                        hi:now.length ? Math.max.apply(null, now) : null,
+                        lo:now.length ? Math.min.apply(null, now) : null } };
+  return AN.tgtCache;
+}
+function tgtRenderSummary(t){
+  var el = $("#anTgtSum"); if(!el) return;
+  var html = "";
+  if(t && tgtOn() && AN.sel && !isIdx(AN.sel)){
+    var it = AN.sel, s = t.sum, q = QUOTES[keyOf(it.mk, it.code)];
+    var price = (q && q.price > 0) ? q.price : (AN.bars.length ? AN.bars[AN.bars.length-1].c : null);
+    var gap = (s.avg && price) ? (s.avg - price) / price * 100 : null;
+    var leg = '<span class="tl"><i class="td up"></i>상향</span><span class="tl"><i class="td down"></i>하향</span>' +
+              '<span class="tl"><i class="td flat"></i>유지·신규</span>' +
+              '<span class="tl"><i class="tc" style="background:' + TGT_CONS_COLOR + '"></i>컨센서스(' + TGT_WIN + '일)</span>';
+    var body = s.k
+      ? '<span class="k">증권사</span> ' + s.k + "곳" +
+        '<span class="k">컨센서스</span> <b>' + fmt(Math.round(s.avg)) + "</b>" +
+        '<span class="k">최고</span> ' + fmt(s.hi) + '<span class="k">최저</span> ' + fmt(s.lo) +
+        '<span class="k">현재가 대비</span> <span class="' + dirCls(gap) + '">' + (gap === null ? "-" : fmtPct(gap)) + "</span>"
+      : '<span class="k">최근 ' + TGT_WIN + "일 목표주가 없음</span>";
+    html = '<span class="tb">' + body + '</span><span class="tg">' + leg + "</span>";
+  }
+  if(el.innerHTML !== html) el.innerHTML = html;
+  el.style.display = html ? "" : "none";
+}
+/* 로더가 rpEnsureHistory(days) 를 제공하면 차트 기간 + 컨센서스 창만큼 과거 리포트를 확보 */
+function tgtEnsure(days){
+  if(typeof rpEnsureHistory !== "function" || days <= AN.tgtAsked) return;
+  AN.tgtAsked = days;
+  Promise.resolve(rpEnsureHistory(days)).then(function(){
+    AN.tgtCache = null;
+    if(AN.sel) drawChart();
+  }).catch(function(e){ console.warn("리포트 이력 확보 실패:", e && e.message ? e.message : e); });
+}
+/* 리포트 데이터 도착/갱신 시 차트 다시 그리기 — 09 의 rpLoad·rpCheckUpdate 가 rpRenderAnal() 을 부른다 */
+function tgtOnData(){
+  if(typeof RPT === "undefined") return;
+  if(RPT === AN.tgtSrc && RPT.length === AN.tgtSrcN) return;
+  AN.tgtSrc = RPT; AN.tgtSrcN = RPT.length; AN.tgtCache = null;
+  if(AN.sel && !isIdx(AN.sel) && AN.bars.length) drawChart();
+}
+function tgtHit(mx, my, rad){
+  var best = null, bd = rad*rad;
+  AN.tgtDots.forEach(function(p){
+    var dx = p.x - mx, dy = p.y - my, d2 = dx*dx + dy*dy;
+    if(d2 <= bd){ bd = d2; best = p; }
+  });
+  return best;
 }
 function isIdx(it){ return it && it.mk === "IDX"; }
 
@@ -163,6 +282,11 @@ function drawChart(){
   ctx.font = '10.5px "Wooridaum","IBM Plex Sans",sans-serif';
 
   var bars = AN.bars;
+  AN.tgtDots = [];
+  var tg = (bars.length && AN.sel && !isIdx(AN.sel)) ? tgtCompute(bars, AN.sel.code) : null;
+  tgtRenderSummary(tg);
+  if(!tgtOn()) tg = null;
+  if(bars.length && AN.sel && !isIdx(AN.sel)) tgtEnsure(tgtDaysSince(bars[0].d) + TGT_WIN);
   if(!bars.length){
     ctx.fillStyle = C.tx3; ctx.textAlign = "center";
     ctx.fillText(AN.loading ? "차트 데이터를 불러오는 중…" : "데이터가 없습니다", W/2, H/2);
@@ -185,6 +309,17 @@ function drawChart(){
   Object.keys(mas).forEach(function(p){
     mas[p].forEach(function(v){ if(v !== null){ if(v < lo) lo = v; if(v > hi) hi = v; } });
   });
+  /* 목표가가 들어오도록 y축 확장. 가격 범위의 TGT_CLAMP 배를 넘는 값은 가장자리에 고정 */
+  var capHi = Infinity, capLo = -Infinity;
+  if(tg){
+    var pr = (hi - lo) || hi*0.05 || 1;
+    capHi = lo + pr*TGT_CLAMP; capLo = Math.max(0, hi - pr*TGT_CLAMP);
+    var tHi = -Infinity, tLo = Infinity;
+    tg.dots.forEach(function(p){ if(p.v > tHi) tHi = p.v; if(p.v < tLo) tLo = p.v; });
+    tg.cons.forEach(function(v){ if(v !== null){ if(v > tHi) tHi = v; if(v < tLo) tLo = v; } });
+    if(tHi > hi) hi = Math.min(tHi, capHi);
+    if(tLo < lo) lo = Math.max(tLo, capLo);
+  }
   var pad = (hi-lo)*0.06 || hi*0.02 || 1;
   lo -= pad; hi += pad;
   var maxVol = Math.max.apply(null, bars.map(function(b){ return b.v; })) || 1;
@@ -222,6 +357,42 @@ function drawChart(){
     ctx.stroke();
   });
   ctx.lineWidth = 1;
+
+  /* 목표주가: 컨센서스 계단선 + 리포트별 점 */
+  if(tg){
+    var yTop = yMain + 4, yBot = yMain + hMain - 4;
+    var YT = function(v){ return Math.max(yTop, Math.min(yBot, Y(v))); };
+    ctx.save(); ctx.beginPath(); ctx.rect(PL, yMain, plotW, hMain); ctx.clip();
+    ctx.strokeStyle = TGT_CONS_COLOR; ctx.lineWidth = 1.4; ctx.setLineDash([5,3]);
+    ctx.beginPath();
+    var prevY = null;
+    for(var ci=0; ci<n; ci++){
+      var cv2 = tg.cons[ci];
+      if(cv2 === null){ prevY = null; continue; }
+      var cy = YT(cv2), x0 = PL + ci*step, x1 = x0 + step;
+      if(prevY === null) ctx.moveTo(x0, cy); else ctx.lineTo(x0, cy);   // 세로 계단
+      ctx.lineTo(x1, cy);
+      prevY = cy;
+    }
+    ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+    var colNeu = cssVar("--tx2");
+    tg.dots.forEach(function(p){
+      var x = X(p.i), ch = p.r.target_change;
+      var col = ch === "up" ? C.up : (ch === "down" ? C.down : colNeu);
+      var pin = p.v > capHi ? 1 : (p.v < capLo ? -1 : 0);
+      var y = pin > 0 ? yTop + 5 : (pin < 0 ? yBot - 5 : YT(p.v));
+      ctx.fillStyle = col; ctx.strokeStyle = cssVar("--panel") || "#000"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      if(pin){                                   // 범위 밖: 가장자리 고정 + 방향 삼각형
+        ctx.fillStyle = col; ctx.beginPath();
+        var ty = pin > 0 ? y - 3 : y + 3, d = pin > 0 ? -4 : 4;
+        ctx.moveTo(x - 3.5, ty); ctx.lineTo(x + 3.5, ty); ctx.lineTo(x, ty + d); ctx.closePath(); ctx.fill();
+      }
+      AN.tgtDots.push({ x:x, y:y, r:p.r, pin:pin });
+    });
+    ctx.restore(); ctx.lineWidth = 1;
+  }
+  AN.tgtDrawn = AN.tgtDots.length;               // 검증용 카운터
 
   bars.forEach(function(b, i){
     ctx.fillStyle = b.c >= b.o ? C.up : C.down;
@@ -282,29 +453,68 @@ function fmtDate(d){
 function initChartEvents(){
   var cv = $("#chart"), tip = $("#tip");
   function row(k, v){ return '<div class="r"><span>'+k+'</span><span>'+v+'</span></div>'; }
-  cv.addEventListener("mousemove", function(e){
+  function onPoint(e, rad){
     var r = cv.getBoundingClientRect();
     var plotW = cv.clientWidth - 6 - 58, n = AN.bars.length;
     var i = n ? Math.floor((e.clientX - r.left - 6)/(plotW/n)) : -1;
     if(i < 0 || i >= n) i = -1;
     if(i !== AN.hover){ AN.hover = i; drawChart(); }
-    if(i < 0){ tip.style.display = "none"; return; }
-    var b = AN.bars[i], mk = AN.sel ? AN.sel.mk : "KR";
-    var prev = i > 0 ? AN.bars[i-1].c : b.o;
-    var ch = b.c - prev, pc = prev ? ch/prev*100 : 0;
-    tip.innerHTML = "<b>" + fmtDate(b.d) + "</b>" +
-      row("시가", fmtPrice(b.o, mk)) + row("고가", fmtPrice(b.h, mk)) +
-      row("저가", fmtPrice(b.l, mk)) + row("종가", fmtPrice(b.c, mk)) +
-      row("대비", '<span class="'+dirCls(ch)+'">'+fmtSigned(ch)+" ("+fmtPct(pc)+")</span>") +
-      row("거래량", fmtBig(b.v));
+    var dot = tgtHit(e.clientX - r.left, e.clientY - r.top, rad);
+    if(i < 0 && !dot){ tip.style.display = "none"; return; }
+    if(dot){                                       // 목표주가 점: 리포트 정보
+      var rp = dot.r, tc = rp.target_change;
+      var chTxt = tc === "up" ? '<span class="up">상향</span>' : (tc === "down" ? '<span class="down">하향</span>' :
+                  (tc === "new" ? "신규" : (tc === "same" ? "유지" : "-")));
+      tip.innerHTML = "<b>" + esc(rp.date || "") + " · " + esc(rp.broker || "") + "</b>" +
+        (rp.analyst ? row("애널리스트", esc(rp.analyst)) : "") +
+        row("의견", esc(rp.rating || "-")) +
+        row("목표가", "<b>" + fmt(rp.target) + "</b>") +
+        row("이전 목표가", typeof rp.prev_target === "number" ? fmt(rp.prev_target) : "-") +
+        row("변경", chTxt) +
+        (rp.title ? '<div class="tt">' + esc(rp.title) + "</div>" : "");
+    }else{
+      var b = AN.bars[i], mk = AN.sel ? AN.sel.mk : "KR";
+      var prev = i > 0 ? AN.bars[i-1].c : b.o;
+      var ch = b.c - prev, pc = prev ? ch/prev*100 : 0;
+      tip.innerHTML = "<b>" + fmtDate(b.d) + "</b>" +
+        row("시가", fmtPrice(b.o, mk)) + row("고가", fmtPrice(b.h, mk)) +
+        row("저가", fmtPrice(b.l, mk)) + row("종가", fmtPrice(b.c, mk)) +
+        row("대비", '<span class="'+dirCls(ch)+'">'+fmtSigned(ch)+" ("+fmtPct(pc)+")</span>") +
+        row("거래량", fmtBig(b.v));
+    }
     tip.style.display = "block";
     var wrap = cv.parentElement.getBoundingClientRect();
     var lx = e.clientX - wrap.left + 14;
     if(lx + tip.offsetWidth > wrap.width) lx = e.clientX - wrap.left - tip.offsetWidth - 14;
     tip.style.left = Math.max(0, lx) + "px";
     tip.style.top = Math.max(0, Math.min(wrap.height - tip.offsetHeight, e.clientY - wrap.top + 10)) + "px";
-  });
+  }
+  cv.addEventListener("mousemove", function(e){ onPoint(e, 7); });
+  cv.addEventListener("click", function(e){ onPoint(e, 12); });      // 터치 탭: 판정 반경을 넓힌다
   cv.addEventListener("mouseleave", function(){ AN.hover = -1; tip.style.display = "none"; drawChart(); });
+  document.addEventListener("touchstart", function(e){            // 차트 밖을 탭하면 툴팁 닫기
+    if(e.target !== cv && tip.style.display !== "none"){ AN.hover = -1; tip.style.display = "none"; drawChart(); }
+  }, { passive:true });
+
+  /* 목표가 토글 (07 의 #maLeg onclick 은 data-ma 버튼만 처리한다) */
+  $("#maLeg").addEventListener("click", function(e){
+    var b = e.target.closest("button[data-tgt]"); if(!b) return;
+    S.settings = S.settings || {};
+    S.settings.anTgt = !tgtOn();
+    save(); renderMaLegend(); drawChart();
+  });
+
+  /* 리포트 데이터 도착 훅: 09 를 건드리지 않고 전역 rpRenderAnal 을 감싼다.
+     rpLoad()·rpCheckUpdate()(·이후 로더)가 데이터 적재 뒤 rpRenderAnal() 을 부르므로 여기서 차트를 다시 그린다. */
+  if(typeof rpRenderAnal === "function" && !rpRenderAnal.tgtWrapped){
+    var rpAnalNow = rpRenderAnal;
+    rpRenderAnal = function(){
+      var ret = rpAnalNow.apply(this, arguments);
+      try{ tgtOnData(); }catch(err){ console.warn("목표가 오버레이 갱신 실패:", err); }
+      return ret;
+    };
+    rpRenderAnal.tgtWrapped = true;
+  }
 }
 
 /* =========================================================================

@@ -198,6 +198,17 @@
               <button class="chip" data-rchange="new">신규</button>
             </div>
           </div>
+          <div class="rfl"><span class="k">확인 필요</span>
+            <div class="chips">
+              <button class="chip" data-rsus="hide" title="값이 의심스러운 레코드(확인 필요)를 목록에서 숨김">숨김</button>
+              <button class="chip" data-rsus="only" title="값이 의심스러운 레코드(확인 필요)만 보기">만 보기</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">정렬</span>
+            <div class="chips">
+              <button class="chip" data-rsort="views" title="네이버 조회수 순 (조회수는 네이버 소스만 있음)">많이 본 순</button>
+            </div>
+          </div>
           <div class="rfl" style="flex:1;min-width:260px"><span class="k">업종</span>
             <div class="chips" id="rpSectorChips"></div>
           </div>
@@ -227,6 +238,7 @@
     </div>
 
     <div class="selbar hide" id="rpSelbar"></div>
+    <div class="rpload hide" id="rpLoadNote" role="status"></div>
 
     <div class="panel" id="rpTablePanel">
       <div class="ptitle"><span id="rpTableTitle">리포트</span>
@@ -237,9 +249,12 @@
             <button data-v="stocks">종목별</button>
             <button data-v="sectors">업종별</button>
             <button data-v="heat">히트맵</button>
+            <button data-v="changes">목표가 변경</button>
           </div>
         </span>
       </div>
+      <div class="rchgsum hide" id="rpChgSum"></div>
+      <div class="rcards hide" id="rpCards"></div>
       <div class="tbw"><table class="rtbl" id="rpTable">
         <thead id="rpThead"></thead><tbody id="rpTbody"></tbody>
       </table></div>
@@ -252,6 +267,7 @@
           <div class="seg" id="rpViewSeg2">
             <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
             <button data-v="sectors">업종별</button><button data-v="heat" class="act">히트맵</button>
+            <button data-v="changes">목표가 변경</button>
           </div>
           <div class="seg" id="rpHeatSeg">
             <button data-hc="gap" class="act">괴리율</button><button data-hc="buy">BUY 비율</button>
@@ -336,6 +352,7 @@
         <div class="malegend" id="maLeg"></div>
       </div>
       <div class="chw"><canvas id="chart"></canvas><div class="tip" id="tip"></div></div>
+      <div class="tgtsum" id="anTgtSum" style="display:none"></div>
     </div>
   </div>
   <div class="panel hide" id="anRepPanel">
