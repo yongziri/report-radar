@@ -9,8 +9,8 @@ v1(data/reports.json 한 파일)은 load_v1로 읽고, 처음 v2로 저장한 �
 내용이 바뀐 파일만 다시 쓴다(바이트 비교). 키 순서·레코드 순서를 고정해
 같은 데이터면 늘 같은 바이트가 나오게 한다.
 
-나중에 perf.json(성과)·industry/(산업·시황)이 생기면 write_bytes_if_changed와
-content_version을 그대로 써서 meta에 perf_v·industry_months를 더하면 된다.
+    data/industry/YYYY-MM.json   산업·시황 리포트 (meta.industry_months)
+    data/perf.json               {updated_at, items: {id: {paw, max, min, hit}}} (meta.perf_v)
 """
 
 import hashlib
@@ -42,9 +42,14 @@ class Layout(object):
         self.prices_path = os.path.join(data_dir, "prices.json")
         self.meta_path = os.path.join(data_dir, "meta.json")
         self.v1_path = os.path.join(data_dir, "reports.json")
+        self.industry_dir = os.path.join(data_dir, "industry")
+        self.perf_path = os.path.join(data_dir, "perf.json")
 
     def month_path(self, month):
         return os.path.join(self.reports_dir, "%s.json" % month)
+
+    def industry_path(self, month):
+        return os.path.join(self.industry_dir, "%s.json" % month)
 
     def summary_path(self, month):
         return os.path.join(self.summaries_dir, "%s.json" % month)
@@ -197,11 +202,103 @@ def load_prices(layout):
 
 # ------------------------------------------------------------------ 쓰기
 
-def save_v2(layout, records, prices, meta_base, prices_updated_at):
+def load_meta(layout):
+    """이전 실행의 meta.json. 없거나 깨졌으면 {}."""
+    data = _read_json(layout.meta_path, {})
+    return data if isinstance(data, dict) else {}
+
+
+# ------------------------------------------------------------ 산업·시황 리포트
+
+# 산업·시황 레코드 필드 순서 (docs/DATA-FORMAT-v2.md)
+INDUSTRY_FIELDS = ("id", "kind", "date", "title", "broker", "analyst", "category",
+                   "pdf", "url", "views")
+
+
+def load_industry(layout):
+    """data/industry/ 월별 파일 전부 -> 레코드 리스트."""
+    rows = []
+    for month in list_months(layout.industry_dir):
+        data = _read_json(layout.industry_path(month), [])
+        for rec in data if isinstance(data, list) else []:
+            if isinstance(rec, dict) and rec.get("id"):
+                rows.append(rec)
+    return rows
+
+
+def encode_industry_month(rows):
+    lines = [_dumps({k: rec.get(k) for k in INDUSTRY_FIELDS}) for rec in rows]
+    return ("[\n" + ",\n".join(lines) + "\n]\n" if lines else "[]\n").encode("utf-8")
+
+
+def save_industry(layout, rows):
+    """산업·시황 레코드를 달별로 저장한다. (바뀐 파일 경로 목록, industry_months).
+
+    rows에 없는 달의 파일은 지운다(보관 기간 정리). industry_months는 최신 달이 먼저.
+    """
+    by_month = {}
+    for rec in rows:
+        month = (rec.get("date") or "")[:7]
+        if re.fullmatch(r"\d{4}-\d{2}", month):
+            by_month.setdefault(month, []).append(rec)
+    changed = []
+    months_meta = []
+    for month in sorted(by_month, reverse=True):
+        items = sort_records(by_month[month])
+        data = encode_industry_month(items)
+        if write_bytes_if_changed(layout.industry_path(month), data):
+            changed.append(layout.industry_path(month))
+        months_meta.append({"month": month, "count": len(items), "v": content_version(data)})
+    for month in list_months(layout.industry_dir):
+        if month not in by_month:
+            path = layout.industry_path(month)
+            os.remove(path)
+            changed.append(path)
+    return changed, months_meta
+
+
+# ------------------------------------------------------------------ 성과
+
+def encode_perf(updated_at, items):
+    """items: {id: {"paw", "max", "min", "hit"}}. id 순으로 한 줄씩."""
+    lines = ["%s:%s" % (_dumps(rid), _dumps({"paw": items[rid].get("paw"),
+                                             "max": items[rid].get("max"),
+                                             "min": items[rid].get("min"),
+                                             "hit": items[rid].get("hit")}))
+             for rid in sorted(items)]
+    body = "{\n" + ",\n".join(lines) + "\n}" if lines else "{}"
+    text = '{\n"updated_at":%s,\n"items":%s\n}\n' % (_dumps(updated_at), body)
+    return text.encode("utf-8")
+
+
+def load_perf(layout):
+    """perf.json -> (updated_at 문자열 또는 None, 파일 바이트 또는 None)."""
+    try:
+        with open(layout.perf_path, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None, None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return None, raw
+    return (data.get("updated_at") if isinstance(data, dict) else None), raw
+
+
+def save_perf(layout, updated_at, items):
+    """perf.json을 쓴다. (썼으면 True, perf_v)."""
+    data = encode_perf(updated_at, items)
+    return write_bytes_if_changed(layout.perf_path, data), content_version(data)
+
+
+# ------------------------------------------------------------------ 저장
+
+def save_v2(layout, records, prices, meta_base, prices_updated_at, meta_extra=None):
     """레코드·가격·메타를 v2로 저장한다. 바뀐 파일 경로 목록과 meta를 돌려준다.
 
     records에 없는 달의 파일은 지운다(보관 기간 정리). v1 reports.json이 있으면 지운다.
     meta_base: updated_at·count·latest_date·brokers·source_status 등 기존 필드.
+    meta_extra: prices_v 뒤에 붙일 필드(perf_v·industry_months). 값이 None이면 뺀다.
     """
     by_month = {}
     for rec in records:
@@ -239,6 +336,9 @@ def save_v2(layout, records, prices, meta_base, prices_updated_at):
     meta["data_version"] = DATA_VERSION
     meta["months"] = months_meta
     meta["prices_v"] = content_version(price_bytes)
+    for key, value in (meta_extra or {}).items():
+        if value is not None:
+            meta[key] = value
     if write_bytes_if_changed(layout.meta_path, encode_meta(meta)):
         changed.append(layout.meta_path)
 

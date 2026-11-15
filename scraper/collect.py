@@ -2,9 +2,11 @@
 
 네이버 증권 리서치 API(종목분석)를 1차 소스로 리포트를 모으고,
 네이버에 잘 올라오지 않는 KB증권·NH투자증권·한국투자증권은 각 사 사이트에서 직접 긁는다.
+와이즈리포트(전 증권사 목록, 3시간에 한 번)로 빠진 리포트를 더하고 애널리스트 등 빈 칸을 채운다.
 현재가는 네이버 실시간 시세로, 애널리스트명은 한경 컨센서스로 보강한다.
 결과는 형식 v2(docs/DATA-FORMAT-v2.md)로 저장한다: data/reports/YYYY-MM.json(월별 리포트,
-최근 730일), data/summaries/YYYY-MM.json(요약), data/prices.json(현재가), data/meta.json.
+최근 730일), data/summaries/YYYY-MM.json(요약), data/prices.json(현재가), data/meta.json,
+data/industry/YYYY-MM.json(산업·시황 리포트), data/perf.json(발간 후 성과, 하루 1회).
 v1 data/reports.json 이 남아 있으면 처음 실행 때 읽어서 v2로 옮기고 지운다.
 
 사용 예:
@@ -13,6 +15,9 @@ v1 data/reports.json 이 남아 있으면 처음 실행 때 읽어서 v2로 옮�
     python scraper/collect.py --from 2026-08-01 --to 2026-08-31
     python scraper/collect.py --dry-run --no-hankyung --no-brokers
     python scraper/collect.py --migrate-only     # 네트워크 없이 v1→v2 이전·정규화만
+    python scraper/collect.py --wise-backfill    # 와이즈리포트를 보관 시작일까지 한 번 백필
+    python scraper/collect.py --perf             # 성과(perf.json)를 지금 강제로 다시 계산
+    python scraper/collect.py --data-dir D:/tmp/data   # 다른 data 디렉터리에 읽고 쓰기
 """
 
 import argparse
@@ -35,9 +40,12 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import brokers  # noqa: E402
+import industry as industry_mod  # noqa: E402
 import normalize as norm  # noqa: E402
+import perf as perf_mod  # noqa: E402
 import sectors as sector_mod  # noqa: E402
 import store  # noqa: E402
+import wise as wise_mod  # noqa: E402
 from parsers import (  # noqa: E402
     apply_target_changes,
     normalize_broker,
@@ -46,6 +54,7 @@ from parsers import (  # noqa: E402
     parse_naver_api_detail,
     parse_naver_api_list,
     parse_price_payload,
+    WISE_SKIP_CODES,
 )
 
 KST = timezone(timedelta(hours=9))
@@ -58,13 +67,23 @@ TIMEOUT = 15
 RETRIES = 2
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT, "data")
+DEFAULT_DATA_DIR = os.path.join(ROOT, "data")
+# --data-dir로 바꿀 수 있다(set_data_dir). 기본은 저장소의 data/.
+DATA_DIR = DEFAULT_DATA_DIR
 LAYOUT = store.Layout(DATA_DIR)
 SECTORS_PATH = os.path.join(DATA_DIR, "sectors.json")
 
+
+def set_data_dir(path):
+    """읽고 쓰는 data 디렉터리를 바꾼다."""
+    global DATA_DIR, LAYOUT, SECTORS_PATH
+    DATA_DIR = os.path.abspath(path)
+    LAYOUT = store.Layout(DATA_DIR)
+    SECTORS_PATH = os.path.join(DATA_DIR, "sectors.json")
+
 # meta.json 의 source_status 에 항상 넣어 두는 소스. 한 소스가 통째로 사라져도
 # 항목이 남아 있어야 정지를 알아챌 수 있다.
-KNOWN_SOURCES = ("naver", "hankyung", "kb", "nh", "kis")
+KNOWN_SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise")
 
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -446,6 +465,15 @@ def parse_args(argv=None):
                    help="네트워크 수집 없이 저장된 데이터의 v1→v2 이전·정규화만 한다")
     p.add_argument("--refetch-kis", action="store_true",
                    help="저장된 한투 리포트 전부의 상세를 다시 받아 의견·목표가를 다시 읽는다")
+    p.add_argument("--data-dir", default=None,
+                   help="읽고 쓸 data 디렉터리 (기본: 저장소의 data/)")
+    p.add_argument("--no-wise", action="store_true", help="와이즈리포트 수집 생략")
+    p.add_argument("--wise-backfill", action="store_true",
+                   help="와이즈리포트를 보관 중인 가장 이른 날짜까지 페이지를 넘겨 백필")
+    p.add_argument("--no-industry", action="store_true", help="산업·시황 리포트 수집 생략")
+    p.add_argument("--perf", action="store_true",
+                   help="성과(perf.json)를 시각과 관계없이 지금 다시 계산")
+    p.add_argument("--no-perf", action="store_true", help="성과(perf.json) 계산 생략")
     return p.parse_args(argv)
 
 
@@ -460,10 +488,13 @@ def resolve_range(args, today):
     return d_from.isoformat(), d_to.isoformat()
 
 
-def build_source_status(records, before_ids):
+def build_source_status(records, before_ids, seen=None):
     """소스별 {최신 리포트 날짜, 이번 실행 신규 건수, 보관 건수}.
 
     before_ids 는 이번 실행 전에 이미 갖고 있던 id 집합이다.
+    seen: {소스: {"fetched_last_date", ("fetched_at")}}. 와이즈·한경 건은 상위 소스와 겹치면
+    흡수돼 사라지므로, 응답에서 본 가장 최근 작성일(fetched_last_date)도 last_date에 반영한다.
+    그러지 않으면 수집은 잘 되는데 보관 건이 없어 check_sources.py가 정지로 오판한다.
     """
     status = {}
     for src in KNOWN_SOURCES:
@@ -479,6 +510,14 @@ def build_source_status(records, before_ids):
             st["last_date"] = d
         if r.get("id") not in before_ids:
             st["new_run"] += 1
+    for src, info in sorted((seen or {}).items()):
+        st = status.setdefault(src, {"last_date": None, "new_run": 0, "total": 0})
+        last = info.get("fetched_last_date")
+        if last and (st["last_date"] is None or last > st["last_date"]):
+            st["last_date"] = last
+        for key in ("fetched_at", "fetched_last_date"):
+            if key in info:
+                st[key] = info[key]
     return status
 
 
@@ -497,17 +536,30 @@ def can_retry(rec):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.data_dir:
+        set_data_dir(args.data_dir)
     now = datetime.now(KST)
     today = now.date()
     date_from, date_to = resolve_range(args, today)
     if args.migrate_only:
         args.no_hankyung = args.no_brokers = args.no_price = True
+        args.no_wise = args.no_industry = args.no_perf = True
 
     log("리포트 레이더 수집 시작 — 범위 %s ~ %s (KST %s)%s"
         % (date_from, date_to, now.strftime("%Y-%m-%d %H:%M"),
            " [--migrate-only: 수집 없이 이전·정규화만]" if args.migrate_only else ""))
 
+    if DATA_DIR != DEFAULT_DATA_DIR:
+        log("data 디렉터리: %s" % DATA_DIR)
+
     session = make_session()
+
+    old_meta = store.load_meta(LAYOUT)
+    old_status = old_meta.get("source_status") or {}
+    old_wise = old_status.get("wise") or {}
+    wise_info = {"fetched_at": old_wise.get("fetched_at"),
+                 "fetched_last_date": old_wise.get("fetched_last_date")}
+    hk_info = {"fetched_last_date": (old_status.get("hankyung") or {}).get("fetched_last_date")}
 
     existing, old_prices, migrating = load_reports()
     existing_ids = {r.get("id") for r in existing}
@@ -611,10 +663,44 @@ def main(argv=None):
                 enrich(session, retry)
                 note_detail_result(retry)
 
+    # 와이즈리포트. 우선순위는 네이버·KB·NH·한투 > 와이즈 > 한경. 같은 리포트가 위쪽 소스에
+    # 있으면 정규화 패스(absorb_wise)에서 빈 칸만 채우고 사라진다. 평소엔 3시간에 한 번 1페이지.
+    if not args.no_wise and (args.wise_backfill or wise_mod.wise_due(wise_info["fetched_at"], now)):
+        until = None
+        if args.wise_backfill:
+            dates_all = [r.get("date") for r in records if r.get("date")]
+            until = min(dates_all) if dates_all else date_from
+            log("와이즈리포트 백필 (%s까지)..." % until)
+        try:
+            wise_rows, wise_newest = wise_mod.collect_wise(session, fetch_json, log, until=until)
+        except Exception as exc:
+            log("  ! 와이즈리포트 수집 실패 (무시하고 진행): %s" % exc)
+            wise_rows, wise_newest = None, None
+        if wise_rows is None:
+            log("와이즈리포트: 받지 못했습니다 (다음 실행에서 다시 시도)")
+        else:
+            wise_info["fetched_at"] = now.isoformat(timespec="seconds")
+            if wise_newest and (not wise_info["fetched_last_date"]
+                                or wise_newest > wise_info["fetched_last_date"]):
+                wise_info["fetched_last_date"] = wise_newest
+            fresh = [r for r in wise_rows if r["id"] not in merged]
+            for rec in fresh:
+                merged[rec["id"]] = rec
+                records.append(rec)
+            log("와이즈리포트 %d건 (보관 안 된 것 %d건, 상위 소스와 겹치는지는 정규화에서 판단)"
+                % (len(wise_rows), len(fresh)))
+    elif not args.no_wise:
+        log("와이즈리포트: 마지막 수집 %s — %d시간이 안 지나 건너뜀"
+            % (wise_info["fetched_at"], wise_mod.WISE_INTERVAL_HOURS))
+
     # 한경 보강. 이번 수집 범위에 해당하는 레코드에만 애널리스트명을 채운다.
     if not args.no_hankyung:
         try:
             hk_records = collect_hankyung(session, date_from, date_to)
+            hk_dates = [r["date"] for r in hk_records if r.get("date")]
+            if hk_dates and (not hk_info["fetched_last_date"]
+                             or max(hk_dates) > hk_info["fetched_last_date"]):
+                hk_info["fetched_last_date"] = max(hk_dates)
             log("한경 컨센서스 %d건" % len(hk_records))
             if hk_records:
                 in_range = [r for r in records
@@ -654,11 +740,19 @@ def main(argv=None):
     records, nb_dropped, nb_flagged = norm.drop_or_flag_name_is_broker(records)
     if nb_dropped or nb_flagged:
         log("종목명=증권사명: 한경 %d건 제거, %d건 확인 필요 표시" % (nb_dropped, nb_flagged))
-    # 2) 같은 (종목, 날짜, 증권사) 중복 병합
+    # 2) 와이즈 건 중 위쪽 소스에 이미 있는 리포트는 흡수(빈 칸만 채움)
+    #    (파서가 버리기 전에 저장된 비상장 000000 건도 여기서 정리한다)
+    records = [r for r in records
+               if not (r.get("source") == "wise" and r.get("code") in WISE_SKIP_CODES)]
+    records, wise_stats = norm.absorb_wise(records)
+    if wise_stats["absorbed"]:
+        log("와이즈 흡수 %d건, 빈 칸을 채운 레코드 %d건 %s"
+            % (wise_stats["absorbed"], wise_stats["filled_records"], wise_stats["filled"]))
+    # 3) 같은 (종목, 날짜, 증권사) 중복 병합
     records, dup_merged = norm.dedupe_records(records)
     if dup_merged:
         log("중복 병합 %d건" % dup_merged)
-    # 3) 레이팅 정규화 (규칙이 바뀌었을 수 있으니 매번) + 직전 의견 승계
+    # 4) 레이팅 정규화 (규칙이 바뀌었을 수 있으니 매번) + 직전 의견 승계
     norm.renormalize_ratings(records)
     inferred = norm.infer_ratings(records)
     if inferred:
@@ -724,6 +818,51 @@ def main(argv=None):
         % (len(eval_ids), range_stats["own"], range_stats["near"], range_stats["current"],
            range_stats["none"], range_stats["flagged"]))
 
+    # 성과(perf.json)와 발간일 종가 기준 목표가 범위 재판정. 하루 한 번.
+    perf_items = None
+    perf_updated, perf_raw = store.load_perf(LAYOUT)
+    perf_v = old_meta.get("perf_v") or (store.content_version(perf_raw) if perf_raw else None)
+    if not args.no_perf and perf_mod.perf_due(perf_updated, now, force=args.perf):
+        t0 = time.time()
+        windows = perf_mod.history_window(
+            [r for r in records if r.get("target") and r.get("code")], today)
+        log("성과 계산: 일봉 %d종목 수신 중..." % len(windows))
+        histories = perf_mod.fetch_histories(session, windows, today, fetch, log=log)
+        if histories:
+            before_flags = sum(1 for r in records
+                               if r.get("suspect") == norm.SUSPECT_TARGET_RANGE)
+            re_stats = norm.reevaluate_target_range_with_closes(
+                records, perf_mod.CloseLookup(histories))
+            after_flags = sum(1 for r in records
+                              if r.get("suspect") == norm.SUSPECT_TARGET_RANGE)
+            log("발간일 종가로 목표가 범위 재판정 %d건 (price_at_write 2배 넘게 틀림 %d건): "
+                "확인 필요 %d → %d건 (해제 %d, 새로 %d)"
+                % (re_stats["checked"], re_stats["paw_wrong"], before_flags, after_flags,
+                   re_stats["cleared"], re_stats["newly_flagged"]))
+            perf_items = perf_mod.compute_perf(records, histories)
+            log("성과 %d건 (일봉 %d/%d종목, %.1f초)"
+                % (len(perf_items), len(histories), len(windows), time.time() - t0))
+        else:
+            log("  ! 일봉을 한 종목도 받지 못했습니다. 성과는 이전 파일을 둡니다.")
+
+    # 산업·시황 리포트 (data/industry/)
+    industry_rows = None
+    if not args.no_industry:
+        stored_industry = store.load_industry(LAYOUT)
+        until = None
+        if not stored_industry:
+            dates_all = [r.get("date") for r in records if r.get("date")]
+            until = min(dates_all) if dates_all else date_from
+            log("산업·시황 리포트 첫 수집: %s까지 백필" % until)
+        try:
+            industry_rows, _, _ = industry_mod.collect_industry(
+                session, fetch_json, stored_industry, until, today, log=log)
+        except Exception as exc:
+            log("  ! 산업·시황 리포트 수집 실패 (무시하고 진행): %s" % exc)
+            industry_rows = stored_industry
+        industry_rows = [r for r in industry_rows
+                         if (r.get("date") or "")[:7] >= cutoff_month]
+
     store.sort_records(records)
 
     # 지역변수 이름은 brokers 모듈과 겹치지 않게 둔다.
@@ -735,7 +874,8 @@ def main(argv=None):
         "latest_date": max(dates) if dates else None,
         "brokers": broker_names,
         # 소스가 조용히 멈춘 것을 scraper/check_sources.py 가 잡을 수 있게 남긴다.
-        "source_status": build_source_status(records, existing_ids),
+        "source_status": build_source_status(records, existing_ids,
+                                             {"wise": wise_info, "hankyung": hk_info}),
     }
 
     rating_dist = {}
@@ -754,16 +894,37 @@ def main(argv=None):
             % (src, st["last_date"] or "-", st["new_run"], st["total"]))
     log_sector_stats(records)
 
+    if industry_rows is not None:
+        kinds = {}
+        for r in industry_rows:
+            kinds[r.get("kind")] = kinds.get(r.get("kind"), 0) + 1
+        log("산업·시황 보관 %d건 %s" % (len(industry_rows), kinds))
+
     if args.dry_run:
         log("--dry-run: 저장하지 않았습니다.")
         return 0
 
+    extra_changed = []
+    if perf_items is not None:
+        wrote, perf_v = store.save_perf(LAYOUT, now.isoformat(timespec="seconds"), perf_items)
+        if wrote:
+            extra_changed.append(LAYOUT.perf_path)
+    industry_months = old_meta.get("industry_months")
+    if industry_rows is not None:
+        ind_changed, industry_months = store.save_industry(LAYOUT, industry_rows)
+        extra_changed.extend(ind_changed)
+        if not industry_months:
+            industry_months = None
+
     changed, meta = store.save_v2(LAYOUT, records, prices, meta,
-                                  now.isoformat(timespec="seconds"))
+                                  now.isoformat(timespec="seconds"),
+                                  meta_extra={"perf_v": perf_v,
+                                              "industry_months": industry_months})
+    changed = extra_changed + changed
     log("저장 완료: %d건, 월 %d개, 바뀐 파일 %d개"
         % (len(records), len(meta["months"]), len(changed)))
     for path in changed:
-        log("  %s" % os.path.relpath(path, ROOT))
+        log("  %s" % os.path.relpath(path, DATA_DIR))
     return 0
 
 

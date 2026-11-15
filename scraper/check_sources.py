@@ -3,11 +3,12 @@
 2026-09-14 네이버가 페이지를 옮겨 1차 소스가 3일간 0건이었는데 Actions 는 계속
 success 였다. 수집이 "성공"해도 알맹이가 없을 수 있으므로 따로 확인한다.
 
-실행:  python scraper/check_sources.py
+실행:  python scraper/check_sources.py [--data-dir <data 디렉터리>]
        정상이면 exit 0, 멈춘 소스가 있으면 ::error:: 를 찍고 exit 1.
        (GitHub Actions 에서 잡이 실패하면 메일 알림이 온다)
 """
 
+import argparse
 import json
 import os
 import sys
@@ -25,8 +26,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 META_PATH = os.path.join(ROOT, "data", "meta.json")
 
 # 소스별 허용 공백(영업일). 한경은 갱신이 하루 늦게 붙는 날이 있어 하루 더 준다.
-LIMITS = {"naver": 2, "hankyung": 3, "kb": 2, "nh": 2, "kis": 2}
-SOURCES = ("naver", "hankyung", "kb", "nh", "kis")
+# 와이즈는 3시간에 한 번만 받지만 영업일 단위로는 다른 소스와 같은 기준을 둔다.
+LIMITS = {"naver": 2, "hankyung": 3, "kb": 2, "nh": 2, "kis": 2, "wise": 2}
+SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise")
 
 
 def parse_date(s):
@@ -73,8 +75,13 @@ def stale_sources(status, today):
 
 
 def main(argv=None):
+    p = argparse.ArgumentParser(description="소스 정지 경보")
+    p.add_argument("--data-dir", default=None, help="data 디렉터리 (기본: 저장소의 data/)")
+    args = p.parse_args(argv)
+    meta_path = (os.path.join(os.path.abspath(args.data_dir), "meta.json")
+                 if args.data_dir else META_PATH)
     try:
-        with open(META_PATH, encoding="utf-8") as f:
+        with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
     except (OSError, ValueError) as exc:
         print("::error::meta.json 을 읽지 못했습니다: %s" % exc)

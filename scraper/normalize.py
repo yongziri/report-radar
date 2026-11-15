@@ -7,8 +7,10 @@
 - drop_or_flag_name_is_broker: 종목명이 증권사 자신인 건 (한경은 버리고, 나머지는 suspect)
 - dedupe_records: 같은 (code, date, 증권사) 중복 병합
 - infer_ratings: 목표가는 있는데 의견이 NR인 건에 직전 의견 승계
-- evaluate_target_range: 목표가가 기준가의 0.3~3배 밖이면 suspect (건당 한 번만 판정)
+- evaluate_target_range: 목표가가 기준가의 0.3~3.5배 밖이면 suspect (건당 한 번만 판정)
 - reparse_nh_targets: NH 요약에서 목표가를 다시 읽기 (v1 → v2 이전 때 한 번)
+- absorb_wise: 상위 소스에 이미 있는 와이즈 건을 지우고 빈 칸(애널리스트 등)만 채움
+- reevaluate_target_range_with_closes: 발간일 종가로 목표가 범위 재판정 (성과 단계)
 """
 
 import difflib
@@ -23,14 +25,22 @@ from parsers import (
 )
 
 # 소스 우선순위. 숫자가 작을수록 위다. 중복을 합칠 때 위쪽 레코드를 남긴다.
-SOURCE_PRIORITY = {"naver": 0, "kb": 1, "nh": 1, "kis": 1, "hankyung": 2}
+SOURCE_PRIORITY = {"naver": 0, "kb": 1, "nh": 1, "kis": 1, "wise": 2, "hankyung": 3}
+# 와이즈 레코드가 같은 리포트를 찾았을 때 남는 쪽의 빈 칸을 채우는 필드.
+WISE_FILL_FIELDS = ("analyst", "target", "rating_raw", "summary")
+# 와이즈 작성일이 다른 소스와 하루이틀 어긋나는 일이 있다(실측 500건 중 11건).
+WISE_DATE_WINDOW_DAYS = 3
+# 제목 유사도(공백·문장부호를 뗀 문자열의 difflib 비율) 하한.
+WISE_TITLE_RATIO = 0.8
+# 발간일 종가와 네이버 price_at_write가 이 배수 넘게 다르면 종가를 믿는다.
+PAW_TRUST_FACTOR = 2.0
 # 병합할 때 남기는 쪽이 비어 있으면 다른 쪽에서 채우는 필드.
 FILL_FIELDS = ("analyst", "target", "rating_raw", "summary", "pdf", "price_at_write")
 
 SUSPECT_NAME_IS_BROKER = "name_is_broker"
 SUSPECT_TARGET_RANGE = "target_range"
 TARGET_RATIO_MIN = 0.3
-TARGET_RATIO_MAX = 3.0
+TARGET_RATIO_MAX = 3.5
 # 기준가: 본인 price_at_write → 같은 종목 다른 리포트의 price_at_write(이 일수 안) → 현재가.
 REF_PRICE_WINDOW_DAYS = 7
 
@@ -83,7 +93,7 @@ def dedupe_records(records):
     - 같은 소스에서 제목이 다르면 둘 다 남긴다 (하루에 두 편 내는 경우: 리뷰 + 컨콜 요약).
     - 다른 소스끼리 제목이 다르면, 한쪽이 한경일 때만 같은 리포트로 본다
       (한경은 제목을 손봐서 올리는 일이 잦다). 한경 한 건은 가장 비슷한 제목 하나에만 붙는다.
-    남기는 쪽은 소스 우선순위(naver > kb/nh/kis > hankyung), 같으면 빈 칸이 적은 쪽,
+    남기는 쪽은 소스 우선순위(naver > kb/nh/kis > wise > hankyung), 같으면 빈 칸이 적은 쪽,
     그래도 같으면 id가 작은 쪽이다. 남는 쪽의 빈 필드는 합쳐지는 쪽에서 채운다.
     """
     groups = {}
@@ -277,6 +287,155 @@ def evaluate_target_range(records, ids, current_prices):
         if ratio < TARGET_RATIO_MIN or ratio > TARGET_RATIO_MAX:
             rec["suspect"] = SUSPECT_TARGET_RANGE
             stats["flagged"] += 1
+    return stats
+
+
+_HANGUL = re.compile(r"[가-힣]")
+
+
+def wise_title_score(wise_title, other_title):
+    """와이즈 제목과 다른 소스 제목이 같은 리포트로 보이는 정도 (0이면 다름).
+
+    1.0  titles_match (공백·문장부호 무시 일치, 말줄임 앞부분 일치)
+    0.95 한쪽이 다른 쪽을 품음 ('[AI 실적속보] X' ↔ 'X', '3Q26 Review: X' ↔ 'X'), 6자 이상
+    r    difflib 비율 r >= WISE_TITLE_RATIO (오탈자·따옴표 차이)
+    """
+    if titles_match(wise_title, other_title):
+        return 1.0
+    ka, kb = title_key(wise_title), title_key(other_title)
+    if not ka or not kb:
+        return 0.0
+    short, long_ = sorted((ka, kb), key=len)
+    if len(short) >= 6 and short in long_:
+        return 0.95
+    ratio = difflib.SequenceMatcher(None, ka, kb).ratio()
+    return ratio if ratio >= WISE_TITLE_RATIO else 0.0
+
+
+def _wise_match(wise, cands):
+    """같은 (종목, 증권사)의 상위 소스 후보 중 같은 리포트를 고른다. 없으면 None.
+
+    - 제목 점수(wise_title_score)가 있으면 점수 → 날짜 차이 → 소스 우선순위 순.
+    - 제목이 안 맞아도 와이즈 제목에 한글이 없으면(영문판) 번역본으로 본다:
+      같은 날 한글 제목 리포트, 또는 WISE_DATE_WINDOW_DAYS 안에서 목표가가 같은 한글 제목 리포트.
+    """
+    wday = _parse_day(wise.get("date"))
+    if wday is None:
+        return None
+    english = not _HANGUL.search(str(wise.get("title") or ""))
+    best = None
+    for rec in cands:
+        rday = _parse_day(rec.get("date"))
+        if rday is None:
+            continue
+        gap = abs((rday - wday).days)
+        if gap > WISE_DATE_WINDOW_DAYS:
+            continue
+        score = wise_title_score(wise.get("title"), rec.get("title"))
+        if not score and english and _HANGUL.search(str(rec.get("title") or "")):
+            if gap == 0:
+                score = 0.5
+            elif wise.get("target") and wise.get("target") == rec.get("target"):
+                score = 0.4
+        if not score:
+            continue
+        key = (score, -gap, -_priority(rec), str(rec.get("id") or ""))
+        if best is None or key > best[0]:
+            best = (key, rec)
+    return best[1] if best else None
+
+
+def absorb_wise(records):
+    """와이즈 레코드 중 상위 소스(naver·kb·nh·kis)에 이미 있는 리포트는 지우고 빈 칸만 채운다.
+
+    같은 (종목코드, 정규화한 증권사)에서 작성일이 WISE_DATE_WINDOW_DAYS 안이고 제목이 같은
+    리포트로 보이면(_wise_match) 같은 리포트다. 남는 쪽의 비어 있는 analyst·target·rating_raw·
+    summary를 와이즈 값으로 채운다. 한경은 와이즈보다 아래라 여기서 건드리지 않는다(dedupe_records가 처리).
+    매 실행 전체에 돌려도 결과가 같다(와이즈 건은 흡수되면 사라지고, 빈 칸만 채운다).
+
+    돌려주는 값: (남은 레코드, {"absorbed": n, "filled_records": n, "filled": {필드: n}})
+    """
+    stats = {"absorbed": 0, "filled_records": 0, "filled": {f: 0 for f in WISE_FILL_FIELDS}}
+    upper = {}
+    for rec in records:
+        if _priority(rec) < SOURCE_PRIORITY["wise"]:
+            key = (rec.get("code"), normalize_broker(rec.get("broker")))
+            upper.setdefault(key, []).append(rec)
+    out = []
+    for rec in records:
+        if rec.get("source") != "wise":
+            out.append(rec)
+            continue
+        cands = upper.get((rec.get("code"), normalize_broker(rec.get("broker"))))
+        keep = _wise_match(rec, cands) if cands else None
+        if keep is None:
+            out.append(rec)
+            continue
+        stats["absorbed"] += 1
+        any_fill = False
+        for field in WISE_FILL_FIELDS:
+            if not keep.get(field) and rec.get(field):
+                keep[field] = rec[field]
+                stats["filled"][field] += 1
+                any_fill = True
+        if any_fill:
+            stats["filled_records"] += 1
+    return out, stats
+
+
+def trusted_paw(rec, close):
+    """발간 시점 기준가. price_at_write가 발간일 종가와 PAW_TRUST_FACTOR배 넘게 다르면 종가.
+
+    (값, 출처) — 출처는 "own"(price_at_write), "close"(종가로 대체), "paw_wrong"(price_at_write를
+    버리고 종가), 못 정하면 (None, None).
+    """
+    paw = rec.get("price_at_write")
+    if paw and close:
+        ratio = float(paw) / float(close)
+        if 1.0 / PAW_TRUST_FACTOR <= ratio <= PAW_TRUST_FACTOR:
+            return paw, "own"
+        return close, "paw_wrong"
+    if paw:
+        return paw, "own"
+    if close:
+        return close, "close"
+    return None, None
+
+
+def reevaluate_target_range_with_closes(records, close_lookup):
+    """발간일 종가로 목표가 범위를 다시 판정한다 (성과 단계에서, 종가를 받은 종목만).
+
+    close_lookup(code, date) -> 그 날(휴장이면 직전 거래일) 종가 또는 None.
+    기준가는 trusted_paw: price_at_write가 종가와 맞으면 그 값, 없거나 2배 넘게 틀리면 종가.
+    기준가가 과거의 고정값이라 몇 번을 돌려도 같은 결과가 나온다(현재가처럼 흔들리지 않는다).
+    종가를 못 받은 건은 이전 판정을 그대로 둔다. name_is_broker 건은 건드리지 않는다.
+
+    돌려주는 값: {"checked", "paw_wrong", "flagged", "cleared", "newly_flagged"}
+    """
+    stats = {"checked": 0, "paw_wrong": 0, "flagged": 0, "cleared": 0, "newly_flagged": 0}
+    for rec in records:
+        if rec.get("suspect") == SUSPECT_NAME_IS_BROKER:
+            continue
+        target = rec.get("target")
+        if not target:
+            continue
+        close = close_lookup(rec.get("code"), rec.get("date"))
+        if not close:
+            continue
+        ref, how = trusted_paw(rec, close)
+        stats["checked"] += 1
+        if how == "paw_wrong":
+            stats["paw_wrong"] += 1
+        was = rec.get("suspect") == SUSPECT_TARGET_RANGE
+        ratio = float(target) / float(ref)
+        if ratio < TARGET_RATIO_MIN or ratio > TARGET_RATIO_MAX:
+            rec["suspect"] = SUSPECT_TARGET_RANGE
+            stats["flagged"] += 1
+            if not was:
+                stats["newly_flagged"] += 1
+        elif was:
+            rec.pop("suspect", None)
+            stats["cleared"] += 1
     return stats
 
 

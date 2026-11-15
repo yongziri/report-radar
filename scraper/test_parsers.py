@@ -35,13 +35,20 @@ from parsers import (  # noqa: E402
     parse_naver_api_detail,
     parse_naver_api_list,
     parse_nh_list,
+    parse_naver_research_list,
+    parse_naver_research_pdf,
     parse_nh_summary,
     parse_price_payload,
+    parse_sise_json,
+    parse_wise_list,
     to_int,
+    wise_page_info,
 )
 from parsers import name_is_broker  # noqa: E402
 import normalize as norm  # noqa: E402
+import perf as perf_mod  # noqa: E402
 import store  # noqa: E402
+from wise import wise_due  # noqa: E402
 from check_sources import (  # noqa: E402
     business_days_since,
     stale_sources,
@@ -54,6 +61,8 @@ from sectors import (  # noqa: E402
     parse_sector_list,
     sector_of,
 )
+
+KST_TZ = datetime.timezone(datetime.timedelta(hours=9))
 
 # ------------------------------------------------------------------ 픽스처
 
@@ -1091,7 +1100,7 @@ class TestTargetRange(unittest.TestCase):
         stats = norm.evaluate_target_range(recs, ids, {"204320": 34750})
         by_id = {r["id"]: r for r in recs}
         self.assertEqual(by_id["nh:1"].get("suspect"), "target_range")
-        self.assertEqual(by_id["kb:1"].get("suspect"), "target_range")   # 2,000,000/600,000
+        self.assertEqual(by_id["kb:1"].get("suspect"), "target_range")   # 2,400,000/600,000 = 4.0배
         self.assertNotIn("suspect", by_id["naver:1"])
         self.assertNotIn("suspect", by_id["kis:1"])
         self.assertEqual(by_id["kis:2"].get("suspect"), "target_range")
@@ -1263,6 +1272,437 @@ class TestSmallHelpers(unittest.TestCase):
         self.assertEqual(compact_date("20260907"), "2026-09-07")
         self.assertIsNone(compact_date("2026-09-07"))
         self.assertIsNone(compact_date(""))
+
+
+# ------------------------------------------------- 와이즈리포트·산업·성과 (2026-11)
+
+# 와이즈리포트 c1080001_data.aspx 실측 응답 (2026-11-16, 4건으로 줄이고 요약을 줄임).
+WISE_PAYLOAD = {
+    "lists": [
+        {"RPT_ID": 1150538, "ANL_DT": "26/11/13", "IDX": "20261116.021292",
+         "PRE_TITLE": "[기업분석]", "RPT_TITLE": "보험손익의 회복, 주주환원까지의 시차",
+         "CMP_CD": "001450", "BRK_CD": 48, "ANL_NM_KOR": "김현수", "RPT_TYP": 1,
+         "RPT_SUB_TYP": 3, "TARGET_PRC": "66,000", "RECOMM": "BUY",
+         "COMMENT2": "<span class='comment_text'>▶</span> 보험손익 개선에도 투자손익 부진으로 "
+                     "기대치 하회  \r\n<br/><span class='comment_text'>▶</span> 자본비율은 안정화",
+         "VISIT_CNT": 5, "FILE_NM": "1F04820261113_001450.pdf", "CLOSE_PRC": "36,200",
+         "RECOMM_ACTION_TYP_NM": "변동없음", "PRC_ACTION_TYP_NM": "변동없음",
+         "TOTROW": 33452, "CMP_NM_KOR": "현대해상", "BRK_NM_KOR": "상상인증권",
+         "BRK_NM_SHORT_KOR": "상상인", "NUM": 0},
+        # 회사 IR 자료 — 버린다
+        {"RPT_ID": 1150336, "ANL_DT": "26/11/13", "IDX": "", "PRE_TITLE": "[기업COMMENT]",
+         "RPT_TITLE": "2026년 3분기 경영실적", "CMP_CD": "100090", "ANL_NM_KOR": "IR팀",
+         "RPT_SUB_TYP": 9, "TARGET_PRC": "", "RECOMM": None, "COMMENT2": "",
+         "FILE_NM": "해당기업_SK오션플랜트_20261113131403.pdf", "CMP_NM_KOR": "SK오션플랜트",
+         "BRK_NM_KOR": "해당기업"},
+        # 의견·목표가 없음, 증권사 이름에 괄호 꼬리, 공동 애널리스트
+        {"RPT_ID": 1150401, "ANL_DT": "26/11/12", "IDX": "20261112.021001",
+         "PRE_TITLE": "[기업분석]", "RPT_TITLE": "기술분석보고서", "CMP_CD": "0181E0",
+         "ANL_NM_KOR": "이태경,이길림", "RPT_SUB_TYP": 3, "TARGET_PRC": "", "RECOMM": None,
+         "COMMENT2": None, "CMP_NM_KOR": "신규종목", "BRK_NM_KOR": "한국IR협의회(기술분석보고서)"},
+        # 비상장(000000)은 버린다
+        {"RPT_ID": 1150403, "ANL_DT": "26/11/12", "RPT_TITLE": "y", "CMP_CD": "000000",
+         "RPT_SUB_TYP": 3, "BRK_NM_KOR": "밸류파인더"},
+        # 종목코드가 아니면 버린다
+        {"RPT_ID": 1150402, "ANL_DT": "26/11/12", "RPT_TITLE": "x", "CMP_CD": "",
+         "RPT_SUB_TYP": 3, "BRK_NM_KOR": "KB증권"},
+    ],
+    "cp": 1, "tp": 67, "tc": 33452, "tr": 500,
+}
+
+# 네이버 /api/research/industry·market 실측 (2026-11-16, 2건씩)
+NAVER_INDUSTRY_LIST = [
+    {"researchCategory": "산업분석", "category": "화장품", "researchId": 46991,
+     "title": "에이피알 vs 달바글로벌 3Q26 실적 비교", "brokerName": "신한투자증권",
+     "writeDate": "2026-11-13", "readCount": "2262",
+     "endUrl": "https://m.stock.naver.com/research/industry/46991"},
+    {"researchCategory": "산업분석", "category": "유틸리티", "researchId": 46990,
+     "title": "유틸리티 Weekly: 11월 일별 SMP 상승 확인", "brokerName": "하나증권",
+     "writeDate": "2026-11-13", "readCount": "1639"},
+]
+NAVER_MARKET_LIST = [
+    {"researchCategory": "시황정보", "category": "시황정보", "researchId": 38159,
+     "title": "마켓레이더 - Nvidia 흔들려도 AI는 확장, KOSPI 5,400선 회복 (11월 13일)",
+     "brokerName": "신한투자증권", "writeDate": "2026-11-13", "readCount": "1845",
+     "endUrl": "https://m.stock.naver.com/research/market/38159"},
+    {"researchId": None, "title": "깨진 행", "writeDate": "2026-11-13"},
+]
+NAVER_INDUSTRY_DETAIL = {
+    "researchContent": {
+        "category": "화장품", "researchId": "46991", "brokerName": "신한투자증권",
+        "attachUrl": "https://stock.pstatic.net/stock-research/industry/21/"
+                     "20261113_industry_445863000.pdf",
+        "content": "<p><strong>외형 성장이냐, 수익성 향상이냐 차이</strong></p>"},
+    "researchSummaries": [],
+}
+
+# siseJson 실측 응답 (엘앤에프 066970, 2026-11-02~13 중 일부). 엄밀한 JSON이 아니다.
+SISE_TEXT = (
+    "\n [['날짜', '시가', '고가', '저가', '종가', '거래량', '외국인소진율'],\n\n\t\n\t\n\t\t\n"
+    '["20261104", 82900, 95300, 78500, 92100, 950624, 15.48],\n\t\t\n'
+    '["20261105", 91600, 93300, 80800, 84300, 693241, 15.27],\n\t\t\n'
+    '["20261106", 77000, 78700, 71400, 76300, 888616, 14.8],\n\t\t\n'
+    '["20261109", 72300, 73800, 69000, 69900, 405722, 14.68],\n\t\t\n'
+    '["20261110", 73000, 78300, 72900, 76200, 478701, 15.05],\n\t\t\n'
+    '["20261111", 76700, 82900, 76400, 82700, 360360, 15.33]\n\t\t\n\t\n\n]\n'
+)
+
+
+class TestWiseParser(unittest.TestCase):
+    def test_parse(self):
+        rows = parse_wise_list(WISE_PAYLOAD)
+        self.assertEqual([r["id"] for r in rows], ["wise:1150538", "wise:1150401"])
+        a, b = rows
+        self.assertEqual(a["source"], "wise")
+        self.assertEqual((a["code"], a["name"], a["date"]), ("001450", "현대해상", "2026-11-13"))
+        self.assertEqual((a["broker"], a["analyst"]), ("상상인증권", "김현수"))
+        self.assertEqual((a["target"], a["rating_raw"]), (66000, "BUY"))
+        self.assertEqual(a["summary"], "▶ 보험손익 개선에도 투자손익 부진으로 기대치 하회 ▶ 자본비율은 안정화")
+        self.assertIsNone(a["pdf"])
+        self.assertIsNone(a["views"])
+        self.assertEqual(a["url"], "https://comp.wisereport.co.kr/company/c1080001.aspx?cmp_cd=001450")
+        self.assertEqual(b["code"], "0181E0")
+        self.assertEqual(b["broker"], "한국IR협의회")
+        self.assertEqual(b["analyst"], "이태경, 이길림")
+        self.assertIsNone(b["target"])
+        self.assertIsNone(b["rating_raw"])
+        self.assertIsNone(b["summary"])
+
+    def test_page_info_and_garbage(self):
+        self.assertEqual(wise_page_info(WISE_PAYLOAD), (1, 67, 33452))
+        self.assertEqual(parse_wise_list(None), [])
+        self.assertEqual(parse_wise_list({"lists": None}), [])
+        self.assertEqual(wise_page_info("x"), (None, None, None))
+
+    def test_wise_due(self):
+        now = datetime.datetime(2026, 11, 16, 10, 0, tzinfo=KST_TZ)
+        self.assertTrue(wise_due(None, now))
+        self.assertTrue(wise_due("깨짐", now))
+        self.assertFalse(wise_due("2026-11-16T08:00:00+09:00", now))
+        self.assertTrue(wise_due("2026-11-16T07:00:00+09:00", now))
+
+
+class TestRatingTableAdditions(unittest.TestCase):
+    def test_new_notations(self):
+        cases = {
+            "보유": "HOLD", "Buy(Maintain)": "BUY", "Buy(Reinitiate)": "BUY",
+            "매수(신규)": "BUY", "N.R": "NR", "[유지] 매수": "BUY", "[하향] 중립": "HOLD",
+            "Hold(Downgrade)": "HOLD", "Trading BUY": "BUY", "Marketperform": "HOLD",
+            "NEUTRAL": "HOLD", "Sell (신규)": "SELL", "매수 / Buy": "BUY", "미제시": "NR",
+            "Outperform(Maintain)": "BUY", "[신규] Not Rated": "NR",
+        }
+        for raw, want in cases.items():
+            self.assertEqual(normalize_rating(raw), want, raw)
+
+    def test_existing_meanings_kept(self):
+        # '유지' 한 단어는 기존대로 HOLD, Positive는 산업 의견이라 등급 없음으로 둔다.
+        self.assertEqual(normalize_rating("유지"), "HOLD")
+        self.assertEqual(normalize_rating("Positive"), "NR")
+        self.assertEqual(normalize_rating("매수유지"), "BUY")
+
+
+def _w(rid, title, **kw):
+    return _rec(rid, "wise", title, **kw)
+
+
+class TestAbsorbWise(unittest.TestCase):
+    def test_fill_and_drop(self):
+        recs = [
+            _rec("naver:1", "naver", "3Q26 Review: 스페이스X 제외해도 부진. 주주환원도 아쉬움",
+                 target=30000, rating_raw="Buy", summary="네이버 요약"),
+            _w("wise:1", "스페이스X 제외해도 부진. 주주환원도 아쉬움", analyst="정애널",
+               target=31000, rating_raw="BUY", summary="와이즈 요약"),
+        ]
+        out, stats = norm.absorb_wise(recs)
+        self.assertEqual([r["id"] for r in out], ["naver:1"])
+        keep = out[0]
+        self.assertEqual(keep["analyst"], "정애널")          # 빈 칸만 채운다
+        self.assertEqual(keep["target"], 30000)              # 있는 값은 그대로
+        self.assertEqual(keep["summary"], "네이버 요약")
+        self.assertEqual(stats["absorbed"], 1)
+        self.assertEqual(stats["filled_records"], 1)
+        self.assertEqual(stats["filled"]["analyst"], 1)
+
+    def test_prefix_typo_date_and_translation(self):
+        recs = [
+            _rec("kb:1", "kb", "3Q26 실적 속보: 컨센서스 하회", broker="KB증권", analyst="김"),
+            _w("wise:1", "[AI 실적속보] 3Q26 실적 속보: 컨센서스 하회", broker="KB증권"),
+            _rec("naver:2", "naver", "3Q26 Review: 평법함이 특별해지는 순간", broker="SK증권"),
+            _w("wise:2", "3Q26 Review: 평범함이 특별해지는 순간", broker="SK증권",
+               analyst="박", rating_raw="매수"),
+            # 작성일이 하루 어긋나도 제목이 같으면 같은 리포트
+            _rec("naver:3", "naver", "섣부른 판단은 금물", broker="삼성증권", date="2026-11-12"),
+            _w("wise:3", "섣부른 판단은 금물", broker="삼성증권", date="2026-11-13", analyst="최"),
+            # 영문판: 같은 날 한글 리포트의 번역본
+            _rec("naver:4", "naver", "예상보다 무거웠던 비용의 무게", broker="신한투자증권",
+                 target=50000),
+            _w("wise:4", "Cost pressures worse than expected", broker="신한투자증권",
+               analyst="허", target=50000),
+            # 와이즈에만 있는 리포트는 남는다
+            _w("wise:5", "그래도 소는 키워야", broker="다올투자증권", analyst="정"),
+        ]
+        out, stats = norm.absorb_wise(recs)
+        by_id = {r["id"]: r for r in out}
+        self.assertEqual(sorted(by_id), ["kb:1", "naver:2", "naver:3", "naver:4", "wise:5"])
+        self.assertEqual(by_id["naver:2"]["analyst"], "박")
+        self.assertEqual(by_id["naver:2"]["rating_raw"], "매수")
+        self.assertEqual(by_id["naver:3"]["analyst"], "최")
+        self.assertEqual(by_id["naver:4"]["analyst"], "허")
+        self.assertEqual(stats["absorbed"], 4)
+        self.assertEqual(stats["filled_records"], 3)        # kb:1은 채울 칸이 없다
+
+    def test_not_absorbed(self):
+        recs = [
+            # 제목이 다른 같은 날 같은 증권사 리포트는 별개
+            _rec("kb:1", "kb", "2026년 3분기 컨퍼런스콜 요약", broker="KB증권"),
+            _w("wise:1", "투자손익 변동성 확대와 배당가능이익 감소", broker="KB증권"),
+            # 4일 넘게 떨어지면 별개
+            _rec("naver:2", "naver", "주주 환원 강화로 이익 공백 상쇄", date="2026-10-30"),
+            _w("wise:2", "주주 환원 강화로 이익 공백 상쇄", date="2026-11-12"),
+            # 한경은 와이즈보다 아래라 흡수 대상이 아니다
+            _rec("hankyung:3", "hankyung", "본업은 순항", broker="LS증권"),
+            _w("wise:3", "본업은 순항", broker="LS증권", analyst="홍"),
+        ]
+        out, stats = norm.absorb_wise(recs)
+        self.assertEqual(stats["absorbed"], 0)
+        self.assertEqual(len(out), 6)
+        # 한경과 같은 리포트는 dedupe에서 와이즈를 남긴다
+        out, merged = norm.dedupe_records(out)
+        ids = sorted(r["id"] for r in out)
+        self.assertIn("wise:3", ids)
+        self.assertNotIn("hankyung:3", ids)
+
+    def test_idempotent(self):
+        recs = [_rec("naver:1", "naver", "A 리포트"), _w("wise:1", "A 리포트", analyst="김"),
+                _w("wise:2", "B 리포트")]
+        once, _ = norm.absorb_wise(recs)
+        # 다음 실행에 같은 와이즈 행이 또 들어와도 결과가 같다
+        again, stats = norm.absorb_wise([dict(r) for r in once] + [_w("wise:1", "A 리포트",
+                                                                         analyst="김")])
+        self.assertEqual(sorted(r["id"] for r in again), ["naver:1", "wise:2"])
+        self.assertEqual(stats["filled_records"], 0)
+
+    def test_title_score(self):
+        self.assertEqual(norm.wise_title_score("A B C", "ABC"), 1.0)
+        self.assertEqual(norm.wise_title_score("[AI 실적속보] 3Q26 실적 Review", "3Q26 실적 Review"), 0.95)
+        self.assertEqual(norm.wise_title_score("완전히 다른 제목", "전혀 무관한 리포트"), 0.0)
+
+
+class TestIndustryParser(unittest.TestCase):
+    def test_industry(self):
+        rows = parse_naver_research_list(NAVER_INDUSTRY_LIST, "industry")
+        self.assertEqual([r["id"] for r in rows], ["industry:46991", "industry:46990"])
+        a = rows[0]
+        self.assertEqual(list(a.keys()), list(store.INDUSTRY_FIELDS))
+        self.assertEqual((a["kind"], a["date"], a["broker"], a["category"]),
+                         ("industry", "2026-11-13", "신한투자증권", "화장품"))
+        self.assertEqual(a["views"], 2262)
+        self.assertIsNone(a["analyst"])
+        self.assertIsNone(a["pdf"])
+        self.assertEqual(rows[1]["url"], "https://m.stock.naver.com/research/industry/46990")
+
+    def test_market(self):
+        rows = parse_naver_research_list(NAVER_MARKET_LIST, "market")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], "market:38159")
+        self.assertIsNone(rows[0]["category"])               # 시황은 업종 없음
+        with self.assertRaises(ValueError):
+            parse_naver_research_list(NAVER_MARKET_LIST, "company")
+
+    def test_pdf(self):
+        self.assertTrue(parse_naver_research_pdf(NAVER_INDUSTRY_DETAIL).endswith(
+            "20261113_industry_445863000.pdf"))
+        self.assertIsNone(parse_naver_research_pdf({}))
+        self.assertIsNone(parse_naver_research_pdf(None))
+
+    def test_store_industry(self):
+        import json as _json
+        import shutil
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        try:
+            layout = store.Layout(tmp)
+            rows = (parse_naver_research_list(NAVER_INDUSTRY_LIST, "industry")
+                    + parse_naver_research_list(NAVER_MARKET_LIST, "market"))
+            rows.append(dict(rows[0], id="industry:1", date="2026-10-01"))
+            changed, months = store.save_industry(layout, rows)
+            self.assertEqual([m["month"] for m in months], ["2026-11", "2026-10"])
+            self.assertEqual([m["count"] for m in months], [3, 1])
+            with open(layout.industry_path("2026-11"), "rb") as f:
+                data = f.read()
+            self.assertEqual(months[0]["v"], store.content_version(data))
+            nov = _json.loads(data.decode("utf-8"))
+            self.assertEqual([r["id"] for r in nov],
+                             ["market:38159", "industry:46991", "industry:46990"])
+            self.assertEqual(len(store.load_industry(layout)), 4)
+            changed, _ = store.save_industry(layout, list(reversed(rows)))
+            self.assertEqual(changed, [])                     # 같은 내용이면 안 쓴다
+            changed, months = store.save_industry(layout, rows[:3])
+            self.assertFalse(os.path.exists(layout.industry_path("2026-10")))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestSiseJson(unittest.TestCase):
+    def test_parse(self):
+        rows = parse_sise_json(SISE_TEXT)
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(rows[0], ("2026-11-04", 82900, 95300, 78500, 92100))
+        self.assertEqual(rows[-1][0], "2026-11-11")
+
+    def test_garbage(self):
+        self.assertEqual(parse_sise_json(""), [])
+        self.assertEqual(parse_sise_json(None), [])
+        self.assertEqual(parse_sise_json("<html>error</html>"), [])
+        # 0 값 행(거래정지)은 버린다, 순서는 날짜 오름차순
+        text = '["20261102", 0, 0, 0, 0, 0, 0.0],["20261101", 1, 2, 1, 2, 5, 0.1]'
+        self.assertEqual(parse_sise_json(text), [("2026-11-01", 1, 2, 1, 2)])
+
+
+class TestPerf(unittest.TestCase):
+    rows = parse_sise_json(SISE_TEXT)
+
+    def test_hit_and_range(self):
+        rec = {"id": "a", "code": "066970", "date": "2026-11-05", "target": 82000,
+               "price_at_write": 84000}
+        item = perf_mod.compute_item(rec, self.rows)
+        self.assertEqual(item["paw"], 84000)                 # price_at_write가 종가와 맞으면 그 값
+        self.assertEqual(item["max"], 82900)                 # 11-06 이후 고가 최댓값
+        self.assertEqual(item["min"], 69000)
+        self.assertEqual(item["hit"], "2026-11-11")          # 고가 82,900 ≥ 82,000
+
+    def test_no_hit(self):
+        rec = {"id": "a", "code": "066970", "date": "2026-11-04", "target": 120000}
+        item = perf_mod.compute_item(rec, self.rows)
+        self.assertEqual(item["paw"], 92100)                 # price_at_write 없으면 그날 종가
+        self.assertIsNone(item["hit"])
+        self.assertEqual(item["max"], 93300)
+
+    def test_paw_fallbacks(self):
+        # 주말(11-08) 리포트 → 직전 거래일(11-06) 종가, 다음 거래일 11-09부터 본다
+        rec = {"id": "a", "code": "066970", "date": "2026-11-08", "target": 100000}
+        item = perf_mod.compute_item(rec, self.rows)
+        self.assertEqual(item["paw"], 76300)
+        self.assertEqual(item["min"], 69000)
+        self.assertEqual(item["max"], 82900)
+        # price_at_write가 종가와 2배 넘게 다르면 종가 (엘앤에프 8,579 vs 76,300)
+        rec = {"id": "b", "code": "066970", "date": "2026-11-06", "target": 120000,
+               "price_at_write": 8579}
+        self.assertEqual(perf_mod.compute_item(rec, self.rows)["paw"], 76300)
+        # 가장 최근 거래일 리포트는 이후 구간이 없다
+        rec = {"id": "c", "code": "066970", "date": "2026-11-11", "target": 90000}
+        item = perf_mod.compute_item(rec, self.rows)
+        self.assertEqual((item["paw"], item["max"], item["min"], item["hit"]),
+                         (82700, None, None, None))
+        # 일봉보다 이전 날짜면 종가가 없다
+        rec = {"id": "d", "code": "066970", "date": "2026-10-01", "target": 90000}
+        self.assertIsNone(perf_mod.compute_item(rec, self.rows))
+
+    def test_compute_perf_filters(self):
+        recs = [
+            {"id": "a", "code": "066970", "date": "2026-11-05", "target": 82000},
+            {"id": "b", "code": "066970", "date": "2026-11-05", "target": None},
+            {"id": "c", "code": "066970", "date": "2026-11-05", "target": 1,
+             "suspect": "target_range"},
+            {"id": "d", "code": "999999", "date": "2026-11-05", "target": 1000},
+        ]
+        items = perf_mod.compute_perf(recs, {"066970": self.rows})
+        self.assertEqual(sorted(items), ["a"])
+
+    def test_history_window(self):
+        recs = [{"code": "066970", "date": "2026-11-05"}, {"code": "066970", "date": "2026-10-20"},
+                {"code": "005930", "date": "2026-11-13"}, {"code": None, "date": "2026-11-13"}]
+        w = perf_mod.history_window(recs, datetime.date(2026, 11, 16))
+        self.assertEqual(w, {"066970": "2026-10-06", "005930": "2026-10-30"})
+
+    def test_perf_due(self):
+        at = lambda h, d=16: datetime.datetime(2026, 11, d, h, 0, tzinfo=KST_TZ)
+        self.assertTrue(perf_mod.perf_due(None, at(10)))
+        self.assertTrue(perf_mod.perf_due("2026-11-16T09:00:00+09:00", at(10), force=True))
+        self.assertFalse(perf_mod.perf_due("2026-11-15T16:30:00+09:00", at(10)))   # 17.5시간
+        self.assertTrue(perf_mod.perf_due("2026-11-15T13:00:00+09:00", at(10)))    # 21시간
+        self.assertTrue(perf_mod.perf_due("2026-11-16T10:00:00+09:00", at(16)))    # 16시 이후 첫 실행
+        self.assertFalse(perf_mod.perf_due("2026-11-16T16:00:00+09:00", at(17)))   # 오늘 이미 함
+
+    def test_encode_perf(self):
+        import json as _json
+        items = {"b": {"paw": 1, "max": 2, "min": 1, "hit": None},
+                 "a": {"paw": 3, "max": None, "min": None, "hit": "2026-11-11"}}
+        data = store.encode_perf("2026-11-16T16:05:00+09:00", items)
+        obj = _json.loads(data.decode("utf-8"))
+        self.assertEqual(list(obj["items"]), ["a", "b"])
+        self.assertEqual(obj["items"]["a"], items["a"])
+        self.assertEqual(store.encode_perf("x", dict(reversed(list(items.items())))),
+                         store.encode_perf("x", items))
+
+
+class TestTargetRangeWithCloses(unittest.TestCase):
+    def test_reevaluate(self):
+        closes = {("066970", "2026-11-06"): 76300, ("A", "2026-07-30"): 10000,
+                  ("B", "2026-07-30"): 10000, ("C", "2026-07-30"): 10000}
+        lookup = lambda code, day: closes.get((code, day))
+        recs = [
+            # 현재가 기준으로 잘못 걸렸던 건: 발간일 종가 대비 2.5배 → 해제
+            {"id": "a", "code": "A", "date": "2026-07-30", "target": 25000,
+             "suspect": "target_range"},
+            # price_at_write가 엉터리(8,579): 종가 76,300을 믿는다 → 해제
+            {"id": "e", "code": "066970", "date": "2026-11-06", "target": 120000,
+             "price_at_write": 8579, "suspect": "target_range"},
+            # 종가 기준으로도 범위 밖 → 유지
+            {"id": "b", "code": "B", "date": "2026-07-30", "target": 2000,
+             "suspect": "target_range"},
+            # 새로 걸리는 건
+            {"id": "c", "code": "C", "date": "2026-07-30", "target": 40000},
+            # 종가가 없으면 이전 판정 유지
+            {"id": "d", "code": "D", "date": "2026-07-30", "target": 1,
+             "suspect": "target_range"},
+            # 종목명=증권사는 건드리지 않는다
+            {"id": "n", "code": "A", "date": "2026-07-30", "target": 1,
+             "suspect": "name_is_broker"},
+        ]
+        stats = norm.reevaluate_target_range_with_closes(recs, lookup)
+        by_id = {r["id"]: r for r in recs}
+        self.assertNotIn("suspect", by_id["a"])
+        self.assertNotIn("suspect", by_id["e"])
+        self.assertEqual(by_id["b"]["suspect"], "target_range")
+        self.assertEqual(by_id["c"]["suspect"], "target_range")
+        self.assertEqual(by_id["d"]["suspect"], "target_range")
+        self.assertEqual(by_id["n"]["suspect"], "name_is_broker")
+        self.assertEqual((stats["checked"], stats["paw_wrong"], stats["cleared"],
+                          stats["newly_flagged"], stats["flagged"]), (4, 1, 2, 1, 2))
+        # 다시 돌려도 같다 (기준가가 과거 고정값)
+        again = norm.reevaluate_target_range_with_closes(recs, lookup)
+        self.assertEqual((again["cleared"], again["newly_flagged"]), (0, 0))
+
+    def test_close_lookup(self):
+        lookup = perf_mod.CloseLookup({"066970": parse_sise_json(SISE_TEXT)})
+        self.assertEqual(lookup("066970", "2026-11-08"), 76300)
+        self.assertEqual(lookup("066970", "2026-11-04"), 92100)
+        self.assertIsNone(lookup("066970", "2026-11-01"))
+        self.assertIsNone(lookup("000000", "2026-11-04"))
+
+
+class TestMetaExtraAndWiseStale(unittest.TestCase):
+    def test_meta_extra_order(self):
+        import shutil
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        try:
+            layout = store.Layout(tmp)
+            _, meta = store.save_v2(layout, [], {}, {"updated_at": "x"}, "x",
+                                    meta_extra={"perf_v": "abc", "industry_months": None})
+            self.assertEqual(list(meta)[-2:], ["prices_v", "perf_v"])
+            self.assertNotIn("industry_months", meta)
+            self.assertEqual(store.load_meta(layout)["perf_v"], "abc")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_wise_stale(self):
+        monday = datetime.date(2026, 11, 16)
+        status = {"wise": {"last_date": "2026-11-11"}, "naver": {"last_date": "2026-11-13"}}
+        bad = stale_sources(status, monday)
+        self.assertEqual([b["source"] for b in bad], ["wise"])
+        self.assertEqual(bad[0]["limit"], 2)
 
 
 if __name__ == "__main__":

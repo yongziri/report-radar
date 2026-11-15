@@ -108,14 +108,31 @@ _RATING_MAP = {
     "nr": "NR", "투자의견없음": "NR", "": "NR", "-": "NR", "의견없음": "NR",
     # KB의 산업 의견(Positive/Negative)이 종목 리포트에 섞여 오면 등급 없음으로 둔다
     "positive": "NR", "negative": "NR",
+    # 와이즈리포트 등에서 보이는 표기
+    "미제시": "NR", "투자의견미제시": "NR", "단기매수": "BUY",
+    "매수buy": "BUY", "중립hold": "HOLD", "매도sell": "SELL",
 }
+
+# '[유지] 매수', 'Buy(Maintain)', '매수(신규)', 'Hold(하향)'처럼 의견 앞뒤에 붙는 변동 꼬리표.
+# 다른 낱말이 함께 있을 때만 떼어 낸다('유지' 한 단어는 표에서 HOLD로 읽는다).
+_RATING_TAGS = frozenset((
+    "유지", "신규", "상향", "하향", "변경", "재개", "조정", "상향조정", "하향조정", "커버리지개시",
+    "maintain", "maintained", "initiate", "initiation", "initiated", "reinitiate",
+    "reinitiated", "resume", "upgrade", "upgraded", "downgrade", "downgraded",
+    "change", "changed", "new",
+))
 
 
 def _rating_key(raw):
     s = str(raw or "").strip().lower()
     s = s.replace("\xa0", " ")
-    s = re.sub(r"[()\[\]]", " ", s)
+    s = re.sub(r"[()\[\]{}<>:/|,]", " ", s)
     s = _WS.sub(" ", s).strip()
+    words = s.split(" ")
+    if len(words) > 1:
+        kept = [w for w in words if w.replace(".", "") not in _RATING_TAGS]
+        if kept:
+            s = " ".join(kept)
     return s
 
 
@@ -656,6 +673,154 @@ def parse_kis_detail(html):
     rating_raw, target = extract_opinion_from_text(text)
     return {"target": target, "rating_raw": rating_raw,
             "summary": text[:600] if text else None}
+
+
+# ------------------------------------------------------ 와이즈리포트 파서
+
+# comp.wisereport.co.kr 기업 리포트 목록(c1080001_data.aspx) — 전 증권사 종목 리포트.
+# PDF 뷰어는 로그인이 필요해 pdf는 비워 두고, url은 공개된 종목별 리포트 목록 페이지를 가리킨다.
+WISE_COMPANY_URL = "https://comp.wisereport.co.kr/company/c1080001.aspx?cmp_cd=%s"
+# 회사 IR 자료(실적발표 PPT 등)는 증권사 리포트가 아니다.
+WISE_SKIP_BROKERS = ("해당기업",)
+WISE_SKIP_SUB_TYPES = (9,)
+# 비상장사 리포트는 종목코드 자리에 000000이 온다(실측 64건). 시세·업종을 붙일 수 없어 버린다.
+WISE_SKIP_CODES = ("000000",)
+
+
+def _wise_broker(name):
+    """'한국IR협의회(기술분석보고서)' -> '한국IR협의회'. 괄호 꼬리를 떼어 증권사 목록을 하나로 둔다."""
+    s = _WS.sub(" ", str(name or "").strip())
+    return re.sub(r"\s*\([^)]*\)\s*$", "", s).strip() or s
+
+
+def _wise_analyst(value):
+    """'박성순,김지은' -> '박성순, 김지은'. 비었으면 None."""
+    names = [n.strip() for n in re.split(r"[,/]", str(value or "")) if n.strip()]
+    return ", ".join(names) or None
+
+
+def parse_wise_list(payload):
+    """와이즈리포트 c1080001_data.aspx 응답 -> 레코드 리스트.
+
+    날짜는 ANL_DT('26/11/13', 작성일). 목록 순서는 등록 순(IDX)이라 작성일과 조금 어긋날 수 있다.
+    """
+    rows = []
+    items = (payload or {}).get("lists") if isinstance(payload, dict) else None
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        rid = str(it.get("RPT_ID") or "").strip()
+        code = str(it.get("CMP_CD") or "").strip().upper()
+        broker_raw = str(it.get("BRK_NM_KOR") or "").strip()
+        if not rid or not is_stock_code(code) or code in WISE_SKIP_CODES or not broker_raw:
+            continue
+        if broker_raw in WISE_SKIP_BROKERS or it.get("RPT_SUB_TYP") in WISE_SKIP_SUB_TYPES:
+            continue
+        date = normalize_date(it.get("ANL_DT"))
+        title = _WS.sub(" ", str(it.get("RPT_TITLE") or "").strip())
+        if not date or not title:
+            continue
+        summary = clean_summary(_html_to_text(it.get("COMMENT2")))
+        rows.append({
+            "id": "wise:%s" % rid,
+            "source": "wise",
+            "code": code,
+            "name": str(it.get("CMP_NM_KOR") or "").strip() or None,
+            "title": title,
+            "broker": _wise_broker(broker_raw),
+            "analyst": _wise_analyst(it.get("ANL_NM_KOR")),
+            "date": date,
+            "target": positive_int(it.get("TARGET_PRC")),
+            "rating_raw": str(it.get("RECOMM") or "").strip() or None,
+            "pdf": None,
+            "url": WISE_COMPANY_URL % code,
+            "summary": summary[:600] if summary else None,
+            # 와이즈 조회수(VISIT_CNT)는 네이버 조회수와 척도가 달라 섞지 않는다.
+            "views": None,
+        })
+    return rows
+
+
+def wise_page_info(payload):
+    """(현재 페이지, 전체 페이지, 전체 건수). 못 읽으면 None 자리."""
+    if not isinstance(payload, dict):
+        return None, None, None
+    return to_int(payload.get("cp")), to_int(payload.get("tp")), to_int(payload.get("tc"))
+
+
+# --------------------------------------- 네이버 산업·시황 리포트 파서
+
+NAVER_RESEARCH_KIND_URL = "https://m.stock.naver.com/research/%s/%s"
+RESEARCH_KINDS = ("industry", "market")
+
+
+def parse_naver_research_list(items, kind):
+    """/api/research/industry·market 응답(배열) -> 산업·시황 레코드 리스트.
+
+    애널리스트는 목록·상세 어디에도 없어 None. pdf는 상세(attachUrl)에서 채운다.
+    category는 산업 리포트의 업종명이고, 시황 리포트는 None이다.
+    """
+    if kind not in RESEARCH_KINDS:
+        raise ValueError("kind는 industry 또는 market: %r" % (kind,))
+    rows = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        rid = str(it.get("researchId") or "").strip()
+        date = normalize_date(it.get("writeDate"))
+        if not rid.isdigit() or not date:
+            continue
+        category = None
+        if kind == "industry":
+            category = str(it.get("category") or "").strip() or None
+        url = str(it.get("endUrl") or "").strip() or NAVER_RESEARCH_KIND_URL % (kind, rid)
+        rows.append({
+            "id": "%s:%s" % (kind, rid),
+            "kind": kind,
+            "date": date,
+            "title": _WS.sub(" ", str(it.get("title") or "").strip()),
+            "broker": str(it.get("brokerName") or "").strip(),
+            "analyst": None,
+            "category": category,
+            "pdf": None,
+            "url": url,
+            "views": to_int(it.get("readCount")),
+        })
+    return rows
+
+
+def parse_naver_research_pdf(obj):
+    """산업·시황 상세 응답 -> PDF 주소 또는 None."""
+    content = (obj or {}).get("researchContent") if isinstance(obj, dict) else None
+    if not isinstance(content, dict):
+        return None
+    return str(content.get("attachUrl") or "").strip() or None
+
+
+# ------------------------------------------------------- 일봉(siseJson) 파서
+
+_SISE_ROW = re.compile(
+    r"\[\s*['\"](\d{8})['\"]\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,"
+    r"\s*(-?[\d.]+)")
+
+
+def parse_sise_json(text):
+    """api.finance.naver.com/siseJson.naver 응답 -> [(YYYY-MM-DD, 시가, 고가, 저가, 종가), ...].
+
+    엄밀한 JSON이 아니다(작은따옴표 머리줄, 줄바꿈·탭, 끝 쉼표). 날짜로 시작하는 행만 정규식으로 줍고
+    날짜 오름차순으로 돌려준다. 값이 0 이하인 행(거래정지 등)은 버린다.
+    """
+    out = {}
+    for m in _SISE_ROW.finditer(str(text or "")):
+        d = m.group(1)
+        try:
+            o, h, l, c = (int(float(m.group(i))) for i in range(2, 6))
+        except ValueError:
+            continue
+        if min(h, l, c) <= 0:
+            continue
+        out["%s-%s-%s" % (d[:4], d[4:6], d[6:])] = (o, h, l, c)
+    return [(d,) + out[d] for d in sorted(out)]
 
 
 # ------------------------------------------------------------- 현재가 파서
