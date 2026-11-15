@@ -10,11 +10,11 @@ const RP_LS = "rr:filters:v1";                       // stock-helper 키와 분�
 const RP_RATINGS = ["BUY","HOLD","SELL","NR"];
 const RP_UNCL = "미분류";
 const RP_PAGE = 500;                                 // 표를 한 번에 그리는 행 수
-const RP_VIEWS = ["reports","stocks","sectors","heat","changes"];
+const RP_VIEWS = ["reports","stocks","sectors","heat","changes","score","industry"];   // score·industry: 11_repx.js
 const RP_MARGIN_DAYS = 35;                           // 시작 시 기간 필터보다 더 받아 둘 날 수
 const RP_IDLE_DAYS = 100;                            // 첫 렌더 뒤 한가할 때 넓힐 범위 (종목분석 3개월)
 const RP_SUSPECT_TIP = {
-  target_range:"목표가가 기준가의 0.3~3배 범위 밖",
+  target_range:"목표가가 기준가의 0.3~3.5배 범위 밖",
   name_is_broker:"종목명이 증권사 이름과 같음 (종목 매핑 오류 의심)"
 };
 const RP_DATA_IV = 300000;                           // 리포트 갱신 확인 주기 (5분)
@@ -302,6 +302,7 @@ function rpLoad(){
       return;
     }
     rpBuildControls();
+    myRepOnData();                             // 내 종목 리포트: 기준선·새 리포트 알림·패널 (11_repx.js)
     rpRender();
     rpRenderToday();
     rpRenderAnal();                            // 종목분석 패널·차트 (지수·미선택이면 알아서 감춘다)
@@ -332,6 +333,7 @@ function rpLoad(){
 function rpDataChanged(full){
   rpRebuild();
   rpBuildControls();
+  myRepOnData();                               // 새로 들어온 내 종목 리포트 알림 (11_repx.js)
   rpRender(true);
   rpRenderToday();
   rpRenderAnal();
@@ -737,7 +739,7 @@ function rpCardHtml(r, head){
     '<div class="l1"><span class="nm">' +
       (r.code ? '<a class="tk rpgo" href="#" data-go="' + esc(r.code) + '">' + esc(rpName(r.code, r.name)) + "</a>"
               : '<span class="tk">' + esc(r.name || "") + "</span>") +
-      " " + rpBadgeOf(r) + rpSuspectTag(r) + '</span><span class="v">' + head + "</span></div>" +
+      " " + rpBadgeOf(r) + rpSuspectTag(r) + rpHitTag(r) + '</span><span class="v">' + head + "</span></div>" +
     '<div class="l2"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
       esc(r.title || "") + "</a></div>" +
     '<div class="l3">' + esc(r.broker || "") + (r.analyst ? "(" + esc(r.analyst) + ")" : "") +
@@ -788,7 +790,7 @@ function rpRenderReports(rows){
     html.push('<td class="l">' + esc(r.broker || "") +
               (r.analyst ? '<span class="rsub">' + esc(r.analyst) + "</span>" : "") + "</td>");
     html.push('<td class="c">' + rpBadgeOf(r) + "</td>");
-    html.push("<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>");
+    html.push("<td>" + rpTargetCell(r) + rpSuspectTag(r) + rpHitTag(r) + "</td>");
     html.push("<td>" + rpPriceCell(r) + "</td>");
     html.push("<td>" + rpRecGapCell(r) + "</td>");
     html.push('<td class="dt">' + (typeof r.views === "number" ? fmt(r.views) : "") + "</td>");
@@ -1221,8 +1223,8 @@ function rpRenderLoadNote(){
   var el = $("#rpLoadNote");
   if(!el) return;
   var html = "";
-  if(RP_V2 && RP_READY){
-    var floor = rpPeriodFloor(), lf = rpLoadedFloor();
+  if(RP_V2 && RP_READY && RP.view !== "industry"){
+    var floor = rpViewFloor(), lf = rpLoadedFloor();
     var fails = Object.keys(rpMonthFail);
     if(rpLoadProg && !rpCovers(floor)){
       html = '<span class="spin"></span>이전 리포트를 불러오는 중… ' + rpLoadProg.done + " / " + rpLoadProg.total +
@@ -1239,19 +1241,40 @@ function rpRenderLoadNote(){
   el.classList.toggle("hide", !html);
 }
 
+/* 지금 화면이 덮어야 할 시작일. 성적표는 전 기간(null) */
+function rpViewFloor(){ return RP.view === "score" ? null : rpPeriodFloor(); }
+
 /* ---------- 전체 렌더 ---------- */
 function rpRender(keepLimit){
   if(!RP_READY) return;
   if(!keepLimit) RP_LIMIT = RP_PAGE;
+  if(RP.view === "industry" && !indAvail()) RP.view = "reports";    // meta 에 industry_months 가 없으면 숨김
   /* 지금 기간이 아직 메모리에 없으면(예: "전체") 나머지 달을 병렬로 받고, 받는 동안은 안내를 띄운다 */
-  var floor = rpPeriodFloor();
-  if(RP_V2 && !rpCovers(floor)) rpEnsureHistory(RP.period === "all" ? Infinity : parseInt(RP.period, 10));
+  var floor = rpViewFloor();
+  if(RP_V2 && !rpCovers(floor)) rpEnsureHistory(floor === null ? Infinity : parseInt(RP.period, 10));
   rpRenderLoadNote();
   var partial = RP_V2 && !rpCovers(floor);
+  if(RP.view === "reports" || RP.view === "changes") rpPerfEnsure();   // 목표가 "도달" 표시용 (perf_v 가 있을 때만)
 
   var rows = rpFiltered();
   rpRenderStats(rows);
   rpRenderSelbar();
+
+  /* 성적표·산업·시황 (11_repx.js): 자체 컨트롤을 쓰므로 공용 필터 패널은 감춘다 */
+  var ext = RP.view === "score" || RP.view === "industry";
+  $("#rpScorePanel").classList.toggle("hide", RP.view !== "score");
+  $("#rpIndPanel").classList.toggle("hide", RP.view !== "industry");
+  $("#rpFilterPanel").classList.toggle("hide", ext);
+  if(ext){
+    $("#rpSelbar").classList.add("hide");
+    $("#rpTablePanel").classList.add("hide");
+    $("#rpHeatPanel").classList.add("hide");
+    rpRenderExt();
+    rpSyncControls();
+    rpSave();
+    rpUpdated();
+    return;
+  }
 
   var heat = RP.view === "heat", chg = RP.view === "changes";
   $("#rpTablePanel").classList.toggle("hide", heat);
@@ -1354,7 +1377,8 @@ function rpRenderIndustrySelect(){
 }
 function rpSyncControls(){
   $$("#rpPeriod button").forEach(function(b){ b.classList.toggle("act", b.dataset.p === RP.period); });
-  $$("#rpViewSeg button, #rpViewSeg2 button").forEach(function(b){ b.classList.toggle("act", b.dataset.v === RP.view); });
+  $$(".rpvseg button").forEach(function(b){ b.classList.toggle("act", b.dataset.v === RP.view); });
+  $$('.rpvseg button[data-v="industry"]').forEach(function(b){ b.classList.toggle("hide", !indAvail()); });
   $$("#rpHeatSeg button").forEach(function(b){ b.classList.toggle("act", b.dataset.hc === RP.heatColor); });
   $$("[data-rrating]").forEach(function(b){ b.classList.toggle("act", RP.ratings.indexOf(b.dataset.rrating) >= 0); });
   $$("[data-rchange]").forEach(function(b){ b.classList.toggle("act", RP.changes.indexOf(b.dataset.rchange) >= 0); });
@@ -1570,6 +1594,7 @@ function rpRenderAnal(){
       if(rpCovers(floor)) rpRenderAnal();
     });
   }
+  rpPerfEnsure();                                    // 목표가 "도달" 표시 (perf_v 가 있을 때만, 받은 뒤 다시 그린다)
   var list = rpByCode[it.code] || [];
   if(!list.length){
     var none = loading ? "리포트를 불러오는 중…" : "최근 리포트 없음";
@@ -1581,7 +1606,11 @@ function rpRenderAnal(){
   var recent = list.filter(function(r){ return (r.date || "") >= floor; });
   if(!recent.length) recent = list.slice(0, 10);
   var stat = recent.filter(rpStatOk);                // 확인 필요 레코드는 컨센서스에서 뺀다
-  var tg = stat.map(function(r){ return r.target; }).filter(function(v){ return typeof v === "number"; });
+  var tgRecs = stat.filter(function(r){ return typeof r.target === "number"; });
+  var tg = tgRecs.map(function(r){ return r.target; });
+  var tgBrokers = {};
+  tgRecs.forEach(function(r){ tgBrokers[rpNorm(r.broker) || "?"] = 1; });
+  var nBrokers = Object.keys(tgBrokers).length;
   var buy = stat.filter(function(r){ return r.rating === "BUY"; }).length;
   var price = rpCodePrice(it.code);
   var avg = tg.length ? Math.round(tg.reduce(function(s, v){ return s + v; }, 0) / tg.length) : null;
@@ -1591,7 +1620,7 @@ function rpRenderAnal(){
   $("#anRepSub").textContent = (rpIsPartial() ? "불러온 범위 " : "전체 ") + fmt(list.length) + "건 · 최근 3개월 " +
     fmt(recent.length) + "건" + (sus ? " (확인 필요 " + sus + "건 제외)" : "") + (loading ? " · 불러오는 중…" : "");
   $("#anRepCons").innerHTML = '<div class="ovw" style="gap:16px">' +
-    rpOvi("평균 목표가", avg ? fmt(avg) : "-", "", tg.length ? tg.length + "개 증권사" : "목표가 없음") +
+    rpOvi("평균 목표가", avg ? fmt(avg) : "-", "", tg.length ? "증권사 " + nBrokers + "곳 · 리포트 " + tg.length + "건" : "목표가 없음") +
     rpOvi("최고", tg.length ? fmt(Math.max.apply(null, tg)) : "-") +
     rpOvi("최저", tg.length ? fmt(Math.min.apply(null, tg)) : "-") +
     rpOvi("BUY 비율", (stat.length ? Math.round(buy / stat.length * 100) : 0) + "%", "up", "BUY " + buy + "건") +
@@ -1607,7 +1636,7 @@ function rpRenderAnal(){
       '<td class="l wr"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
         esc(r.title || "") + "</a></td>" +
       '<td class="c">' + rpBadgeOf(r) + "</td>" +
-      "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +
+      "<td>" + rpTargetCell(r) + rpSuspectTag(r) + rpHitTag(r) + "</td>" +
       "<td>" + rpRecGapCell(r) + "</td></tr>";
   }).join("");
 }
@@ -1639,8 +1668,8 @@ function rpBind(){
     RP.period = b.dataset.p; rpRender();
   };
   /* 서브뷰 전환 — 히트맵 패널에도 같은 seg 를 두어 돌아올 길을 남긴다 */
-  ["#rpViewSeg", "#rpViewSeg2"].forEach(function(sel){
-    $(sel).onclick = function(e){
+  $$(".rpvseg").forEach(function(el){
+    el.onclick = function(e){
       var b = e.target.closest("button[data-v]"); if(!b) return;
       RP.view = b.dataset.v; rpRender();
     };

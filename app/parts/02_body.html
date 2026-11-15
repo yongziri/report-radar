@@ -89,6 +89,14 @@
     <div class="pbody" id="rpToday"></div>
   </div>
 
+  <div class="panel" id="myRepPanel">
+    <div class="ptitle">내 종목 리포트 <span class="nbadge hide" id="myRepBadge" title="마지막으로 본 뒤 새로 들어온 리포트"></span>
+      <span class="sub" id="myRepSub">관심·보유 종목 · 최근 14일</span>
+      <span class="sp"><button class="btn xs hide" id="myRepMore">더 보기 →</button></span>
+    </div>
+    <div class="pbody" id="myRep"></div>
+  </div>
+
   <div class="grid2">
     <div class="panel news">
       <div class="ptitle">시장 뉴스 <span class="sub" id="mnSub"></span>
@@ -167,7 +175,7 @@
       <div class="pbody"><div class="ovw" id="rpStats"></div></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="rpFilterPanel">
       <div class="ptitle">필터
         <span class="sp">
           <span class="sub" id="rpCount"></span>
@@ -244,12 +252,14 @@
       <div class="ptitle"><span id="rpTableTitle">리포트</span>
         <span class="sp">
           <span class="sub" id="rpCount2"></span>
-          <div class="seg" id="rpViewSeg">
+          <div class="seg rpvseg" id="rpViewSeg">
             <button data-v="reports" class="act">리포트</button>
             <button data-v="stocks">종목별</button>
             <button data-v="sectors">업종별</button>
             <button data-v="heat">히트맵</button>
             <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
           </div>
         </span>
       </div>
@@ -264,10 +274,12 @@
     <div class="panel hide" id="rpHeatPanel">
       <div class="ptitle">히트맵 <span class="sub">타일 크기 = 리포트 수 · 구획 = 대분류</span>
         <span class="sp">
-          <div class="seg" id="rpViewSeg2">
+          <div class="seg rpvseg" id="rpViewSeg2">
             <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
             <button data-v="sectors">업종별</button><button data-v="heat" class="act">히트맵</button>
             <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
           </div>
           <div class="seg" id="rpHeatSeg">
             <button data-hc="gap" class="act">괴리율</button><button data-hc="buy">BUY 비율</button>
@@ -278,6 +290,85 @@
         </span>
       </div>
       <div class="tmap" id="rpTmap"></div>
+    </div>
+
+    <!-- 성적표 (11_repx.js) -->
+    <div class="panel hide" id="rpScorePanel">
+      <div class="ptitle">성적표 <span class="sub" id="scSub"></span>
+        <span class="sp">
+          <div class="seg rpvseg">
+            <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
+            <button data-v="sectors">업종별</button><button data-v="heat">히트맵</button>
+            <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
+          </div>
+        </span>
+      </div>
+      <div class="pbody" id="scCtl">
+        <div class="row">
+          <div class="rfl"><span class="k">단위</span>
+            <div class="seg" id="scMode"><button data-m="broker">증권사별</button><button data-m="analyst">애널리스트별</button></div>
+          </div>
+          <div class="rfl"><span class="k">발간 후 경과</span>
+            <div class="seg" id="scAge"><button data-a="30">30일 이상</button><button data-a="60">60일 이상</button><button data-a="90">90일 이상</button></div>
+          </div>
+          <div class="rfl"><span class="k">최소 표본 (건)</span>
+            <input type="number" id="scMin" class="cell" min="1" max="999" step="1" aria-label="최소 표본 리포트 수">
+          </div>
+        </div>
+      </div>
+      <div class="sccap" id="scCap"></div>
+      <div class="tbw"><table class="rtbl" id="scTable">
+        <thead id="scThead"></thead><tbody id="scTbody"></tbody>
+      </table></div>
+      <div class="empty" id="scEmpty" style="display:none"></div>
+    </div>
+
+    <!-- 산업·시황 리포트 (11_repx.js) -->
+    <div class="panel hide" id="rpIndPanel">
+      <div class="ptitle">산업·시황 리포트 <span class="sub" id="indCount"></span>
+        <span class="sp">
+          <div class="seg rpvseg">
+            <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
+            <button data-v="sectors">업종별</button><button data-v="heat">히트맵</button>
+            <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
+          </div>
+        </span>
+      </div>
+      <div class="pbody">
+        <div class="row">
+          <div class="rfl"><span class="k">기간</span>
+            <div class="seg" id="indPeriod">
+              <button data-p="1">오늘</button><button data-p="3">3일</button>
+              <button data-p="7">1주</button><button data-p="30">1개월</button>
+              <button data-p="all">전체</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">구분</span>
+            <div class="chips" id="indKinds">
+              <button class="chip" data-ikind="industry">산업</button>
+              <button class="chip" data-ikind="market">시황</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">분류</span><select id="indCat" aria-label="분류"></select></div>
+          <div class="rfl"><span class="k">증권사</span><select id="indBroker" aria-label="증권사"></select></div>
+          <div class="rfl"><span class="k">검색</span>
+            <input type="text" id="indQ" placeholder="제목 · 증권사 · 분류" autocomplete="off">
+          </div>
+          <div class="rfl"><span class="k">&nbsp;</span><button class="btn xs" id="indReset">필터 초기화</button></div>
+        </div>
+      </div>
+      <div class="rpload hide" id="indNote" role="status" style="margin:0 8px 8px"></div>
+      <div class="rcards hide" id="indCards"></div>
+      <div class="tbw"><table class="rtbl" id="indTable">
+        <thead><tr><th class="l">날짜</th><th class="c">구분</th><th class="l">분류</th><th class="l">제목</th>
+          <th class="l">증권사</th><th class="l">애널리스트</th><th>조회</th></tr></thead>
+        <tbody id="indTbody"></tbody>
+      </table></div>
+      <div class="empty" id="indEmpty" style="display:none"></div>
     </div>
   </div>
 </section>
@@ -510,6 +601,26 @@
       <tbody id="alBody"></tbody>
     </table></div>
     <div class="empty" id="alEmpty" style="display:none">등록된 알림 규칙이 없습니다.</div>
+  </div>
+  <div class="panel" id="mrAlPanel">
+    <div class="ptitle">내 종목 리포트 알림 <span class="sub" id="mrAlSub"></span></div>
+    <div class="pbody">
+      <div class="row mrsw">
+        <label class="chk"><input type="checkbox" id="mrOn"> <b>리포트 알림 사용</b></label>
+        <label class="chk"><input type="checkbox" data-mrt="new"> 새 리포트</label>
+        <label class="chk"><input type="checkbox" data-mrt="up"> 목표가 상향</label>
+        <label class="chk"><input type="checkbox" data-mrt="down"> 목표가 하향</label>
+        <label class="chk"><input type="checkbox" data-mrt="rating"> 투자의견 변경</label>
+        <label class="chk"><input type="checkbox" id="mrBeep"> 소리</label>
+      </div>
+      <div style="margin-top:8px" class="note">
+        관심종목(모든 그룹)과 보유 종목(모든 계좌)에 증권사 리포트가 새로 올라오면 알립니다.
+        리포트 데이터는 5분마다 확인하며, 알림은 <b>이 브라우저 창이 열려 있는 동안에만</b> 동작합니다.
+        처음 켰을 때와 종목을 새로 추가했을 때는 그때까지 나온 리포트를 알리지 않고 기준으로만 기록합니다.
+        투자의견 변경은 같은 증권사의 직전 리포트와 의견(BUY·HOLD·SELL)이 달라졌을 때이며, 확인 필요 레코드는 알리지 않습니다.
+        브라우저 알림은 위 "브라우저 알림 권한"을 허용했을 때만 뜹니다.
+      </div>
+    </div>
   </div>
   <div class="panel">
     <div class="ptitle">알림 기록 <span class="sp"><button class="btn xs" id="alLogClr">기록 지우기</button></span></div>

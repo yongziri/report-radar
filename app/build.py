@@ -34,6 +34,7 @@ PARTS = [
     ("08_import.js", "js"),        # 순수 파서 (init 보다 먼저)
     ("09_reports.js", "js"),       # 증권사 리포트 (init 보다 먼저 — 상수 초기화 순서)
     ("10_account.js", "js"),       # 계좌 탭 (setupSearch 정의 이후)
+    ("11_repx.js", "js"),          # 내 종목 리포트·성적표·산업·시황 (09 이후 — RP_PAGE 등 상수 사용)
     ("07_init.js", "js"),
 ]
 TAIL = "</script>\n</body>\n</html>\n"

@@ -452,6 +452,53 @@ select.on{color:var(--tx);border-color:var(--link)}
   #rpTablePanel>.ptitle .sp{flex-wrap:wrap;margin-left:0;width:100%}
 }
 
+/* ===== 내 종목 리포트 · 성적표 · 산업·시황 (11_repx.js) ===== */
+.nbadge{display:inline-block;min-width:16px;padding:0 4px;margin-left:4px;border-radius:8px;background:var(--down-bg);
+  color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;letter-spacing:0;vertical-align:1px}
+.mrtbl td{vertical-align:middle}
+.mrtbl tr.mrnew>td{background:var(--panel2)}
+.mrdot{display:inline-block;margin-left:3px;padding:0 3px;border-radius:2px;background:var(--link);color:#fff;
+  font-size:8.5px;font-weight:700;letter-spacing:.3px;vertical-align:1px}
+.mrmore{padding:6px 2px 0;font-size:11px;color:var(--tx3)}
+.mrsw{align-items:center;gap:6px 16px}
+.rhit{display:inline-block;margin-left:4px;padding:0 4px;border:1px solid var(--up-bg);border-radius:2px;
+  color:var(--up);font-size:9.5px;font-weight:700;white-space:nowrap;cursor:help;vertical-align:1px}
+.sccap{padding:5px 8px 7px;border-bottom:1px solid var(--line);font-size:10.5px;line-height:1.6;color:var(--tx3)}
+.sccap b{color:var(--tx2)}
+#scTable tr.scrow{cursor:pointer}
+#scTable tr.scrow:hover>td{background:var(--panel2)}
+#scTable th{white-space:nowrap}
+#scMin{width:64px}
+#scEmpty .spin,.empty .spin{display:inline-block;width:9px;height:9px;margin-right:6px;border:2px solid var(--line2);
+  border-top-color:var(--link);border-radius:50%;animation:rpspin .8s linear infinite;vertical-align:-1px}
+.ikind{display:inline-block;padding:0 5px;border-radius:2px;font-size:10px;font-weight:700;color:#fff;background:var(--line2)}
+.ikind.industry{background:var(--link)}
+.rpdf{display:inline-block;margin-left:4px;padding:0 4px;border:1px solid var(--line2);border-radius:2px;
+  font-size:9.5px;font-weight:700;color:var(--tx3);vertical-align:1px}
+.rpdf:hover{color:var(--link);border-color:var(--link)}
+#indQ{min-width:180px}
+@media(max-width:768px){
+  #rpScorePanel>.ptitle,#rpIndPanel>.ptitle{flex-wrap:wrap;height:auto}
+  #rpScorePanel>.ptitle .sp,#rpIndPanel>.ptitle .sp{flex-wrap:wrap;margin-left:0;width:100%}
+  .rfl>input#indQ{width:100%;min-width:0}
+}
+/* 좁은 화면 헤더: 로고·버튼 한 줄, 지수는 그 아래 한 줄(넘치면 가로 스크롤) */
+@media(max-width:600px){
+  .hd{gap:4px 8px;padding:5px 0}
+  .brand{font-size:13px}
+  .hd-r{margin-left:auto;gap:4px;flex-wrap:nowrap}
+  .hd-r .btn{padding:3px 6px}
+  .tick{order:3;flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;gap:10px;scrollbar-width:none;padding-bottom:1px}
+  .tick::-webkit-scrollbar{display:none}
+  nav.tabs button{padding:7px 10px}
+}
+@media(max-width:400px){
+  #btnAuto{font-size:0;padding:3px 6px}
+  #btnAuto::after{content:"자동";font-size:11px}
+  #btnRefresh{font-size:0;padding:3px 6px}
+  #btnRefresh::after{content:"↻";font-size:12px}
+}
+
 /* ===== 계좌 탭 ===== */
 .actbl{min-width:1020px}
 .actbl input.cell{width:88px}
@@ -570,6 +617,14 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
     <div class="pbody" id="rpToday"></div>
   </div>
 
+  <div class="panel" id="myRepPanel">
+    <div class="ptitle">내 종목 리포트 <span class="nbadge hide" id="myRepBadge" title="마지막으로 본 뒤 새로 들어온 리포트"></span>
+      <span class="sub" id="myRepSub">관심·보유 종목 · 최근 14일</span>
+      <span class="sp"><button class="btn xs hide" id="myRepMore">더 보기 →</button></span>
+    </div>
+    <div class="pbody" id="myRep"></div>
+  </div>
+
   <div class="grid2">
     <div class="panel news">
       <div class="ptitle">시장 뉴스 <span class="sub" id="mnSub"></span>
@@ -648,7 +703,7 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
       <div class="pbody"><div class="ovw" id="rpStats"></div></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="rpFilterPanel">
       <div class="ptitle">필터
         <span class="sp">
           <span class="sub" id="rpCount"></span>
@@ -725,12 +780,14 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
       <div class="ptitle"><span id="rpTableTitle">리포트</span>
         <span class="sp">
           <span class="sub" id="rpCount2"></span>
-          <div class="seg" id="rpViewSeg">
+          <div class="seg rpvseg" id="rpViewSeg">
             <button data-v="reports" class="act">리포트</button>
             <button data-v="stocks">종목별</button>
             <button data-v="sectors">업종별</button>
             <button data-v="heat">히트맵</button>
             <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
           </div>
         </span>
       </div>
@@ -745,10 +802,12 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
     <div class="panel hide" id="rpHeatPanel">
       <div class="ptitle">히트맵 <span class="sub">타일 크기 = 리포트 수 · 구획 = 대분류</span>
         <span class="sp">
-          <div class="seg" id="rpViewSeg2">
+          <div class="seg rpvseg" id="rpViewSeg2">
             <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
             <button data-v="sectors">업종별</button><button data-v="heat" class="act">히트맵</button>
             <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
           </div>
           <div class="seg" id="rpHeatSeg">
             <button data-hc="gap" class="act">괴리율</button><button data-hc="buy">BUY 비율</button>
@@ -759,6 +818,85 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
         </span>
       </div>
       <div class="tmap" id="rpTmap"></div>
+    </div>
+
+    <!-- 성적표 (11_repx.js) -->
+    <div class="panel hide" id="rpScorePanel">
+      <div class="ptitle">성적표 <span class="sub" id="scSub"></span>
+        <span class="sp">
+          <div class="seg rpvseg">
+            <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
+            <button data-v="sectors">업종별</button><button data-v="heat">히트맵</button>
+            <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
+          </div>
+        </span>
+      </div>
+      <div class="pbody" id="scCtl">
+        <div class="row">
+          <div class="rfl"><span class="k">단위</span>
+            <div class="seg" id="scMode"><button data-m="broker">증권사별</button><button data-m="analyst">애널리스트별</button></div>
+          </div>
+          <div class="rfl"><span class="k">발간 후 경과</span>
+            <div class="seg" id="scAge"><button data-a="30">30일 이상</button><button data-a="60">60일 이상</button><button data-a="90">90일 이상</button></div>
+          </div>
+          <div class="rfl"><span class="k">최소 표본 (건)</span>
+            <input type="number" id="scMin" class="cell" min="1" max="999" step="1" aria-label="최소 표본 리포트 수">
+          </div>
+        </div>
+      </div>
+      <div class="sccap" id="scCap"></div>
+      <div class="tbw"><table class="rtbl" id="scTable">
+        <thead id="scThead"></thead><tbody id="scTbody"></tbody>
+      </table></div>
+      <div class="empty" id="scEmpty" style="display:none"></div>
+    </div>
+
+    <!-- 산업·시황 리포트 (11_repx.js) -->
+    <div class="panel hide" id="rpIndPanel">
+      <div class="ptitle">산업·시황 리포트 <span class="sub" id="indCount"></span>
+        <span class="sp">
+          <div class="seg rpvseg">
+            <button data-v="reports">리포트</button><button data-v="stocks">종목별</button>
+            <button data-v="sectors">업종별</button><button data-v="heat">히트맵</button>
+            <button data-v="changes">목표가 변경</button>
+            <button data-v="score">성적표</button>
+            <button data-v="industry" class="hide">산업·시황</button>
+          </div>
+        </span>
+      </div>
+      <div class="pbody">
+        <div class="row">
+          <div class="rfl"><span class="k">기간</span>
+            <div class="seg" id="indPeriod">
+              <button data-p="1">오늘</button><button data-p="3">3일</button>
+              <button data-p="7">1주</button><button data-p="30">1개월</button>
+              <button data-p="all">전체</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">구분</span>
+            <div class="chips" id="indKinds">
+              <button class="chip" data-ikind="industry">산업</button>
+              <button class="chip" data-ikind="market">시황</button>
+            </div>
+          </div>
+          <div class="rfl"><span class="k">분류</span><select id="indCat" aria-label="분류"></select></div>
+          <div class="rfl"><span class="k">증권사</span><select id="indBroker" aria-label="증권사"></select></div>
+          <div class="rfl"><span class="k">검색</span>
+            <input type="text" id="indQ" placeholder="제목 · 증권사 · 분류" autocomplete="off">
+          </div>
+          <div class="rfl"><span class="k">&nbsp;</span><button class="btn xs" id="indReset">필터 초기화</button></div>
+        </div>
+      </div>
+      <div class="rpload hide" id="indNote" role="status" style="margin:0 8px 8px"></div>
+      <div class="rcards hide" id="indCards"></div>
+      <div class="tbw"><table class="rtbl" id="indTable">
+        <thead><tr><th class="l">날짜</th><th class="c">구분</th><th class="l">분류</th><th class="l">제목</th>
+          <th class="l">증권사</th><th class="l">애널리스트</th><th>조회</th></tr></thead>
+        <tbody id="indTbody"></tbody>
+      </table></div>
+      <div class="empty" id="indEmpty" style="display:none"></div>
     </div>
   </div>
 </section>
@@ -991,6 +1129,26 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
       <tbody id="alBody"></tbody>
     </table></div>
     <div class="empty" id="alEmpty" style="display:none">등록된 알림 규칙이 없습니다.</div>
+  </div>
+  <div class="panel" id="mrAlPanel">
+    <div class="ptitle">내 종목 리포트 알림 <span class="sub" id="mrAlSub"></span></div>
+    <div class="pbody">
+      <div class="row mrsw">
+        <label class="chk"><input type="checkbox" id="mrOn"> <b>리포트 알림 사용</b></label>
+        <label class="chk"><input type="checkbox" data-mrt="new"> 새 리포트</label>
+        <label class="chk"><input type="checkbox" data-mrt="up"> 목표가 상향</label>
+        <label class="chk"><input type="checkbox" data-mrt="down"> 목표가 하향</label>
+        <label class="chk"><input type="checkbox" data-mrt="rating"> 투자의견 변경</label>
+        <label class="chk"><input type="checkbox" id="mrBeep"> 소리</label>
+      </div>
+      <div style="margin-top:8px" class="note">
+        관심종목(모든 그룹)과 보유 종목(모든 계좌)에 증권사 리포트가 새로 올라오면 알립니다.
+        리포트 데이터는 5분마다 확인하며, 알림은 <b>이 브라우저 창이 열려 있는 동안에만</b> 동작합니다.
+        처음 켰을 때와 종목을 새로 추가했을 때는 그때까지 나온 리포트를 알리지 않고 기준으로만 기록합니다.
+        투자의견 변경은 같은 증권사의 직전 리포트와 의견(BUY·HOLD·SELL)이 달라졌을 때이며, 확인 필요 레코드는 알리지 않습니다.
+        브라우저 알림은 위 "브라우저 알림 권한"을 허용했을 때만 뜹니다.
+      </div>
+    </div>
   </div>
   <div class="panel">
     <div class="ptitle">알림 기록 <span class="sp"><button class="btn xs" id="alLogClr">기록 지우기</button></span></div>
@@ -4282,11 +4440,11 @@ const RP_LS = "rr:filters:v1";                       // stock-helper 키와 분�
 const RP_RATINGS = ["BUY","HOLD","SELL","NR"];
 const RP_UNCL = "미분류";
 const RP_PAGE = 500;                                 // 표를 한 번에 그리는 행 수
-const RP_VIEWS = ["reports","stocks","sectors","heat","changes"];
+const RP_VIEWS = ["reports","stocks","sectors","heat","changes","score","industry"];   // score·industry: 11_repx.js
 const RP_MARGIN_DAYS = 35;                           // 시작 시 기간 필터보다 더 받아 둘 날 수
 const RP_IDLE_DAYS = 100;                            // 첫 렌더 뒤 한가할 때 넓힐 범위 (종목분석 3개월)
 const RP_SUSPECT_TIP = {
-  target_range:"목표가가 기준가의 0.3~3배 범위 밖",
+  target_range:"목표가가 기준가의 0.3~3.5배 범위 밖",
   name_is_broker:"종목명이 증권사 이름과 같음 (종목 매핑 오류 의심)"
 };
 const RP_DATA_IV = 300000;                           // 리포트 갱신 확인 주기 (5분)
@@ -4574,6 +4732,7 @@ function rpLoad(){
       return;
     }
     rpBuildControls();
+    myRepOnData();                             // 내 종목 리포트: 기준선·새 리포트 알림·패널 (11_repx.js)
     rpRender();
     rpRenderToday();
     rpRenderAnal();                            // 종목분석 패널·차트 (지수·미선택이면 알아서 감춘다)
@@ -4604,6 +4763,7 @@ function rpLoad(){
 function rpDataChanged(full){
   rpRebuild();
   rpBuildControls();
+  myRepOnData();                               // 새로 들어온 내 종목 리포트 알림 (11_repx.js)
   rpRender(true);
   rpRenderToday();
   rpRenderAnal();
@@ -5009,7 +5169,7 @@ function rpCardHtml(r, head){
     '<div class="l1"><span class="nm">' +
       (r.code ? '<a class="tk rpgo" href="#" data-go="' + esc(r.code) + '">' + esc(rpName(r.code, r.name)) + "</a>"
               : '<span class="tk">' + esc(r.name || "") + "</span>") +
-      " " + rpBadgeOf(r) + rpSuspectTag(r) + '</span><span class="v">' + head + "</span></div>" +
+      " " + rpBadgeOf(r) + rpSuspectTag(r) + rpHitTag(r) + '</span><span class="v">' + head + "</span></div>" +
     '<div class="l2"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
       esc(r.title || "") + "</a></div>" +
     '<div class="l3">' + esc(r.broker || "") + (r.analyst ? "(" + esc(r.analyst) + ")" : "") +
@@ -5060,7 +5220,7 @@ function rpRenderReports(rows){
     html.push('<td class="l">' + esc(r.broker || "") +
               (r.analyst ? '<span class="rsub">' + esc(r.analyst) + "</span>" : "") + "</td>");
     html.push('<td class="c">' + rpBadgeOf(r) + "</td>");
-    html.push("<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>");
+    html.push("<td>" + rpTargetCell(r) + rpSuspectTag(r) + rpHitTag(r) + "</td>");
     html.push("<td>" + rpPriceCell(r) + "</td>");
     html.push("<td>" + rpRecGapCell(r) + "</td>");
     html.push('<td class="dt">' + (typeof r.views === "number" ? fmt(r.views) : "") + "</td>");
@@ -5493,8 +5653,8 @@ function rpRenderLoadNote(){
   var el = $("#rpLoadNote");
   if(!el) return;
   var html = "";
-  if(RP_V2 && RP_READY){
-    var floor = rpPeriodFloor(), lf = rpLoadedFloor();
+  if(RP_V2 && RP_READY && RP.view !== "industry"){
+    var floor = rpViewFloor(), lf = rpLoadedFloor();
     var fails = Object.keys(rpMonthFail);
     if(rpLoadProg && !rpCovers(floor)){
       html = '<span class="spin"></span>이전 리포트를 불러오는 중… ' + rpLoadProg.done + " / " + rpLoadProg.total +
@@ -5511,19 +5671,40 @@ function rpRenderLoadNote(){
   el.classList.toggle("hide", !html);
 }
 
+/* 지금 화면이 덮어야 할 시작일. 성적표는 전 기간(null) */
+function rpViewFloor(){ return RP.view === "score" ? null : rpPeriodFloor(); }
+
 /* ---------- 전체 렌더 ---------- */
 function rpRender(keepLimit){
   if(!RP_READY) return;
   if(!keepLimit) RP_LIMIT = RP_PAGE;
+  if(RP.view === "industry" && !indAvail()) RP.view = "reports";    // meta 에 industry_months 가 없으면 숨김
   /* 지금 기간이 아직 메모리에 없으면(예: "전체") 나머지 달을 병렬로 받고, 받는 동안은 안내를 띄운다 */
-  var floor = rpPeriodFloor();
-  if(RP_V2 && !rpCovers(floor)) rpEnsureHistory(RP.period === "all" ? Infinity : parseInt(RP.period, 10));
+  var floor = rpViewFloor();
+  if(RP_V2 && !rpCovers(floor)) rpEnsureHistory(floor === null ? Infinity : parseInt(RP.period, 10));
   rpRenderLoadNote();
   var partial = RP_V2 && !rpCovers(floor);
+  if(RP.view === "reports" || RP.view === "changes") rpPerfEnsure();   // 목표가 "도달" 표시용 (perf_v 가 있을 때만)
 
   var rows = rpFiltered();
   rpRenderStats(rows);
   rpRenderSelbar();
+
+  /* 성적표·산업·시황 (11_repx.js): 자체 컨트롤을 쓰므로 공용 필터 패널은 감춘다 */
+  var ext = RP.view === "score" || RP.view === "industry";
+  $("#rpScorePanel").classList.toggle("hide", RP.view !== "score");
+  $("#rpIndPanel").classList.toggle("hide", RP.view !== "industry");
+  $("#rpFilterPanel").classList.toggle("hide", ext);
+  if(ext){
+    $("#rpSelbar").classList.add("hide");
+    $("#rpTablePanel").classList.add("hide");
+    $("#rpHeatPanel").classList.add("hide");
+    rpRenderExt();
+    rpSyncControls();
+    rpSave();
+    rpUpdated();
+    return;
+  }
 
   var heat = RP.view === "heat", chg = RP.view === "changes";
   $("#rpTablePanel").classList.toggle("hide", heat);
@@ -5626,7 +5807,8 @@ function rpRenderIndustrySelect(){
 }
 function rpSyncControls(){
   $$("#rpPeriod button").forEach(function(b){ b.classList.toggle("act", b.dataset.p === RP.period); });
-  $$("#rpViewSeg button, #rpViewSeg2 button").forEach(function(b){ b.classList.toggle("act", b.dataset.v === RP.view); });
+  $$(".rpvseg button").forEach(function(b){ b.classList.toggle("act", b.dataset.v === RP.view); });
+  $$('.rpvseg button[data-v="industry"]').forEach(function(b){ b.classList.toggle("hide", !indAvail()); });
   $$("#rpHeatSeg button").forEach(function(b){ b.classList.toggle("act", b.dataset.hc === RP.heatColor); });
   $$("[data-rrating]").forEach(function(b){ b.classList.toggle("act", RP.ratings.indexOf(b.dataset.rrating) >= 0); });
   $$("[data-rchange]").forEach(function(b){ b.classList.toggle("act", RP.changes.indexOf(b.dataset.rchange) >= 0); });
@@ -5842,6 +6024,7 @@ function rpRenderAnal(){
       if(rpCovers(floor)) rpRenderAnal();
     });
   }
+  rpPerfEnsure();                                    // 목표가 "도달" 표시 (perf_v 가 있을 때만, 받은 뒤 다시 그린다)
   var list = rpByCode[it.code] || [];
   if(!list.length){
     var none = loading ? "리포트를 불러오는 중…" : "최근 리포트 없음";
@@ -5853,7 +6036,11 @@ function rpRenderAnal(){
   var recent = list.filter(function(r){ return (r.date || "") >= floor; });
   if(!recent.length) recent = list.slice(0, 10);
   var stat = recent.filter(rpStatOk);                // 확인 필요 레코드는 컨센서스에서 뺀다
-  var tg = stat.map(function(r){ return r.target; }).filter(function(v){ return typeof v === "number"; });
+  var tgRecs = stat.filter(function(r){ return typeof r.target === "number"; });
+  var tg = tgRecs.map(function(r){ return r.target; });
+  var tgBrokers = {};
+  tgRecs.forEach(function(r){ tgBrokers[rpNorm(r.broker) || "?"] = 1; });
+  var nBrokers = Object.keys(tgBrokers).length;
   var buy = stat.filter(function(r){ return r.rating === "BUY"; }).length;
   var price = rpCodePrice(it.code);
   var avg = tg.length ? Math.round(tg.reduce(function(s, v){ return s + v; }, 0) / tg.length) : null;
@@ -5863,7 +6050,7 @@ function rpRenderAnal(){
   $("#anRepSub").textContent = (rpIsPartial() ? "불러온 범위 " : "전체 ") + fmt(list.length) + "건 · 최근 3개월 " +
     fmt(recent.length) + "건" + (sus ? " (확인 필요 " + sus + "건 제외)" : "") + (loading ? " · 불러오는 중…" : "");
   $("#anRepCons").innerHTML = '<div class="ovw" style="gap:16px">' +
-    rpOvi("평균 목표가", avg ? fmt(avg) : "-", "", tg.length ? tg.length + "개 증권사" : "목표가 없음") +
+    rpOvi("평균 목표가", avg ? fmt(avg) : "-", "", tg.length ? "증권사 " + nBrokers + "곳 · 리포트 " + tg.length + "건" : "목표가 없음") +
     rpOvi("최고", tg.length ? fmt(Math.max.apply(null, tg)) : "-") +
     rpOvi("최저", tg.length ? fmt(Math.min.apply(null, tg)) : "-") +
     rpOvi("BUY 비율", (stat.length ? Math.round(buy / stat.length * 100) : 0) + "%", "up", "BUY " + buy + "건") +
@@ -5879,7 +6066,7 @@ function rpRenderAnal(){
       '<td class="l wr"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
         esc(r.title || "") + "</a></td>" +
       '<td class="c">' + rpBadgeOf(r) + "</td>" +
-      "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +
+      "<td>" + rpTargetCell(r) + rpSuspectTag(r) + rpHitTag(r) + "</td>" +
       "<td>" + rpRecGapCell(r) + "</td></tr>";
   }).join("");
 }
@@ -5911,8 +6098,8 @@ function rpBind(){
     RP.period = b.dataset.p; rpRender();
   };
   /* 서브뷰 전환 — 히트맵 패널에도 같은 seg 를 두어 돌아올 길을 남긴다 */
-  ["#rpViewSeg", "#rpViewSeg2"].forEach(function(sel){
-    $(sel).onclick = function(e){
+  $$(".rpvseg").forEach(function(el){
+    el.onclick = function(e){
       var b = e.target.closest("button[data-v]"); if(!b) return;
       RP.view = b.dataset.v; rpRender();
     };
@@ -6351,6 +6538,760 @@ function initAccounts(){
   $("#pfOpenAcct").onclick = function(){ openAcctTab(); };
 }
 /* =========================================================================
+   리포트 확장 — 내 종목 리포트(대시보드 패널·알림) · 성적표 · 산업·시황
+   09_reports.js 의 전역(RPT, rpByCode, RMETA, RP_READY, rpEnsureHistory …)을 그대로 쓴다.
+   데이터 규약: docs/DATA-FORMAT-v2.md (data/perf.json, data/industry/YYYY-MM.json,
+   meta 의 perf_v · industry_months — 없으면 해당 기능을 숨기거나 "준비 중"으로 둔다).
+   ========================================================================= */
+
+/* ---------- 내 종목 리포트 ---------- */
+const MR_LS_CFG = "rr:repalert:v1";          // 알림 설정
+const MR_LS_SEEN = "rr:repalert:seen:v1";    // 종목별로 이미 본 리포트 + 안 읽은 목록
+const MR_DAYS = 14;                          // 패널에 보이는 기간
+const MR_ROWS = 12;                          // 패널 최대 행 수
+const MR_ALERT_DAYS = 7;                     // 이보다 오래된 리포트는 처음 봐도 알리지 않는다 (늦게 받은 지난 달 파일)
+const MR_KEEP_DAYS = 30;                     // 본 표시를 남겨 둘 기간 (그보다 오래된 것은 알릴 일이 없다)
+const MR_KEEP_PER_CODE = 120;
+const MR_UNREAD_MAX = 200;
+const MR_TOAST_MAX = 3;                      // 한 번에 띄우는 토스트 수 (나머지는 한 줄로 묶는다)
+const MR_TYPES = [["new","새 리포트"], ["up","목표가 상향"], ["down","목표가 하향"], ["rating","투자의견 변경"]];
+const MR_RATED = ["BUY","HOLD","SELL"];
+
+let MR_CFG = { on:true, types:{ "new":true, up:true, down:true, rating:true }, beep:false };
+let MR_SEEN = null;              // { v:1, codes:{ code:{ key:"YYYY-MM-DD" } }, unread:[id] }
+let mrFresh = {};                // 이번 세션에 새로 들어온 리포트 id (패널에서 강조)
+let mrViewTimer = null;
+
+function mrLoadCfg(){
+  try{
+    var o = JSON.parse(localStorage.getItem(MR_LS_CFG) || "null");
+    if(!o || typeof o !== "object") return;
+    if(typeof o.on === "boolean") MR_CFG.on = o.on;
+    if(typeof o.beep === "boolean") MR_CFG.beep = o.beep;
+    if(o.types && typeof o.types === "object"){
+      MR_TYPES.forEach(function(t){ if(typeof o.types[t[0]] === "boolean") MR_CFG.types[t[0]] = o.types[t[0]]; });
+    }
+  }catch(e){}
+}
+function mrSaveCfg(){ try{ localStorage.setItem(MR_LS_CFG, JSON.stringify(MR_CFG)); }catch(e){} }
+function mrLoadSeen(){
+  if(MR_SEEN) return MR_SEEN;
+  var o = null;
+  try{ o = JSON.parse(localStorage.getItem(MR_LS_SEEN) || "null"); }catch(e){}
+  if(!o || typeof o !== "object" || !o.codes || typeof o.codes !== "object" || Array.isArray(o.codes))
+    o = { v:1, codes:{}, unread:[] };
+  if(!Array.isArray(o.unread)) o.unread = [];
+  MR_SEEN = o;
+  return o;
+}
+function mrSaveSeen(){ try{ localStorage.setItem(MR_LS_SEEN, JSON.stringify(MR_SEEN)); }catch(e){} }
+
+/* 내 종목 = 관심종목(모든 그룹) ∪ 모든 계좌의 보유 종목 */
+function mrCodes(){
+  var set = {};
+  allWL().forEach(function(x){ if(x && x.code) set[x.code] = 1; });
+  ACCTS().forEach(function(a){ a.items.forEach(function(x){ if(x && x.code) set[x.code] = 1; }); });
+  return set;
+}
+/* 같은 리포트가 소스를 바꿔(한경 → 네이버 등) id 가 달라져도 다시 알리지 않게 날짜+증권사 키도 함께 둔다 */
+function mrKeys(r){ return [r.id, "k:" + (r.date || "") + "|" + rpNorm(r.broker)]; }
+
+/* 본 표시 갱신. detect=true 면 처음 보는 최근 리포트를 돌려준다.
+   처음 보는 종목(첫 실행·종목 추가)은 알리지 않고 그 시점의 리포트를 기준으로만 기록한다. */
+function mrSync(detect){
+  if(!RP_READY) return [];
+  var seen = mrLoadSeen(), codes = mrCodes(), found = [], changed = false;
+  var base = rpBaseISO();
+  var keepFloor = rpShiftISO(base, -MR_KEEP_DAYS), alertFloor = rpShiftISO(base, -(MR_ALERT_DAYS - 1));
+  Object.keys(seen.codes).forEach(function(c){
+    if(!codes[c]){ delete seen.codes[c]; changed = true; }    // 내 종목에서 빠지면 지운다 (다시 넣으면 새 기준선)
+  });
+  Object.keys(codes).forEach(function(c){
+    var list = (rpByCode[c] || []).filter(function(r){ return rpStatOk(r) && (r.date || "") >= keepFloor; });
+    var m = seen.codes[c];
+    if(!m || typeof m !== "object"){
+      m = seen.codes[c] = {};
+      list.forEach(function(r){ mrKeys(r).forEach(function(k){ m[k] = r.date || ""; }); });
+      changed = true;
+      return;
+    }
+    if(!detect) return;
+    list.forEach(function(r){
+      var ks = mrKeys(r);
+      var known = ks.some(function(k){ return m[k] !== undefined; });
+      if(!known && (r.date || "") >= alertFloor) found.push(r);
+      ks.forEach(function(k){ if(m[k] === undefined){ m[k] = r.date || ""; changed = true; } });
+    });
+    /* 오래된 표시는 버리고 종목당 개수를 제한한다 */
+    var ks2 = Object.keys(m);
+    ks2.forEach(function(k){ if(m[k] < keepFloor){ delete m[k]; changed = true; } });
+    ks2 = Object.keys(m);
+    if(ks2.length > MR_KEEP_PER_CODE){
+      ks2.sort(function(a, b){ return String(m[b]).localeCompare(String(m[a])); })
+        .slice(MR_KEEP_PER_CODE).forEach(function(k){ delete m[k]; });
+      changed = true;
+    }
+  });
+  if(found.length){
+    var ids = found.map(function(r){ return r.id; });
+    seen.unread = ids.concat(seen.unread.filter(function(i){ return ids.indexOf(i) < 0; })).slice(0, MR_UNREAD_MAX);
+    changed = true;
+  }
+  if(changed) mrSaveSeen();
+  return found;
+}
+
+/* 같은 종목+증권사의 직전 리포트 (확인 필요 제외) */
+function mrPrevOf(r){
+  var list = rpByCode[r.code] || [], nb = rpNorm(r.broker), past = false;
+  for(var i=0;i<list.length;i++){
+    var x = list[i];
+    if(x === r){ past = true; continue; }
+    if(!past && (x.date || "") >= (r.date || "")) continue;
+    if(rpStatOk(x) && rpNorm(x.broker) === nb) return x;
+  }
+  return null;
+}
+function mrTypesOf(r){
+  var t = { "new":true };
+  if(r.target_change === "up") t.up = true;
+  else if(r.target_change === "down") t.down = true;
+  var p = mrPrevOf(r);
+  if(p && MR_RATED.indexOf(r.rating) >= 0 && MR_RATED.indexOf(p.rating) >= 0 && p.rating !== r.rating){
+    t.rating = true; t.prevRating = p.rating;
+  }
+  return t;
+}
+function mrMsg(r, t){
+  var parts = [];
+  if(t.up && MR_CFG.types.up) parts.push("목표가 상향 " + fmt(r.prev_target) + " → " + fmt(r.target));
+  if(t.down && MR_CFG.types.down) parts.push("목표가 하향 " + fmt(r.prev_target) + " → " + fmt(r.target));
+  if(t.rating && MR_CFG.types.rating) parts.push("의견 " + t.prevRating + " → " + r.rating);
+  if(!parts.length) parts.push("새 리포트" + (r.rating ? " " + r.rating : "") +
+                               (typeof r.target === "number" ? " · 목표가 " + fmt(r.target) : ""));
+  return "[리포트] " + rpName(r.code, r.name) + " · " + (r.broker || "") + " — " + parts.join(" · ") +
+         (r.title ? " · 「" + r.title + "」" : "");
+}
+/* 알림: 기존 알림 탭과 같은 경로 (토스트 · 소리 · 브라우저 알림 · 알림 기록) */
+function mrAlert(found){
+  if(!MR_CFG.on || !found.length) return 0;
+  var msgs = [];
+  found.forEach(function(r){
+    var t = mrTypesOf(r), hit = false;
+    MR_TYPES.forEach(function(tp){ if(t[tp[0]] && MR_CFG.types[tp[0]]) hit = true; });
+    if(hit) msgs.push(mrMsg(r, t));
+  });
+  if(!msgs.length) return 0;
+  var at = new Date().toLocaleString("ko-KR");
+  msgs.slice().reverse().forEach(function(m){ S.alertLog.unshift({ msg:m, at:at }); });
+  S.alertLog = S.alertLog.slice(0, 200);
+  save();
+  if(curTab === "alr") renderAlertLog();
+  if(MR_CFG.beep) beep();
+  msgs.slice(0, MR_TOAST_MAX).forEach(function(m){ toast("알림: " + m, "ok"); });
+  if(msgs.length > MR_TOAST_MAX) toast("내 종목 리포트 " + (msgs.length - MR_TOAST_MAX) + "건 더 — 알림 기록 참조", "ok");
+  if(msgs.length <= MR_TOAST_MAX) msgs.forEach(function(m){ notify("내 종목 리포트", m); });
+  else notify("내 종목 리포트", "새 리포트 " + msgs.length + "건 · " + msgs[0]);
+  return msgs.length;
+}
+
+/* 09 의 rpLoad·rpDataChanged 가 데이터를 받은 직후(rpRebuild 다음) 부른다 */
+function myRepOnData(){
+  var found = mrSync(true);
+  found.forEach(function(r){ mrFresh[r.id] = 1; });
+  if(found.length) mrAlert(found);
+  mrRender();
+}
+
+function mrBadges(){
+  var n = mrLoadSeen().unread.length;
+  var b = $("#myRepBadge");
+  if(b){ b.textContent = n > 99 ? "99+" : String(n); b.classList.toggle("hide", !n); }
+  var tb = $("#tabbtn-rep");
+  if(tb){
+    var s = tb.querySelector(".nbadge");
+    if(n && !s){ s = document.createElement("span"); s.className = "nbadge"; tb.appendChild(s); }
+    if(s){
+      if(n){ s.textContent = n > 99 ? "99+" : String(n); s.title = "내 종목 새 리포트 " + n + "건"; }
+      else s.remove();
+    }
+  }
+}
+/* 패널을 보거나 리포트 탭을 열면 안 읽은 수를 비운다 (둘이 같은 목록을 쓴다) */
+function myRepMarkSeen(){
+  var seen = mrLoadSeen();
+  if(!seen.unread.length) return;
+  seen.unread = [];
+  mrSaveSeen();
+  mrBadges();
+}
+
+function mrRender(){
+  var box = $("#myRep");
+  if(!box) return;
+  mrBadges();
+  if(!RP_READY){
+    box.innerHTML = '<div style="color:var(--tx3)">리포트 데이터를 불러오는 중…</div>';
+    return;
+  }
+  mrSync(false);
+  var codes = Object.keys(mrCodes());
+  var sub = $("#myRepSub");
+  if(!codes.length){
+    if(sub) sub.textContent = "관심·보유 종목 · 최근 " + MR_DAYS + "일";
+    box.innerHTML = '<div style="color:var(--tx3)">관심종목이나 보유 종목이 없습니다. 아래 관심종목 검색창이나 계좌 탭에서 추가하면 그 종목의 리포트가 여기에 모입니다.</div>';
+    $("#myRepMore").classList.add("hide");
+    return;
+  }
+  var floor = rpShiftISO(rpBaseISO(), -(MR_DAYS - 1)), rows = [], withRep = 0;
+  codes.forEach(function(c){
+    var n0 = rows.length;
+    (rpByCode[c] || []).forEach(function(r){ if((r.date || "") >= floor) rows.push(r); });
+    if(rows.length > n0) withRep++;
+  });
+  rows.sort(function(a, b){
+    return String(b.date || "").localeCompare(String(a.date || "")) || (mrFresh[b.id] ? 1 : 0) - (mrFresh[a.id] ? 1 : 0);
+  });
+  if(sub) sub.textContent = "관심·보유 " + codes.length + "종목 · 최근 " + MR_DAYS + "일 " + rows.length + "건" +
+                            (withRep ? " (" + withRep + "종목)" : "");
+  $("#myRepMore").classList.toggle("hide", !rows.length);
+  if(!rows.length){
+    box.innerHTML = '<div style="color:var(--tx3)">최근 ' + MR_DAYS + "일 동안 내 종목(" + codes.length +
+                    "종목)에 나온 리포트가 없습니다.</div>";
+    return;
+  }
+  var unread = {};
+  mrLoadSeen().unread.forEach(function(i){ unread[i] = 1; });
+  box.innerHTML = '<div class="tbw"><table class="rtbl mrtbl"><thead><tr><th class="l">날짜</th><th class="l">종목</th>' +
+    '<th class="l">증권사</th><th class="c">의견</th><th>목표주가</th><th>괴리율</th></tr></thead><tbody>' +
+    rows.slice(0, MR_ROWS).map(function(r){
+      var link = r.pdf || r.url || "";
+      var isNew = unread[r.id] || mrFresh[r.id];
+      return '<tr' + (isNew ? ' class="mrnew"' : "") + '><td class="l dt">' + esc((r.date || "").slice(5)) +
+        (isNew ? ' <span class="mrdot" title="새로 들어온 리포트">NEW</span>' : "") + "</td>" +
+        '<td class="l"><a class="tk rpgo" href="#" data-go="' + esc(r.code) + '" title="종목분석에서 열기">' +
+          esc(rpName(r.code, r.name)) + "</a>" +
+          (link ? ' <a class="rnav" href="' + esc(link) + '" target="_blank" rel="noopener" title="' +
+                  esc(r.title || "원문") + '">원문↗</a>' : "") + "</td>" +
+        '<td class="l">' + esc(r.broker || "") + "</td>" +
+        '<td class="c">' + rpBadgeOf(r) + "</td>" +
+        "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +
+        "<td>" + rpGapCell(rpGapOf(r)) + "</td></tr>";
+    }).join("") + "</tbody></table></div>" +
+    (rows.length > MR_ROWS ? '<div class="mrmore">' + fmt(rows.length - MR_ROWS) +
+      '건 더 있음 · <a href="#" id="myRepMore2">리포트 탭에서 모두 보기 →</a></div>' : "");
+}
+/* "더 보기": 리포트 탭을 내 종목(리포트가 있는 종목)으로 거른다 */
+function mrGotoReports(){
+  var codes = Object.keys(mrCodes()), floor = rpShiftISO(rpBaseISO(), -(MR_DAYS - 1));
+  RP.codes = codes.filter(function(c){
+    return (rpByCode[c] || []).some(function(r){ return (r.date || "") >= floor; });
+  });
+  if(!RP.codes.length) RP.codes = codes;
+  RP.view = "reports";
+  RP.period = "30";
+  RP.sortKey = "date"; RP.sortDir = "desc";
+  showTab("rep");
+  rpRender();
+  window.scrollTo(0, 0);
+}
+
+/* 알림 탭: 리포트 알림 설정 */
+function mrSyncCfgUI(){
+  var on = $("#mrOn");
+  if(!on) return;
+  on.checked = MR_CFG.on;
+  $$("[data-mrt]").forEach(function(el){
+    el.checked = !!MR_CFG.types[el.dataset.mrt];
+    el.disabled = !MR_CFG.on;
+  });
+  $("#mrBeep").checked = MR_CFG.beep;
+  $("#mrBeep").disabled = !MR_CFG.on;
+  var n = Object.keys(mrCodes()).length;
+  $("#mrAlSub").textContent = "대상: 관심·보유 " + n + "종목" + (MR_CFG.on ? "" : " · 꺼짐");
+}
+function mrInit(){
+  mrLoadCfg();
+  mrSyncCfgUI();
+  var box = $("#mrAlPanel");
+  if(box) box.addEventListener("change", function(e){
+    var el = e.target;
+    if(el.id === "mrOn") MR_CFG.on = el.checked;
+    else if(el.id === "mrBeep") MR_CFG.beep = el.checked;
+    else if(el.dataset && el.dataset.mrt) MR_CFG.types[el.dataset.mrt] = el.checked;
+    else return;
+    mrSaveCfg();
+    mrSyncCfgUI();
+  });
+  var panel = $("#myRepPanel");
+  if(panel){
+    panel.addEventListener("click", function(e){
+      var go = e.target.closest("[data-go]");
+      if(go){ e.preventDefault(); rpGotoAnal(go.dataset.go); return; }
+      if(e.target.closest("#myRepMore, #myRepMore2")){ e.preventDefault(); mrGotoReports(); }
+    });
+    /* 패널이 화면에 2초 넘게 보이면 읽은 것으로 친다 */
+    if(window.IntersectionObserver){
+      new IntersectionObserver(function(ents){
+        var vis = ents.some(function(en){ return en.isIntersecting; });
+        clearTimeout(mrViewTimer);
+        if(vis) mrViewTimer = setTimeout(function(){
+          if(curTab === "dash" && !document.hidden) myRepMarkSeen();
+        }, 2000);
+      }, { threshold:0.4 }).observe(panel);
+    }
+  }
+  /* 관심종목·보유 종목이 바뀌면 패널도 다시 그린다 (04 를 건드리지 않고 전역을 감싼다) */
+  if(!renderWatchlist.mrWrapped){
+    var rw = renderWatchlist;
+    renderWatchlist = function(){ var v = rw.apply(this, arguments); mrRender(); return v; };
+    renderWatchlist.mrWrapped = true;
+  }
+  if(!renderPortfolio.mrWrapped){
+    var rpf = renderPortfolio;
+    renderPortfolio = function(){ var v = rpf.apply(this, arguments); mrRender(); return v; };
+    renderPortfolio.mrWrapped = true;
+  }
+  mrRender();
+}
+
+/* ---------- 성과 데이터 (data/perf.json) ---------- */
+const RX_LS = "rr:repx:v1";                  // 성적표·산업·시황 화면 상태
+const SC_AGES = [30, 60, 90];
+const RX = {
+  sc:{ mode:"broker", minB:10, minA:5, age:30, sortKey:"n", sortDir:"desc" },
+  ind:{ kinds:[], cat:"", broker:"", period:"30", q:"" }
+};
+let RP_PERF = null;              // { v, updated_at, items }
+let rpPerfP = null, rpPerfPv = "", rpPerfFailV = "", rpPerfErr = "";
+
+function rxSave(){ try{ localStorage.setItem(RX_LS, JSON.stringify(RX)); }catch(e){} }
+function rxLoad(){
+  try{
+    var o = JSON.parse(localStorage.getItem(RX_LS) || "null");
+    if(!o || typeof o !== "object") return;
+    ["sc", "ind"].forEach(function(g){
+      if(!o[g] || typeof o[g] !== "object") return;
+      for(var k in RX[g]){ if(Object.prototype.hasOwnProperty.call(o[g], k) && typeof o[g][k] === typeof RX[g][k]) RX[g][k] = o[g][k]; }
+    });
+  }catch(e){}
+  if(RX.sc.mode !== "analyst") RX.sc.mode = "broker";
+  if(SC_AGES.indexOf(RX.sc.age) < 0) RX.sc.age = 30;
+  if(!(RX.sc.minB >= 1)) RX.sc.minB = 10;
+  if(!(RX.sc.minA >= 1)) RX.sc.minA = 5;
+  if(RX.sc.sortDir !== "asc") RX.sc.sortDir = "desc";
+  if(!Array.isArray(RX.ind.kinds)) RX.ind.kinds = [];
+  if(["1","3","7","30","all"].indexOf(RX.ind.period) < 0) RX.ind.period = "30";
+}
+
+function rpPerfAvail(){ return !!(RMETA && RMETA.perf_v); }
+/* perf.json 을 (버전이 바뀌었으면 다시) 받는다. 받은 뒤 리포트 목록·종목분석 패널을 다시 그린다 */
+function rpPerfEnsure(){
+  if(!rpPerfAvail()) return;
+  var v = String(RMETA.perf_v);
+  if(RP_PERF && RP_PERF.v === v) return;
+  if(rpPerfP && rpPerfPv === v) return;
+  if(rpPerfFailV === v) return;                // 같은 버전에서 실패했으면 다시 조르지 않는다 (meta 가 바뀌면 재시도)
+  rpPerfPv = v;
+  rpPerfP = rpFetchJson("data/perf.json?v=" + encodeURIComponent(v)).then(function(j){
+    RP_PERF = { v:v, updated_at:(j && j.updated_at) || "", items:(j && j.items && typeof j.items === "object") ? j.items : {} };
+    rpPerfErr = "";
+  }, function(err){
+    rpPerfFailV = v;
+    rpPerfErr = (err && err.message) ? err.message : String(err);
+    console.warn("perf.json 적재 실패:", rpPerfErr);
+  }).then(function(){
+    rpPerfP = null;
+    rpRender(true);
+    rpRenderAnal();
+  });
+}
+/* 목표가 도달 표시 (perf 항목에 hit 가 있을 때) */
+function rpHitTag(r){
+  var it = (RP_PERF && r && r.id) ? RP_PERF.items[r.id] : null;
+  if(!it || !it.hit) return "";
+  return '<span class="rhit" title="' + esc("목표가 도달: " + it.hit + " (발간 후 장중 고가가 목표가에 처음 닿은 날)") + '">도달 ' +
+         esc(String(it.hit).slice(5)) + "</span>";
+}
+
+/* ---------- 성적표 ---------- */
+function rxDays(a, b){
+  var x = Date.parse(a + "T00:00:00Z"), y = Date.parse(b + "T00:00:00Z");
+  return (isNaN(x) || isNaN(y)) ? null : Math.round((y - x) / 86400000);
+}
+function scCompute(){
+  var items = RP_PERF.items, analyst = RX.sc.mode === "analyst";
+  var cut = rpShiftISO(rpTodayISO(), -RX.sc.age);
+  var map = {}, total = 0, first = "", last = "", start = "";
+  for(var i=0;i<RPT.length;i++){
+    var r = RPT[i], d = r.date || "";
+    if(d && (!start || d < start)) start = d;
+    if(!rpStatOk(r) || typeof r.target !== "number" || !r.broker) continue;
+    if(d > cut) continue;
+    var p = items[r.id];
+    if(!p || !(p.paw > 0)) continue;
+    if(analyst && !r.analyst) continue;
+    var key = analyst ? r.broker + "\u0001" + r.analyst : r.broker;
+    var g = map[key] || (map[key] = { broker:r.broker, analyst:analyst ? r.analyst : "", n:0, buy:0,
+                                      gw:[], ret:[], hit:0, days:[], mx:[] });
+    g.n++; total++;
+    if(!first || d < first) first = d;
+    if(d > last) last = d;
+    if(r.rating === "BUY") g.buy++;
+    g.gw.push((r.target - p.paw) / p.paw * 100);
+    var cur = rpCodePrice(r.code);
+    if(cur) g.ret.push((cur - p.paw) / p.paw * 100);
+    if(p.hit){
+      g.hit++;
+      var dd = rxDays(d, String(p.hit));
+      if(dd !== null) g.days.push(dd);
+    }
+    if(typeof p.max === "number") g.mx.push((p.max - p.paw) / p.paw * 100);
+  }
+  var min = analyst ? RX.sc.minA : RX.sc.minB, rows = [], below = 0;
+  Object.keys(map).forEach(function(k){
+    var g = map[k];
+    if(g.n < min){ below++; return; }
+    g.name = analyst ? g.analyst : g.broker;
+    g.buyR = Math.round(g.buy / g.n * 1000) / 10;
+    g.medGw = rpMedian(g.gw);
+    g.medRet = rpMedian(g.ret);
+    g.hitR = Math.round(g.hit / g.n * 1000) / 10;
+    g.medDays = g.days.length ? Math.round(rpMedian(g.days)) : null;
+    g.medMx = rpMedian(g.mx);
+    rows.push(g);
+  });
+  return { rows:rows, total:total, first:first, last:last, start:start, cut:cut, below:below, min:min };
+}
+const SC_COLS = [
+  { key:"name",   label:"증권사",               al:"l", get:function(g){ return g.name; } },
+  { key:"n",      label:"리포트 수",            get:function(g){ return g.n; } },
+  { key:"buyR",   label:"BUY 비율",             get:function(g){ return g.buyR; } },
+  { key:"medGw",  label:"발간 시 괴리율",       get:function(g){ return g.medGw; },
+    tip:"중앙값: (목표가 − 발간일 종가) ÷ 발간일 종가" },
+  { key:"medRet", label:"발간 후 수익률",       get:function(g){ return g.medRet; },
+    tip:"중앙값: (현재가 − 발간일 종가) ÷ 발간일 종가 · 배당 제외 주가 기준" },
+  { key:"hitR",   label:"목표가 도달률",        get:function(g){ return g.hitR; },
+    tip:"발간 후 장중 고가가 목표가에 닿은 리포트 비율" },
+  { key:"medDays",label:"도달까지(일)",         get:function(g){ return g.medDays; },
+    tip:"도달한 리포트의 발간일 → 도달일 달력 일수 중앙값" },
+  { key:"medMx",  label:"최대 상승 실현",       get:function(g){ return g.medMx; },
+    tip:"중앙값: (발간 후 최고가 − 발간일 종가) ÷ 발간일 종가" }
+];
+function scSort(rows){
+  var col = null;
+  SC_COLS.forEach(function(c){ if(c.key === RX.sc.sortKey) col = c; });
+  if(!col) col = SC_COLS[1];
+  var dir = RX.sc.sortDir === "asc" ? 1 : -1;
+  return rows.slice().sort(function(x, y){
+    var a = col.get(x), b = col.get(y);
+    var an = (a === null || a === undefined), bn = (b === null || b === undefined);
+    if(an !== bn) return an ? 1 : -1;
+    if(!an){
+      var c = (typeof a === "number") ? a - b : String(a).localeCompare(String(b), "ko");
+      if(c) return c * dir;
+    }
+    return y.n - x.n;
+  });
+}
+function scPct(v, colorize){
+  if(v === null || v === undefined) return '<span class="flat">-</span>';
+  return colorize ? '<span class="' + dirCls(v) + '">' + fmtPct(v) + "</span>" : fmtPct(v).replace(/^\+/, "");
+}
+function rpRenderScore(){
+  $$("#scMode button").forEach(function(b){ b.classList.toggle("act", b.dataset.m === RX.sc.mode); });
+  $$("#scAge button").forEach(function(b){ b.classList.toggle("act", +b.dataset.a === RX.sc.age); });
+  var minEl = $("#scMin"), analyst = RX.sc.mode === "analyst";
+  if(document.activeElement !== minEl) minEl.value = analyst ? RX.sc.minA : RX.sc.minB;
+  var cap = $("#scCap"), thead = $("#scThead"), tbody = $("#scTbody"), em = $("#scEmpty"), ctl = $("#scCtl");
+  function state(msg){
+    cap.innerHTML = ""; thead.innerHTML = ""; tbody.innerHTML = "";
+    em.innerHTML = msg; em.style.display = "block";
+    $("#scTable").style.display = "none";
+  }
+  if(!rpPerfAvail()){
+    ctl.classList.add("hide");
+    $("#scSub").textContent = "";
+    state("<b>성과 데이터 준비 중</b><br>수집기가 발간 후 주가(data/perf.json)를 만들면 증권사·애널리스트 성적표가 여기에 나옵니다.");
+    return;
+  }
+  ctl.classList.remove("hide");
+  rpEnsureHistory(Infinity);                   // 성적표는 보관 중인 전 기간을 쓴다 (받는 동안 위에 안내)
+  rpPerfEnsure();
+  if(!RP_PERF){
+    $("#scSub").textContent = "";
+    state(rpPerfErr && rpPerfFailV === String(RMETA.perf_v)
+      ? '<span class="down">성과 데이터를 불러오지 못했습니다.</span> <button class="btn xs" id="scRetry">다시 시도</button>'
+      : '<span class="spin"></span>성과 데이터를 불러오는 중…');
+    return;
+  }
+  var res = scCompute(), rows = scSort(res.rows);
+  var partial = rpIsPartial();
+  $("#scSub").textContent = (analyst ? "애널리스트 " : "증권사 ") + rows.length + (analyst ? "명" : "곳") +
+    " · 리포트 " + fmt(res.total) + "건" + (partial ? " · 일부 데이터" : "");
+  cap.innerHTML =
+    "대상: " + (res.first ? esc(res.first) + " ~ " + esc(res.last) : "-") + " 발간 · 발간 후 " + RX.sc.age + "일 이상 지난 리포트 (" +
+    esc(res.cut) + "까지) · 확인 필요 제외, 목표가와 성과 데이터가 있는 것만 · 보관 시작 " +
+    (partial ? "불러오는 중" : esc(res.start || "-")) + "<br>" +
+    "수익률은 <b>배당을 뺀 주가만</b>으로 계산 · 도달 = 발간 다음 거래일 이후 장중 고가가 목표가에 닿음 · " +
+    "현재가는 실시간 시세(없으면 수집 시점 종가) · 성과 " + esc(String(RP_PERF.updated_at || "").replace("T", " ").slice(0, 16)) + " 기준 · " +
+    "<b>기간·업종·증권사 필터는 이 화면에 적용되지 않습니다</b>" +
+    (res.below ? " · 표본 " + res.min + "건 미만 " + res.below + (analyst ? "명" : "곳") + " 숨김" : "");
+  if(!rows.length){
+    thead.innerHTML = ""; tbody.innerHTML = "";
+    em.innerHTML = "조건(표본 " + res.min + "건 이상, 발간 후 " + RX.sc.age + "일 이상)에 맞는 " + (analyst ? "애널리스트" : "증권사") +
+                   "가 없습니다. 최소 표본을 낮추거나 기간을 줄여 보세요.";
+    em.style.display = "block";
+    $("#scTable").style.display = "none";
+    return;
+  }
+  em.style.display = "none";
+  $("#scTable").style.display = "table";
+  thead.innerHTML = "<tr>" + SC_COLS.map(function(c){
+    var on = RX.sc.sortKey === c.key;
+    var label = (c.key === "name" && analyst) ? "애널리스트 (증권사)" : c.label;
+    return '<th class="srt' + (c.al ? " " + c.al : "") + (on ? " on" : "") + '" data-ss="' + c.key +
+           '" tabindex="0" role="button"' + (c.tip ? ' title="' + esc(c.tip) + '"' : "") + ">" + esc(label) +
+           (on ? (RX.sc.sortDir === "asc" ? " ▲" : " ▼") : "") + "</th>";
+  }).join("") + "</tr>";
+  tbody.innerHTML = rows.map(function(g){
+    var label = analyst
+      ? esc(g.analyst) + '<span class="rsub">' + esc(g.broker) + "</span>"
+      : esc(g.broker);
+    return '<tr class="scrow" data-scb="' + esc(g.broker) + '" data-sca="' + esc(g.analyst) +
+           '" title="이 ' + (analyst ? "애널리스트" : "증권사") + '의 리포트 보기">' +
+      '<td class="l"><b>' + label + "</b></td>" +
+      "<td><b>" + fmt(g.n) + "</b></td>" +
+      "<td>" + g.buyR.toFixed(1) + "%</td>" +
+      "<td>" + scPct(g.medGw, true) + "</td>" +
+      "<td>" + scPct(g.medRet, true) + '<span class="rsub">' + g.ret.length + "건</span></td>" +
+      "<td><b>" + g.hitR.toFixed(1) + '%</b><span class="rsub">' + g.hit + " / " + g.n + "</span></td>" +
+      "<td>" + (g.medDays === null ? '<span class="flat">-</span>' : fmt(g.medDays) + "일") + "</td>" +
+      "<td>" + scPct(g.medMx, true) + "</td></tr>";
+  }).join("");
+}
+
+/* ---------- 산업·시황 리포트 (data/industry/YYYY-MM.json) ---------- */
+const IND_KIND = { industry:"산업", market:"시황" };
+let INDT = [];
+let indData = {}, indPend = {}, indFail = {}, indLimit = RP_PAGE;
+
+function indMonths(){ return (RMETA && Array.isArray(RMETA.industry_months)) ? RMETA.industry_months : []; }
+function indAvail(){ return indMonths().length > 0; }
+function indFloor(){
+  return RX.ind.period === "all" ? null : rpFloorForDays(parseInt(RX.ind.period, 10) || 1);
+}
+function indMerge(){
+  var keep = {}, out = [];
+  indMonths().forEach(function(mo){ keep[mo.month] = 1; });
+  Object.keys(indData).forEach(function(k){ if(!keep[k]) delete indData[k]; });
+  indMonths().forEach(function(mo){
+    var d = indData[mo.month];
+    if(d) for(var i=0;i<d.rows.length;i++) out.push(d.rows[i]);
+  });
+  INDT = out;
+}
+/* 기간에 필요한 달만 받는다 (v 가 바뀐 달은 다시). 받는 중이면 true */
+function indEnsure(){
+  var floor = indFloor(), fm = floor ? floor.slice(0, 7) : "", busy = false;
+  indMonths().forEach(function(mo){
+    if(fm && mo.month < fm) return;
+    var key = mo.month + "@" + mo.v, d = indData[mo.month];
+    if(d && d.v === mo.v) return;
+    if(indPend[key]){ busy = true; return; }
+    if(indFail[key]) return;
+    busy = true;
+    indPend[key] = rpFetchJson("data/industry/" + mo.month + ".json?v=" + encodeURIComponent(mo.v)).then(function(rows){
+      indData[mo.month] = { v:mo.v, rows:Array.isArray(rows) ? rows : [] };
+    }, function(err){
+      indFail[key] = (err && err.message) ? err.message : String(err);
+      console.warn("산업·시황 리포트 적재 실패:", indFail[key]);
+    }).then(function(){
+      delete indPend[key];
+      indMerge();
+      if(RP.view === "industry") rpRender(true);
+    });
+  });
+  return busy;
+}
+function indFiltered(){
+  var floor = indFloor(), f = RX.ind, q = f.q.trim().toLowerCase(), out = [];
+  for(var i=0;i<INDT.length;i++){
+    var r = INDT[i];
+    if(floor && (r.date || "") < floor) continue;
+    if(f.kinds.length && f.kinds.indexOf(r.kind) < 0) continue;
+    if(f.cat && (r.category || "") !== f.cat) continue;
+    if(f.broker && r.broker !== f.broker) continue;
+    if(q){
+      var hay = ((r.title || "") + " " + (r.broker || "") + " " + (r.category || "") + " " + (r.analyst || "")).toLowerCase();
+      if(hay.indexOf(q) < 0) continue;
+    }
+    out.push(r);
+  }
+  return out;
+}
+function indOptions(sel, counts, all, cur){
+  var names = Object.keys(counts).sort(function(a, b){ return counts[b] - counts[a] || a.localeCompare(b, "ko"); });
+  if(cur && counts[cur] === undefined) names.unshift(cur);
+  sel.innerHTML = '<option value="">' + all + "</option>" + names.map(function(n){
+    return '<option value="' + esc(n) + '">' + esc(n) + " (" + fmt(counts[n] || 0) + ")</option>";
+  }).join("");
+  sel.value = cur || "";
+  sel.classList.toggle("on", !!cur);
+}
+function indLinks(r){
+  return '<a class="rtitle" href="' + esc(r.url || r.pdf || "#") + '" target="_blank" rel="noopener">' + esc(r.title || "") + "</a>" +
+         (r.pdf ? ' <a class="rpdf" href="' + esc(r.pdf) + '" target="_blank" rel="noopener" title="PDF 원문">PDF</a>' : "");
+}
+function rpRenderIndustry(){
+  var f = RX.ind;
+  $$("#indPeriod button").forEach(function(b){ b.classList.toggle("act", b.dataset.p === f.period); });
+  $$("[data-ikind]").forEach(function(b){ b.classList.toggle("act", f.kinds.indexOf(b.dataset.ikind) >= 0); });
+  var qEl = $("#indQ");
+  if(document.activeElement !== qEl) qEl.value = f.q;
+  var busy = indEnsure();
+  var floor = indFloor(), cats = {}, brokers = {};
+  INDT.forEach(function(r){
+    if(floor && (r.date || "") < floor) return;
+    if(r.category) cats[r.category] = (cats[r.category] || 0) + 1;
+    if(r.broker) brokers[r.broker] = (brokers[r.broker] || 0) + 1;
+  });
+  indOptions($("#indCat"), cats, "분류 전체", f.cat);
+  indOptions($("#indBroker"), brokers, "증권사 전체", f.broker);
+
+  var fails = Object.keys(indFail).filter(function(k){ return !indData[k.split("@")[0]]; });
+  var note = $("#indNote");
+  var nhtml = busy ? '<span class="spin"></span>산업·시황 리포트를 불러오는 중…' : "";
+  if(fails.length) nhtml += (nhtml ? " · " : "") + '<span class="down">' + esc(fails.map(function(k){ return k.split("@")[0]; }).join(", ")) +
+                            ' 불러오기 실패</span> <button class="btn xs" id="indRetry">다시 시도</button>';
+  note.innerHTML = nhtml;
+  note.classList.toggle("hide", !nhtml);
+
+  var rows = indFiltered(), total = rows.length, lim = Math.min(total, indLimit), html = [];
+  $("#indCount").textContent = fmt(total) + "건";
+  var em = $("#indEmpty"), cards = $("#indCards"), tw = $("#indTable").parentNode;
+  em.style.display = total ? "none" : "block";
+  em.textContent = busy && !INDT.length ? "불러오는 중…" : "조건에 맞는 산업·시황 리포트가 없습니다.";
+  var more = total > lim
+    ? '<button class="btn" id="indMore">더 보기 (+' + fmt(RP_PAGE) + ") · 남은 " + fmt(total - lim) + "건</button>" : "";
+  if(rpIsMobile()){
+    for(var m=0;m<lim;m++){
+      var c = rows[m];
+      html.push('<div class="rcard"><div class="l1"><span class="nm"><span class="ikind ' + esc(c.kind) + '">' +
+        esc(IND_KIND[c.kind] || c.kind || "") + "</span>" + (c.category ? " " + esc(c.category) : "") +
+        '</span><span class="v">' + (typeof c.views === "number" ? "조회 " + fmt(c.views) : "") + "</span></div>" +
+        '<div class="l2">' + indLinks(c) + "</div>" +
+        '<div class="l3">' + esc(c.broker || "") + (c.analyst ? "(" + esc(c.analyst) + ")" : "") + " · " +
+        esc((c.date || "").slice(2)) + "</div></div>");
+    }
+    if(more) html.push('<div class="rcmore">' + more + "</div>");
+    cards.innerHTML = html.join("");
+    cards.classList.toggle("hide", !total);
+    tw.classList.add("hide");
+    return;
+  }
+  cards.classList.add("hide");
+  tw.classList.toggle("hide", !total);
+  for(var i=0;i<lim;i++){
+    var r = rows[i];
+    html.push("<tr>" +
+      '<td class="l dt">' + esc((r.date || "").slice(2)) + "</td>" +
+      '<td class="c"><span class="ikind ' + esc(r.kind) + '">' + esc(IND_KIND[r.kind] || r.kind || "") + "</span></td>" +
+      '<td class="l">' + (r.category ? esc(r.category) : '<span class="flat">-</span>') + "</td>" +
+      '<td class="l wr">' + indLinks(r) + "</td>" +
+      '<td class="l">' + esc(r.broker || "") + "</td>" +
+      '<td class="l" style="color:var(--tx3)">' + esc(r.analyst || "") + "</td>" +
+      '<td class="dt">' + (typeof r.views === "number" ? fmt(r.views) : "") + "</td></tr>");
+  }
+  if(more) html.push('<tr class="morerow"><td class="c" colspan="7">' + more + "</td></tr>");
+  $("#indTbody").innerHTML = html.join("");
+}
+
+/* ---------- 09 의 rpRender 가 부르는 확장 뷰 진입점 ---------- */
+function rpRenderExt(){
+  if(RP.view === "score") rpRenderScore();
+  else if(RP.view === "industry") rpRenderIndustry();
+}
+
+function rxBind(){
+  $("#scMode").onclick = function(e){
+    var b = e.target.closest("button[data-m]"); if(!b) return;
+    RX.sc.mode = b.dataset.m;
+    if(RX.sc.sortKey === "name") RX.sc.sortKey = "n";
+    rxSave(); rpRender(true);
+  };
+  $("#scAge").onclick = function(e){
+    var b = e.target.closest("button[data-a]"); if(!b) return;
+    RX.sc.age = +b.dataset.a; rxSave(); rpRender(true);
+  };
+  $("#scMin").onchange = function(){
+    var v = Math.max(1, Math.min(999, parseInt(this.value, 10) || 1));
+    if(RX.sc.mode === "analyst") RX.sc.minA = v; else RX.sc.minB = v;
+    rxSave(); rpRender(true);
+  };
+  $("#scThead").addEventListener("click", function(e){
+    var th = e.target.closest("th[data-ss]"); if(!th) return;
+    var k = th.dataset.ss;
+    if(RX.sc.sortKey === k) RX.sc.sortDir = RX.sc.sortDir === "asc" ? "desc" : "asc";
+    else{ RX.sc.sortKey = k; RX.sc.sortDir = k === "name" ? "asc" : "desc"; }
+    rxSave(); rpRender(true);
+  });
+  $("#scThead").addEventListener("keydown", function(e){
+    if(e.key !== "Enter" && e.key !== " ") return;
+    var th = e.target.closest("th[data-ss]");
+    if(th){ e.preventDefault(); th.click(); }
+  });
+  /* 증권사(애널리스트) 행 → 리포트 목록을 그 증권사로 거른다 */
+  $("#scTbody").addEventListener("click", function(e){
+    var tr = e.target.closest("tr[data-scb]"); if(!tr) return;
+    RP.brokers = [tr.dataset.scb];
+    RP.q = tr.dataset.sca || "";
+    RP.codes = [];
+    RP.period = "all";
+    RP.view = "reports";
+    RP.sortKey = "date"; RP.sortDir = "desc";
+    rpRenderBrokerList();
+    rpRender();
+    window.scrollTo(0, 0);
+  });
+  $("#rpScorePanel").addEventListener("click", function(e){
+    if(!e.target.closest("#scRetry")) return;
+    rpPerfFailV = ""; rpPerfErr = "";
+    rpRender(true);
+  });
+
+  $("#indPeriod").onclick = function(e){
+    var b = e.target.closest("button[data-p]"); if(!b) return;
+    RX.ind.period = b.dataset.p; indLimit = RP_PAGE; rxSave(); rpRender(true);
+  };
+  $("#indKinds").onclick = function(e){
+    var b = e.target.closest("[data-ikind]"); if(!b) return;
+    rpToggle(RX.ind.kinds, b.dataset.ikind); indLimit = RP_PAGE; rxSave(); rpRender(true);
+  };
+  $("#indCat").onchange = function(){ RX.ind.cat = this.value; indLimit = RP_PAGE; rxSave(); rpRender(true); };
+  $("#indBroker").onchange = function(){ RX.ind.broker = this.value; indLimit = RP_PAGE; rxSave(); rpRender(true); };
+  var qDeb = rpDebounce(function(){ indLimit = RP_PAGE; rxSave(); rpRender(true); }, 200);
+  $("#indQ").oninput = function(){ RX.ind.q = this.value; qDeb(); };
+  $("#indReset").onclick = function(){
+    RX.ind = { kinds:[], cat:"", broker:"", period:"30", q:"" };
+    indLimit = RP_PAGE; rxSave(); rpRender(true);
+  };
+  $("#rpIndPanel").addEventListener("click", function(e){
+    if(e.target.closest("#indMore")){
+      var y = window.pageYOffset;
+      indLimit += RP_PAGE; rpRender(true); window.scrollTo(0, y);
+    }else if(e.target.closest("#indRetry")){
+      indFail = {}; rpRender(true);
+    }
+  });
+}
+
+function repxInit(){
+  rxLoad();
+  rxBind();
+  mrInit();
+}
+/* =========================================================================
    알림 / 탭 / 테마 / 설정 / 초기화
    ========================================================================= */
 const COND_LABEL = { ge:"현재가 이상", le:"현재가 이하", rge:"등락률 이상", rle:"등락률 이하" };
@@ -6716,8 +7657,8 @@ function showTab(id){
     if(scrDirty) applyFilter();
     else if(scrView === "tree") renderScrTree(lastList);
   }, 20);
-  if(id === "rep") setTimeout(function(){ rpRender(true); refreshAll(); }, 20);
-  if(id === "alr") renderAlerts();
+  if(id === "rep"){ myRepMarkSeen(); setTimeout(function(){ rpRender(true); refreshAll(); }, 20); }
+  if(id === "alr"){ renderAlerts(); mrSyncCfgUI(); }
 }
 /* 탭 키보드 이동 (WAI-ARIA tabs 패턴: ←/→ 이동, Home/End 처음·끝, 이동 즉시 전환) */
 function onTabKey(e){
@@ -6896,6 +7837,7 @@ function init(){
   initAccounts();
   rpLazyHook();                                   // 리포트 표는 리포트 탭을 처음 열 때 그린다
   rpInit();                                       // 증권사 리포트 (데이터는 백그라운드 적재)
+  repxInit();                                     // 내 종목 리포트·성적표·산업·시황 (11_repx.js)
   setupSearch("#srchCmp", function(it){ selectCompany(it); });
 
   /* 헤더 지수 클릭 → 지수 차트 */

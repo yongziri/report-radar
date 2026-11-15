@@ -364,8 +364,8 @@ function showTab(id){
     if(scrDirty) applyFilter();
     else if(scrView === "tree") renderScrTree(lastList);
   }, 20);
-  if(id === "rep") setTimeout(function(){ rpRender(true); refreshAll(); }, 20);
-  if(id === "alr") renderAlerts();
+  if(id === "rep"){ myRepMarkSeen(); setTimeout(function(){ rpRender(true); refreshAll(); }, 20); }
+  if(id === "alr"){ renderAlerts(); mrSyncCfgUI(); }
 }
 /* 탭 키보드 이동 (WAI-ARIA tabs 패턴: ←/→ 이동, Home/End 처음·끝, 이동 즉시 전환) */
 function onTabKey(e){
@@ -544,6 +544,7 @@ function init(){
   initAccounts();
   rpLazyHook();                                   // 리포트 표는 리포트 탭을 처음 열 때 그린다
   rpInit();                                       // 증권사 리포트 (데이터는 백그라운드 적재)
+  repxInit();                                     // 내 종목 리포트·성적표·산업·시황 (11_repx.js)
   setupSearch("#srchCmp", function(it){ selectCompany(it); });
 
   /* 헤더 지수 클릭 → 지수 차트 */
