@@ -1081,7 +1081,7 @@ class TestTargetRange(unittest.TestCase):
             {"id": "nh:1", "code": "280360", "date": "2026-11-10", "target": 5000,
              "price_at_write": 126900},
             # 기준가가 없으면 같은 종목 인접일 리포트의 price_at_write
-            {"id": "kb:1", "code": "011070", "date": "2026-11-09", "target": 2000000},
+            {"id": "kb:1", "code": "011070", "date": "2026-11-09", "target": 2400000},
             {"id": "naver:1", "code": "011070", "date": "2026-11-12", "target": 900000,
              "price_at_write": 600000},
             # 그것도 없으면 현재가
