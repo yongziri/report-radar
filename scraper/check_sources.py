@@ -27,8 +27,10 @@ META_PATH = os.path.join(ROOT, "data", "meta.json")
 
 # 소스별 허용 공백(영업일). 한경은 갱신이 하루 늦게 붙는 날이 있어 하루 더 준다.
 # 와이즈는 3시간에 한 번만 받지만 영업일 단위로는 다른 소스와 같은 기준을 둔다.
-LIMITS = {"naver": 2, "hankyung": 3, "kb": 2, "nh": 2, "kis": 2, "wise": 2}
-SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise")
+# 직접 수집 2차(iM·BNK·상상인)는 발간이 드물어(BNK는 주 2~3건) 5영업일까지 둔다.
+LIMITS = {"naver": 2, "hankyung": 3, "kb": 2, "nh": 2, "kis": 2, "wise": 2,
+          "im": 5, "bnk": 5, "sangsangin": 5}
+SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise", "im", "bnk", "sangsangin")
 
 
 def parse_date(s):

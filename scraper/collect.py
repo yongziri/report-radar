@@ -40,6 +40,7 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import brokers  # noqa: E402
+import direct as direct_mod  # noqa: E402
 import industry as industry_mod  # noqa: E402
 import normalize as norm  # noqa: E402
 import perf as perf_mod  # noqa: E402
@@ -83,7 +84,7 @@ def set_data_dir(path):
 
 # meta.json 의 source_status 에 항상 넣어 두는 소스. 한 소스가 통째로 사라져도
 # 항목이 남아 있어야 정지를 알아챌 수 있다.
-KNOWN_SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise")
+KNOWN_SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise") + direct_mod.DIRECT_SOURCES
 
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -455,7 +456,11 @@ def parse_args(argv=None):
     p.add_argument("--to", dest="date_to", default=None, help="종료일 YYYY-MM-DD")
     p.add_argument("--no-hankyung", action="store_true", help="한경 컨센서스 보강 생략")
     p.add_argument("--no-brokers", action="store_true",
-                   help="증권사 직접 수집(KB·NH·한투) 생략")
+                   help="증권사 직접 수집(KB·NH·한투, iM·BNK·상상인) 생략")
+    p.add_argument("--no-direct", action="store_true",
+                   help="증권사 직접 수집 2차(iM·BNK·상상인, PDF 링크용)만 생략")
+    p.add_argument("--direct-backfill", action="store_true",
+                   help="iM·BNK·상상인 목록을 보관 중인 가장 이른 날짜까지 넘겨 백필 (PDF 상한 없음)")
     p.add_argument("--no-price", action="store_true", help="현재가 갱신 생략")
     p.add_argument("--no-sectors", action="store_true", help="업종 분류 생략")
     p.add_argument("--refresh-sectors", action="store_true",
@@ -544,11 +549,26 @@ def main(argv=None):
     if args.migrate_only:
         args.no_hankyung = args.no_brokers = args.no_price = True
         args.no_wise = args.no_industry = args.no_perf = True
+    if args.no_brokers:
+        args.no_direct = True
+
+    # v1 → v2 로 처음 옮기는 실행(data/reports/ 가 아직 없고 v1 reports.json 만 있음)에서는
+    # 과거분 수집을 한 번 자동으로 돈다. 이 실행이 중간에 죽으면 아무것도 저장되지 않으므로
+    # 다음 실행이 같은 조건으로 다시 시도한다.
+    first_v2_run = (not os.path.isdir(os.path.join(DATA_DIR, "reports"))
+                    and os.path.exists(os.path.join(DATA_DIR, "reports.json")))
+    if first_v2_run and not args.migrate_only and not args.dry_run:
+        args.wise_backfill = not args.no_wise
+        args.refetch_kis = not args.no_brokers
+        args.direct_backfill = not args.no_direct
+        args.perf = not args.no_perf
 
     log("리포트 레이더 수집 시작 — 범위 %s ~ %s (KST %s)%s"
         % (date_from, date_to, now.strftime("%Y-%m-%d %H:%M"),
            " [--migrate-only: 수집 없이 이전·정규화만]" if args.migrate_only else ""))
 
+    if first_v2_run and not args.migrate_only and not args.dry_run:
+        log("v2 첫 실행 — 와이즈·직접 수집 과거분, 한투 상세 재수집, 성과 계산을 함께 돈다")
     if DATA_DIR != DEFAULT_DATA_DIR:
         log("data 디렉터리: %s" % DATA_DIR)
 
@@ -560,6 +580,9 @@ def main(argv=None):
     wise_info = {"fetched_at": old_wise.get("fetched_at"),
                  "fetched_last_date": old_wise.get("fetched_last_date")}
     hk_info = {"fetched_last_date": (old_status.get("hankyung") or {}).get("fetched_last_date")}
+    # 직접 수집 2차 건은 네이버·와이즈·한경에 붙으면 사라지므로 목록에서 본 최신일을 따로 남긴다.
+    direct_info = {src: {"fetched_last_date": (old_status.get(src) or {}).get("fetched_last_date")}
+                   for src in direct_mod.DIRECT_SOURCES}
 
     existing, old_prices, migrating = load_reports()
     existing_ids = {r.get("id") for r in existing}
@@ -663,6 +686,40 @@ def main(argv=None):
                 enrich(session, retry)
                 note_detail_result(retry)
 
+    # 증권사 직접 수집 2차(iM·BNK·상상인). 원문 PDF 링크가 목적이다. 평소엔 첫 페이지만,
+    # 새 건만 상세·PDF를 받고 PDF는 한 실행에 direct.PDF_CAP개까지. 같은 리포트가 네이버·와이즈·한경에
+    # 있으면 정규화 패스(absorb_direct)에서 그 레코드에 붙고 사라진다.
+    direct_stats = None
+    if not args.no_direct:
+        t0 = time.time()
+        # 이미 본 id = 보관 레코드 id + 다른 레코드에 붙은 직접 수집 id
+        known = set(merged) | {r.get("direct") for r in records if r.get("direct")}
+        name_map = direct_mod.load_name_map(records)
+        until = None
+        budget = direct_mod.Budget()
+        if args.direct_backfill:
+            dates_all = [r.get("date") for r in records if r.get("date")]
+            until = min(dates_all) if dates_all else date_from
+            budget = direct_mod.Budget(pdf_cap=None, time_budget=None)
+            log("증권사 직접 수집 2차 백필 (%s까지)..." % until)
+        try:
+            d_rows, d_seen, direct_stats = direct_mod.collect_direct(
+                session, known, name_map, records, log=log, until=until, budget=budget)
+            for src, info in d_seen.items():
+                last = info.get("fetched_last_date")
+                if last and (not direct_info[src]["fetched_last_date"]
+                             or last > direct_info[src]["fetched_last_date"]):
+                    direct_info[src]["fetched_last_date"] = last
+            d_new = [r for r in d_rows if r["id"] not in merged]
+            for rec in d_new:
+                merged[rec["id"]] = rec
+                records.append(rec)
+            direct_mod.retry_pdf(session, records, budget, log=log)
+            log("증권사 직접 수집 2차: 새 레코드 %d건, PDF %d개, %.1f초"
+                % (len(d_new), budget.pdf_used, time.time() - t0))
+        except Exception as exc:
+            log("  ! 증권사 직접 수집 2차 실패 (무시하고 진행): %s" % exc)
+
     # 와이즈리포트. 우선순위는 네이버·KB·NH·한투 > 와이즈 > 한경. 같은 리포트가 위쪽 소스에
     # 있으면 정규화 패스(absorb_wise)에서 빈 칸만 채우고 사라진다. 평소엔 3시간에 한 번 1페이지.
     if not args.no_wise and (args.wise_backfill or wise_mod.wise_due(wise_info["fetched_at"], now)):
@@ -744,6 +801,17 @@ def main(argv=None):
     #    (파서가 버리기 전에 저장된 비상장 000000 건도 여기서 정리한다)
     records = [r for r in records
                if not (r.get("source") == "wise" and r.get("code") in WISE_SKIP_CODES)]
+    # 2-1) 직접 수집 2차 건 중 네이버·와이즈·한경에 같은 리포트가 있으면 그 레코드에 PDF 등을 붙이고 지운다
+    records, d_abs = norm.absorb_direct(records)
+    if d_abs["attached"]:
+        log("직접 수집 → 기존 레코드에 붙임 %s, PDF가 새로 생긴 레코드 %d건, "
+            "목표가 비교 %d건 중 일치 %d건"
+            % (d_abs["attached"], d_abs["pdf_gained"], d_abs["compared"], d_abs["agree"]))
+        for keep_id, d_id, old_t, new_t, swapped in d_abs["disagree"][:30]:
+            log("  목표가 불일치 %s=%s / %s=%s → %s"
+                % (keep_id, old_t, d_id, new_t, "직접 수집 값으로 바꿈" if swapped else "기존 값 유지"))
+        if len(d_abs["disagree"]) > 30:
+            log("  … 불일치 %d건 더" % (len(d_abs["disagree"]) - 30))
     records, wise_stats = norm.absorb_wise(records)
     if wise_stats["absorbed"]:
         log("와이즈 흡수 %d건, 빈 칸을 채운 레코드 %d건 %s"
@@ -875,7 +943,8 @@ def main(argv=None):
         "brokers": broker_names,
         # 소스가 조용히 멈춘 것을 scraper/check_sources.py 가 잡을 수 있게 남긴다.
         "source_status": build_source_status(records, existing_ids,
-                                             {"wise": wise_info, "hankyung": hk_info}),
+                                             dict({"wise": wise_info, "hankyung": hk_info},
+                                                  **direct_info)),
     }
 
     rating_dist = {}

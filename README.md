@@ -54,6 +54,8 @@ report-radar/
 │  ├─ collect.py                 # 수집기 (CLI)
 │  ├─ check_sources.py           # 소스 정지 경보 (meta.json 점검)
 │  ├─ brokers.py                 # 증권사 직접 수집 (KB·NH·한투 네트워크 호출)
+│  ├─ direct.py                  # 증권사 직접 수집 2차 (iM·BNK·상상인, 원문 PDF 링크용)
+│  ├─ pdftext.py                 # 리포트 PDF 1쪽 텍스트 추출 (pypdf)
 │  ├─ wise.py                    # 와이즈리포트 수집 (전 증권사 종목 리포트 목록)
 │  ├─ industry.py                # 네이버 산업·시황 리포트 수집
 │  ├─ perf.py                    # 일봉으로 발간 후 성과 계산 (perf.json)
@@ -94,6 +96,9 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 | [KB증권 리서치](https://rc.kbsec.com/) | KB증권 리포트 (`source: "kb"`) | 목록 JSON에 의견·목표가·요약이 다 들어 있다. **JSON 바디로 POST** 해야 한다(form이면 500) |
 | [NH투자증권 리서치](https://www.nhsec.com/research/boardList.action?rsh_ppr_dit_cd=01) | NH투자증권 리포트 (`source: "nh"`) | 목록엔 의견·목표가가 없어 요약문에서 캔다. 응답 인코딩이 **EUC-KR**인데 본문은 JSON이다 |
 | [한국투자증권 리서치](https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=10) | 한국투자증권 리포트 (`source: "kis"`) | **브라우저 UA 필수**. 의견·목표가는 상세 본문에서 캔다. PDF는 로그인이 필요해 `pdf`가 `null`이다 |
+| [iM증권 리서치(모바일)](https://www.imfnsec.com/mobile/invest/invest02.jsp?bid=R_E08&isSmartHi=N) | iM증권 리포트 원문 PDF (`source: "im"`) | 목록은 `POST /_json/source.jsp`(`tr_cd=db/board/TWBBACL/board_list`, `bid=R_E08`). 제목 `[종목/의견] 제목`. 새 건마다 첨부 조회(`tr_cd=db/research/twbbacl_attach`, 행의 `bid`)로 PDF 경로를 받고 파일명 끝 6자리가 종목코드. 목표가는 PDF 1쪽 |
+| [BNK투자증권 기업분석](https://www.bnkfn.co.kr/research/analysingCompany.jspx) | BNK투자증권 리포트 원문 PDF (`source: "bnk"`) | HTML 목록(한 쪽 10건, `?bbsId=analysingCompany&cmd=list&curPage=N`), 제목 `[종목/의견] 제목`. 종목코드가 없어 이름으로 맞춘다(유니버스 → 보관 레코드 → PDF 1쪽 `종목 (코드)`). PDF는 `/uploads/…`, 목표가는 PDF 1쪽 |
+| [상상인증권 기업리포트](https://www.sangsanginib.com/research/enterpriseReport/enterpriseReportView) | 상상인증권 리포트 원문 PDF (`source: "sangsangin"`) | 목록 `POST /notice/getNoticeList`(폼 바디, `cmsCd=CM0079`)에 종목코드가 있다. 새 건마다 상세 `POST /notice/getNoticeDetail` 본문 `[BUY / 340,000]`에서 의견·목표가, 첨부에서 PDF(`/_upload/attFile/…`) |
 | 와이즈리포트 (`comp.wisereport.co.kr/company/ajax/c1080001_data.aspx?cmp_cd=&perPage=500&curPage=N`) | 전 증권사 종목 리포트 목록 (`source: "wise"`): 빠진 리포트 추가, 기존 리포트의 빈 애널리스트·목표가·의견·요약 보강 | 로그인 없음, 응답은 JSON(content-type은 text/html). 작성일 `ANL_DT`(`26/11/13`), 의견·목표가·애널리스트·요약 3줄. 회사 IR 자료(`해당기업`)는 버린다. PDF는 로그인 뷰어라 `pdf`는 `null`, `url`은 종목별 리포트 목록 페이지. **3시간에 한 번 1페이지(500건)**만 받는다(`meta.json` `source_status.wise.fetched_at`). 비공식 내부 AJAX라 언제든 막힐 수 있다 |
 | 네이버 증권 리서치 API (`/api/research/industry`, `/api/research/market`) | 산업·시황 리포트 (`data/industry/`) | 종목분석과 같은 모양. 목록에 PDF가 없어 새 건마다 상세(`/{kind}/{researchId}`)를 한 번 받는다. 애널리스트는 없다. 처음엔 종목 리포트 보관 시작일까지 백필, 이후엔 아는 id가 나오면 멈춘다 |
 | 네이버 일봉 (`api.finance.naver.com/siseJson.naver`) | 발간 후 성과(`data/perf.json`), 발간일 종가 기준 목표가 범위 재판정 | 엄밀한 JSON이 아니라 정규식으로 행을 줍는다. 종목마다 한 번(가장 이른 발간일 14일 전 ~ 오늘), 스레드 4개. **하루 한 번**(16:00 KST 이후 첫 실행, 또는 파일이 없거나 20시간 넘게 지났을 때) |
@@ -117,6 +122,18 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 유사도 0.8 이상이면 같은 리포트로 보고 빈 칸(`analyst`·`target`·`rating_raw`·`summary`)만 채운다
 (`normalize.absorb_wise`). 한글 리포트의 영문판(제목에 한글이 없음)은 같은 날, 또는 ±3일 안에서
 목표가가 같으면 번역본으로 본다.
+
+증권사 직접 수집 2차(iM·BNK·상상인, `scraper/direct.py`)는 와이즈에 없는 **원문 PDF 링크**와
+증권사가 직접 밝힌 의견·목표가를 얻으려는 것이다. 우선순위는 KB·NH·한투와 같지만, 같은 리포트
+(와이즈와 같은 규칙: 종목·증권사, ±3일, 제목 유사)가 이미 있으면 그 레코드에 붙고 사라진다
+(`normalize.absorb_direct`). 네이버 레코드는 그대로 두고 빈 칸만 채우며, 와이즈·한경 레코드에는
+`pdf`·`url`을 붙이고 의견·목표가는 직접 수집 값을 우선한다(목표가가 2배 넘게 다르면 바꾸지 않고
+로그만 남긴다). 붙은 레코드에는 `direct: "im:15078"` 같은 표시가 남아 다음 실행에서 다시 받지 않는다.
+비용 규칙: 평소엔 목록 첫 페이지만, 새 건만 상세를 받고, 목표가·의견·종목코드가 비었을 때만
+PDF 1쪽을 읽는다(한 실행에 세 곳 합쳐 15개, 상세·PDF 30초까지. 남은 새 건은 다음 실행으로 미룬다.
+네이버에 같은 리포트가 의견·목표가와 함께 있으면 PDF를 받지 않는다). 요청 간격 1초.
+2026-11 실측에서 삼성증권(기업리포트가 로그인 화면으로 넘어감)과 현대차증권(Report&Note 메뉴가
+로그인 화면을 띄움)은 로그인 없이 볼 수 없어 넣지 않았다.
 어느 소스가 실패해도 전체 수집은 계속된다(경고만 남긴다).
 
 ## 실행
@@ -158,6 +175,11 @@ python scraper/collect.py --refetch-kis
 # 와이즈리포트를 보관 시작일까지 백필 (처음 1회, 페이지 사이 1.5초) / 와이즈 끄기
 python scraper/collect.py --wise-backfill
 python scraper/collect.py --no-wise
+
+# 증권사 직접 수집 2차(iM·BNK·상상인)를 보관 시작일까지 백필 (PDF 상한 없음, 처음 1회) / 끄기
+# (--no-brokers 는 KB·NH·한투와 함께 이것도 끈다)
+python scraper/collect.py --direct-backfill
+python scraper/collect.py --no-direct
 
 # 산업·시황 리포트 끄기 (처음 실행 때는 보관 시작일까지 자동 백필)
 python scraper/collect.py --no-industry
@@ -378,7 +400,8 @@ v1 `data/reports.json`(전체 배열 한 파일)이 남아 있고 `data/reports/
 수집기는 `data/meta.json` 의 `source_status` 에 소스별 최신 리포트 날짜(`last_date`),
 이번 실행 신규 건수(`new_run`), 보관 건수(`total`)를 남긴다.
 워크플로는 데이터를 커밋·push한 **뒤에** `python scraper/check_sources.py` 를 돌려,
-KST 오늘 기준으로 어떤 소스의 최신 리포트가 2영업일(한경은 3영업일) 이상 밀렸으면
+KST 오늘 기준으로 어떤 소스의 최신 리포트가 2영업일(한경은 3영업일, 직접 수집 2차 `im`·`bnk`·`sangsangin`은
+발간이 드물어 5영업일) 이상 밀렸으면
 `::error::` 를 찍고 잡을 실패시킨다 — 그러면 GitHub가 메일로 알려 준다.
 커밋 뒤에 두었으므로 경보가 떠도 그날 모은 데이터는 그대로 남고,
 `deploy` 잡도 `if: always()` 라 사이트는 평소대로 갱신된다.

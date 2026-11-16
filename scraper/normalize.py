@@ -10,6 +10,7 @@
 - evaluate_target_range: 목표가가 기준가의 0.3~3.5배 밖이면 suspect (건당 한 번만 판정)
 - reparse_nh_targets: NH 요약에서 목표가를 다시 읽기 (v1 → v2 이전 때 한 번)
 - absorb_wise: 상위 소스에 이미 있는 와이즈 건을 지우고 빈 칸(애널리스트 등)만 채움
+- absorb_direct: 직접 수집 2차(iM·BNK·상상인) 건을 같은 리포트의 네이버·와이즈·한경 레코드에 붙임
 - reevaluate_target_range_with_closes: 발간일 종가로 목표가 범위 재판정 (성과 단계)
 """
 
@@ -25,7 +26,14 @@ from parsers import (
 )
 
 # 소스 우선순위. 숫자가 작을수록 위다. 중복을 합칠 때 위쪽 레코드를 남긴다.
-SOURCE_PRIORITY = {"naver": 0, "kb": 1, "nh": 1, "kis": 1, "wise": 2, "hankyung": 3}
+SOURCE_PRIORITY = {"naver": 0, "kb": 1, "nh": 1, "kis": 1, "im": 1, "bnk": 1, "sangsangin": 1,
+                   "wise": 2, "hankyung": 3}
+# 증권사 사이트 직접 수집 2차(direct.py). 같은 리포트가 네이버·와이즈·한경에 있으면 그쪽에 붙는다.
+DIRECT_SOURCES = ("im", "bnk", "sangsangin")
+DIRECT_ATTACH_SOURCES = ("naver", "wise", "hankyung")
+# 와이즈·한경 목표가를 직접 수집 값으로 바꾸는 상한. 두 값이 이 배수 넘게 다르면 PDF를 잘못 읽었을
+# 가능성이 커서 바꾸지 않고 로그만 남긴다.
+DIRECT_OVERRIDE_FACTOR = 2.0
 # 와이즈 레코드가 같은 리포트를 찾았을 때 남는 쪽의 빈 칸을 채우는 필드.
 WISE_FILL_FIELDS = ("analyst", "target", "rating_raw", "summary")
 # 와이즈 작성일이 다른 소스와 하루이틀 어긋나는 일이 있다(실측 500건 중 11건).
@@ -381,6 +389,90 @@ def absorb_wise(records):
         if any_fill:
             stats["filled_records"] += 1
     return out, stats
+
+
+def direct_match_index(records):
+    """{(code, 정규화 broker): [naver·wise·한경 레코드]} — match_direct의 후보 색인."""
+    idx = {}
+    for rec in records:
+        if rec.get("source") in DIRECT_ATTACH_SOURCES:
+            key = (rec.get("code"), normalize_broker(rec.get("broker")))
+            idx.setdefault(key, []).append(rec)
+    return idx
+
+
+def match_direct(rec, index):
+    """직접 수집 레코드와 같은 리포트인 네이버·와이즈·한경 레코드. 없으면 None.
+
+    와이즈 매칭 규칙(_wise_match: 같은 종목+증권사, 작성일 ±3일, 제목 유사)을 그대로 쓴다.
+    이미 다른 직접 수집 건이 붙은 레코드는 후보에서 뺀다.
+    """
+    cands = [c for c in index.get((rec.get("code"), normalize_broker(rec.get("broker"))), ())
+             if not c.get("direct") or c.get("direct") == rec.get("id")]
+    return _wise_match(rec, cands) if cands else None
+
+
+def _targets_close(a, b, factor=DIRECT_OVERRIDE_FACTOR):
+    lo, hi = sorted((float(a), float(b)))
+    return lo > 0 and hi / lo <= factor
+
+
+def absorb_direct(records):
+    """직접 수집(im·bnk·sangsangin) 레코드를 같은 리포트의 네이버·와이즈·한경 레코드에 붙이고 지운다.
+
+    - 네이버: 내리지 않는다. 비어 있는 pdf·analyst·target·rating_raw만 채운다.
+    - 와이즈·한경: 직접 수집의 pdf·url을 붙이고, 의견·목표가는 직접 수집 값을 우선한다
+      (목표가가 DIRECT_OVERRIDE_FACTOR배 넘게 다르면 바꾸지 않는다). 빈 analyst·summary도 채운다.
+    붙은 레코드에는 direct=<직접 수집 id>를 남긴다. 수집기는 이 값을 이미 본 id로 쳐서 다시 받지 않는다.
+    목표가가 양쪽에 있는데 다르면 disagree에 남긴다(로그용). 같은 입력에 몇 번 돌려도 결과가 같다.
+
+    돌려주는 값: (남은 레코드, {"attached": {소스: n}, "pdf_gained": n, "compared": n,
+    "agree": n, "disagree": [(남는 id, 직접 id, 기존 목표가, 직접 목표가, 바꿨는지)]})
+    """
+    stats = {"attached": {}, "pdf_gained": 0, "compared": 0, "agree": 0, "disagree": []}
+    index = direct_match_index(records)
+    drop = set()
+    for rec in sorted((r for r in records if r.get("source") in DIRECT_SOURCES),
+                      key=lambda r: str(r.get("id") or "")):
+        keep = match_direct(rec, index)
+        if keep is None:
+            continue
+        drop.add(id(rec))
+        src = keep.get("source")
+        stats["attached"][src] = stats["attached"].get(src, 0) + 1
+        had_pdf = bool(keep.get("pdf"))
+        old_t, new_t = keep.get("target"), rec.get("target")
+        if old_t and new_t:
+            stats["compared"] += 1
+            if old_t == new_t:
+                stats["agree"] += 1
+        if src == "naver":
+            for field in ("pdf", "analyst", "target", "rating_raw"):
+                if not keep.get(field) and rec.get(field):
+                    keep[field] = rec[field]
+            if old_t and new_t and old_t != new_t:
+                stats["disagree"].append((keep.get("id"), rec.get("id"), old_t, new_t, False))
+        else:
+            if rec.get("pdf"):
+                keep["pdf"] = rec["pdf"]
+                keep["url"] = rec["pdf"]
+            elif rec.get("url"):
+                keep["url"] = rec["url"]
+            if new_t and old_t != new_t:
+                swap = not old_t or _targets_close(old_t, new_t)
+                if old_t:
+                    stats["disagree"].append((keep.get("id"), rec.get("id"), old_t, new_t, swap))
+                if swap:
+                    keep["target"] = new_t
+            if rec.get("rating_raw"):
+                keep["rating_raw"] = rec["rating_raw"]
+            for field in ("analyst", "summary"):
+                if not keep.get(field) and rec.get(field):
+                    keep[field] = rec[field]
+        keep["direct"] = rec.get("id")
+        if not had_pdf and keep.get("pdf"):
+            stats["pdf_gained"] += 1
+    return [r for r in records if id(r) not in drop], stats
 
 
 def trusted_paw(rec, close):

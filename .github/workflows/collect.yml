@@ -12,6 +12,11 @@ on:
     - cron: '*/15 0 * * 1-5'     # KST 평일 09:00~09:59 (15분 간격)
     - cron: '0 1-10 * * 1-5'     # KST 평일 10:00~19:00 (매시 정각)
   workflow_dispatch:
+    inputs:
+      args:
+        description: '수집기 추가 옵션 (예: --wise-backfill --direct-backfill --perf)'
+        required: false
+        default: ''
   push:
     branches: [main]
 
@@ -45,7 +50,9 @@ jobs:
         run: python scraper/test_parsers.py
 
       - name: 리포트 수집
-        run: python scraper/collect.py
+        env:
+          EXTRA_ARGS: ${{ github.event.inputs.args }}
+        run: python scraper/collect.py $EXTRA_ARGS
 
       - name: 변경분 커밋
         run: |

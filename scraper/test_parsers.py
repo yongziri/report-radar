@@ -1705,6 +1705,303 @@ class TestMetaExtraAndWiseStale(unittest.TestCase):
         self.assertEqual(bad[0]["limit"], 2)
 
 
+# ------------------------------------- 증권사 직접 수집 2차 (iM·BNK·상상인)
+
+import parsers as P  # noqa: E402
+
+# iM증권 _json/source.jsp board_list 실측(2026-11-16) 두 행 + 제목 꼴이 다른 행(종목 아님) 하나.
+IM_LIST_PAYLOAD = [
+    [
+        {"view_chk": "", "sdate": "20050630", "view_cnt": "8618", "mod_dt": "", "rmd_cnt": "0",
+         "title": "[HMM/Hold] 실적은 기대 이상, 관건은 내년 운임", "body": "", "userid": "210133",
+         "edate": "", "depth": "0", "reg_dt": "2026/11/13", "attach_flg": "", "bflag": "261896",
+         "page": "1", "bid": "R_E081", "aid": "15078", "email": "", "username": "배세호"},
+        {"view_chk": "", "sdate": "20050630", "view_cnt": "13166", "mod_dt": "", "rmd_cnt": "0",
+         "title": "[메리츠금융지주/Buy] 3Q26 Review: 소외되었던 26년보다 27년이 기대되는 회사",
+         "body": "", "userid": "260062", "edate": "", "depth": "0", "reg_dt": "2026/11/12",
+         "attach_flg": "", "bflag": "261870", "page": "1", "bid": "R_E081", "aid": "15072",
+         "email": "", "username": "설용진"},
+        {"title": "11월 Top Picks", "reg_dt": "2026/11/10", "aid": "15000", "bid": "R_E081",
+         "username": "리서치센터"},
+    ],
+    [{"total_count": "14971"}],
+    [],
+]
+IM_ATTACH_PAYLOAD = [[{"reg_dt": "2026-11-13", "file_name": "[13080033]_011200.pdf",
+                       "file_type": "F", "file_dir": "R_E08/2026/11", "bflag": "261896",
+                       "attach_1": "", "title": "[HMM/Hold] 실적은 기대 이상, 관건은 내년 운임",
+                       "bid": "R_E081", "username": "배세호"}]]
+
+# BNK투자증권 기업분석 목록 실측 두 행(공백 정리).
+BNK_LIST_HTML = """
+<table><tbody>
+<tr>
+  <td>85467</td>
+  <td class="TL">
+    <a href="#" onclick="viewAction(this, '85467', '/uploads/85467/1', '171077_307.pdf');" target="_blank" title="171077_307.pdf 첨부파일 다운로드">[삼표시멘트/보유] ESG 경영 성과 가시화</a>
+    <span class="badge square fill-opa-red ml8">New</span>
+  </td>
+  <td>이선일</td>
+  <td><a href="#none" onclick="fn_download2('85467', '1', '171077_307.pdf');"><img src="/img/ic_attach.svg" alt="첨부파일 다운로드" /></a><br /></td>
+  <!--<td>2026-11-13</td>-->
+  <td>2026.11.13</td>
+  <td id="inq_cnt_85467">22</td>
+</tr>
+<tr>
+  <td>85446</td>
+  <td class="TL">
+    <a href="#" onclick="viewAction(this, '85446', '/uploads/85446/1', '251699_70.pdf');" target="_blank" title="251699_70.pdf 첨부파일 다운로드">[카카오/매수] 본업 이익 성장과 AI 투자회수의 교차점</a>
+  </td>
+  <td>이종원</td>
+  <td></td>
+  <td>2026.11.12</td>
+  <td id="inq_cnt_85446">43</td>
+</tr>
+</tbody></table>
+<ol><li><a href="#none" onclick="fn_search('2')">2</a></li>
+<li><a href="#none" class="arrow last" onclick="fn_search('482');">last</a></li></ol>
+"""
+
+# 상상인증권 /notice/getNoticeList 실측 두 행 + 종목코드 없는 행.
+SSI_LIST_PAYLOAD = [{"getStarCnt": 0, "getCount": 4699, "getNoticeList": [
+    {"HIT": 2, "STAR_YN": "N", "STOCK_CD": "001450", "REGDT": "2026.11.15", "STOCK_NM": "현대해상",
+     "NT_NO": 4699, "TITLE": "현대해상(001450):보험손익의 회복, 주주환원까지의 시차",
+     "FILE_YN": "Y", "NM": "리서치센터"},
+    {"HIT": 15, "STAR_YN": "N", "STOCK_CD": "014680", "REGDT": "2026.11.13", "STOCK_NM": "한솔케미칼",
+     "NT_NO": 4698, "TITLE": "한솔케미칼(014680):3Q26 Review 방향성은 유효", "FILE_YN": "Y",
+     "NM": "리서치센터"},
+    {"HIT": 1, "STOCK_CD": "", "REGDT": "2026.11.10", "STOCK_NM": "", "NT_NO": 4690,
+     "TITLE": "공지", "FILE_YN": "N", "NM": "리서치센터"},
+]}]
+# /notice/getNoticeDetail 실측 (ntNo 4698).
+SSI_DETAIL_PAYLOAD = {
+    "notice": {"PRE_TITLE_NO": 4697, "STOCK_CD": "014680", "STOCK_NM": "한솔케미칼",
+               "REGDT": "2026.11.13", "NT_NO": 4698, "CMS_CD": "CM0079", "HIT": 15,
+               "TITLE": "한솔케미칼(014680):3Q26 Review 방향성은 유효", "NM": "리서치센터",
+               "CONTS": "한솔케미칼 [BUY / 340,000]<br>3Q26 Review: 방향성은 유효<br>"
+                        "[상상인증권 IT/전기전자 엄우용]<br><br>▶3Q26 Review: 컨센서스 소폭 하회"
+                        "<br><br>▶투자의견 BUY 유지, 목표주가 340,000원으로 하향<br><br>"
+                        "* 해당 내용은 컴플라이언스 승인을 필하였습니다"},
+    "file": [{"ORD": 1, "FNM": "상상인_기업분석_한솔케미칼_20261113.pdf", "FNO": 1, "NT_NO": 4698,
+              "FSZ": 3662027, "CMS_CD": "CM0079"},
+             {"ORD": 2, "FNM": "상상인_기업분석_한솔케미칼_20261113.png", "FNO": 2, "NT_NO": 4698,
+              "FSZ": 266058, "CMS_CD": "CM0079"}],
+}
+
+# PDF 1쪽 텍스트(pypdf 추출 결과를 줄인 합성 표본). 실제 PDF는 저장소에 넣지 않는다.
+PDF_TEXT_IM = """2026.11.13
+HMM  (011200)
+실적은 기대 이상, 관건은 내년 운임 Company Brief
+투자의견 Hold, 목표주가 23,000원 유지
+HMM에 대해 투자의견 Hold와 목표주가 23,000원을 유지한다. 목표주가는 12개월
+선행 EBITDA에 ... 적용했다.
+Hold (Maintain)
+목표주가(12M) 23,000원(유지)
+종가(2026.11.12) 20,700원
+EPS(원) 1,991 3,515 1,897 2,056
+"""
+PDF_TEXT_BNK = """2026/11/12
+카카오 (035720)
+기업분석 리포트
+투자의견
+[유지]
+매수
+목표주가(6M)
+[하향]
+44,000원
+37.5%
+현재주가
+2026/11/11
+32,000원
+"""
+PDF_TEXT_MAN = "투 자 의 견 BUY 목 표 주 가 16만5,000원 (상향)  EPS 3,898원"
+PDF_TEXT_EN = "Samsung SDI (006400) Rating BUY  Target Price (12M) KRW 420,000  Current 300,000"
+
+
+class TestDirectParsers(unittest.TestCase):
+    def test_split_bracket_title(self):
+        self.assertEqual(P.split_bracket_title("[HMM/Hold] 실적은 기대 이상"),
+                         ("HMM", "Hold", "실적은 기대 이상"))
+        self.assertEqual(P.split_bracket_title("11월 Top Picks"), (None, None, "11월 Top Picks"))
+
+    def test_im_list(self):
+        rows = P.parse_im_list(IM_LIST_PAYLOAD)
+        self.assertEqual([r["id"] for r in rows], ["im:15078", "im:15072"])  # 종목 아닌 행 제외
+        r = rows[0]
+        self.assertEqual((r["name"], r["rating_raw"], r["title"], r["date"], r["analyst"]),
+                         ("HMM", "Hold", "실적은 기대 이상, 관건은 내년 운임", "2026-11-13", "배세호"))
+        self.assertIsNone(r["code"])
+        self.assertEqual(r["im_bid"], "R_E081")
+        self.assertEqual(rows[1]["title"], "3Q26 Review: 소외되었던 26년보다 27년이 기대되는 회사")
+        self.assertEqual(P.im_list_total(IM_LIST_PAYLOAD), 14971)
+        self.assertEqual(P.parse_im_list(None), [])
+
+    def test_im_attach(self):
+        pdf, code = P.parse_im_attach(IM_ATTACH_PAYLOAD)
+        self.assertEqual(pdf, "https://www.imfnsec.com/upload/R_E08/2026/11/%5B13080033%5D_011200.pdf")
+        self.assertEqual(code, "011200")
+        self.assertEqual(P.parse_im_attach([[]]), (None, None))
+
+    def test_bnk_list(self):
+        rows = P.parse_bnk_list(BNK_LIST_HTML)
+        self.assertEqual([r["id"] for r in rows], ["bnk:85467", "bnk:85446"])
+        r = rows[1]
+        self.assertEqual((r["name"], r["rating_raw"], r["title"], r["date"], r["analyst"]),
+                         ("카카오", "매수", "본업 이익 성장과 AI 투자회수의 교차점", "2026-11-12", "이종원"))
+        self.assertEqual(r["pdf"], "https://www.bnkfn.co.kr/uploads/85446/1/251699_70.pdf")
+        self.assertIsNone(r["code"])
+        self.assertEqual(P.bnk_last_page(BNK_LIST_HTML), 482)
+        self.assertEqual(P.bnk_list_dates(BNK_LIST_HTML), ["2026-11-13", "2026-11-12"])
+
+    def test_sangsangin_list(self):
+        rows = P.parse_sangsangin_list(SSI_LIST_PAYLOAD)
+        self.assertEqual([r["id"] for r in rows], ["sangsangin:4699", "sangsangin:4698"])
+        self.assertEqual((rows[1]["code"], rows[1]["name"], rows[1]["title"], rows[1]["date"]),
+                         ("014680", "한솔케미칼", "3Q26 Review 방향성은 유효", "2026-11-13"))
+        self.assertIsNone(rows[1]["analyst"])  # NM은 부서명
+        self.assertEqual(P.sangsangin_total(SSI_LIST_PAYLOAD), 4699)
+
+    def test_sangsangin_detail(self):
+        d = P.parse_sangsangin_detail(SSI_DETAIL_PAYLOAD)
+        self.assertEqual((d["rating_raw"], d["target"], d["analyst"]), ("BUY", 340000, "엄우용"))
+        self.assertEqual(d["pdf"], "https://www.sangsanginib.com/_upload/attFile/CM0079/CM0079_4698_1.pdf")
+        self.assertTrue(d["summary"].startswith("한솔케미칼 [BUY / 340,000]"))
+        self.assertEqual(P.parse_sangsangin_detail(None)["target"], None)
+
+
+class TestNameMap(unittest.TestCase):
+    def test_universe_then_records(self):
+        uni = [["005930", "삼성전자", "KOSPI"], ["035720", "카카오", "KOSPI"],
+               ["0126Z0", "삼성에피스홀딩스", "KOSPI"], ["bad", "엉터리"]]
+        recs = [{"name": "카카오", "code": "999999"},          # 유니버스가 우선
+                {"name": "S-Oil", "code": "010950"},
+                {"name": "LIG디펜스앤에어로스페이스", "code": "079550"}]
+        m = P.build_name_map(uni, recs)
+        self.assertEqual(P.lookup_code("카카오", m), "035720")
+        self.assertEqual(P.lookup_code("삼성 전자", m), "005930")   # 공백 무시
+        self.assertEqual(P.lookup_code("S-OIL", m), "010950")       # 대소문자·문장부호 무시
+        self.assertEqual(P.lookup_code("삼성에피스홀딩스", m), "0126Z0")
+        self.assertEqual(P.lookup_code("LIG디펜스앤에어로스페이스", m), "079550")
+        self.assertIsNone(P.lookup_code("엉터리", m))
+        self.assertIsNone(P.lookup_code("", m))
+
+
+class TestPdfExtract(unittest.TestCase):
+    def test_im_first_page(self):
+        self.assertEqual(P.extract_pdf_opinion(PDF_TEXT_IM), ("Hold", 23000))
+        self.assertEqual(P.extract_code_from_text(PDF_TEXT_IM, "HMM"), "011200")
+
+    def test_bnk_tag_between(self):
+        # '투자의견 [유지] 매수', '목표주가(6M) [하향] 44,000원'
+        self.assertEqual(P.extract_pdf_opinion(PDF_TEXT_BNK), ("매수", 44000))
+        self.assertEqual(P.extract_code_from_text(PDF_TEXT_BNK, "카카오"), "035720")
+        self.assertIsNone(P.extract_code_from_text(PDF_TEXT_BNK, "삼성전자"))
+
+    def test_spaced_and_man_notation(self):
+        self.assertEqual(P.extract_pdf_opinion(PDF_TEXT_MAN), ("BUY", 165000))
+
+    def test_close_price_after_sentence_not_target(self):
+        # 상상인 JYP Ent. PDF 1쪽 실측: 목표가 숫자는 이미지라 텍스트에 없고 종가만 있다
+        text = ("안정적인 실적이 예상되어 투자의견과 목표주가를 유지한다. \n"
+                "종가(26.11.11) 38,700원 \n상승여력 34.4%")
+        self.assertEqual(extract_opinion_from_text(text)[1], None)
+        self.assertEqual(P.extract_pdf_opinion(text)[1], None)
+
+    def test_english_target(self):
+        self.assertEqual(P.extract_pdf_opinion(PDF_TEXT_EN)[1], 420000)
+
+    def test_nothing(self):
+        self.assertEqual(P.extract_pdf_opinion(""), (None, None))
+        self.assertEqual(P.extract_pdf_opinion("표 1. 매출 추이 2,000원"), (None, None))
+
+    def test_pdftext_fails_soft(self):
+        import pdftext
+        self.assertIsNone(pdftext.first_page_text(b""))
+        self.assertIsNone(pdftext.first_page_text(b"%PDF-1.4 broken"))
+
+
+def _direct_rec(**kw):
+    rec = {"id": "im:1", "source": "im", "code": "011200", "name": "HMM", "broker": "iM증권",
+           "date": "2026-11-13", "title": "실적은 기대 이상, 관건은 내년 운임",
+           "analyst": "배세호", "rating_raw": "Hold", "target": 23000,
+           "pdf": "https://www.imfnsec.com/upload/x.pdf", "url": "https://www.imfnsec.com/upload/x.pdf",
+           "summary": None}
+    rec.update(kw)
+    return rec
+
+
+class TestAbsorbDirect(unittest.TestCase):
+    def wise(self, **kw):
+        rec = {"id": "wise:9", "source": "wise", "code": "011200", "name": "HMM", "broker": "iM증권",
+               "date": "2026-11-14", "title": "실적은 기대 이상, 관건은 내년 운임", "analyst": None,
+               "rating_raw": "Hold", "target": 22000, "pdf": None,
+               "url": "https://comp.wisereport.co.kr/company/c1080001.aspx?cmp_cd=011200",
+               "summary": "와이즈 요약"}
+        rec.update(kw)
+        return rec
+
+    def test_attach_to_wise_prefers_direct(self):
+        w = self.wise()
+        out, st = norm.absorb_direct([w, _direct_rec()])
+        self.assertEqual(out, [w])
+        self.assertEqual(w["pdf"], "https://www.imfnsec.com/upload/x.pdf")
+        self.assertEqual(w["url"], w["pdf"])
+        self.assertEqual(w["target"], 23000)          # 직접 수집 값 우선
+        self.assertEqual(w["analyst"], "배세호")       # 빈 칸 채움
+        self.assertEqual(w["summary"], "와이즈 요약")
+        self.assertEqual(w["direct"], "im:1")
+        self.assertEqual(st["attached"], {"wise": 1})
+        self.assertEqual(st["pdf_gained"], 1)
+        self.assertEqual((st["compared"], st["agree"]), (1, 0))
+        self.assertEqual(st["disagree"], [("wise:9", "im:1", 22000, 23000, True)])
+        # 멱등: 다시 돌려도 그대로
+        again, st2 = norm.absorb_direct(out)
+        self.assertEqual(again, [w])
+        self.assertEqual(st2["attached"], {})
+
+    def test_far_target_not_overridden(self):
+        w = self.wise(target=22000)
+        norm.absorb_direct([w, _direct_rec(target=3515)])  # EPS를 잘못 읽은 경우
+        self.assertEqual(w["target"], 22000)
+        self.assertEqual(w["pdf"], "https://www.imfnsec.com/upload/x.pdf")
+
+    def test_naver_not_downgraded(self):
+        n = {"id": "naver:5", "source": "naver", "code": "011200", "broker": "iM증권",
+             "date": "2026-11-13", "title": "실적은 기대 이상, 관건은 내년 운임", "analyst": "배세호",
+             "rating_raw": "Buy", "target": 25000, "pdf": "https://stock.pstatic.net/a.pdf",
+             "url": "https://m.stock.naver.com/research/company/5"}
+        out, st = norm.absorb_direct([n, _direct_rec()])
+        self.assertEqual(out, [n])
+        self.assertEqual((n["target"], n["rating_raw"], n["pdf"]),
+                         (25000, "Buy", "https://stock.pstatic.net/a.pdf"))
+        self.assertEqual(n["direct"], "im:1")
+        self.assertEqual(st["pdf_gained"], 0)
+        self.assertEqual(st["disagree"][0][4], False)
+
+    def test_no_match_stays(self):
+        d = _direct_rec()
+        other = self.wise(date="2026-11-01")              # 3일 넘게 떨어짐
+        diff_title = self.wise(id="wise:10", title="전혀 다른 제목의 리포트입니다")
+        out, st = norm.absorb_direct([d, other, diff_title])
+        self.assertEqual(len(out), 3)
+        self.assertNotIn("direct", other)
+
+    def test_hankyung_attached(self):
+        h = self.wise(id="hankyung:1", source="hankyung", target=None, rating_raw=None)
+        out, _ = norm.absorb_direct([h, _direct_rec()])
+        self.assertEqual(out, [h])
+        self.assertEqual((h["target"], h["rating_raw"]), (23000, "Hold"))
+
+    def test_priority_and_stale_limit(self):
+        self.assertEqual(norm.SOURCE_PRIORITY["im"], norm.SOURCE_PRIORITY["kb"])
+        self.assertLess(norm.SOURCE_PRIORITY["bnk"], norm.SOURCE_PRIORITY["wise"])
+        monday = datetime.date(2026, 11, 16)
+        status = {"bnk": {"last_date": "2026-11-11"}, "im": {"last_date": "2026-11-06"}}
+        bad = stale_sources(status, monday)
+        self.assertEqual([b["source"] for b in bad], ["im"])
+        self.assertEqual(bad[0]["limit"], 5)
+
+
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
     print("\n%s — 실행 %d, 실패 %d, 오류 %d"

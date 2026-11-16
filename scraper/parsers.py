@@ -6,6 +6,7 @@
 
 import re
 from html import unescape as _unescape
+from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
@@ -379,6 +380,10 @@ _TARGET_WINDOW = 40
 # 주당 지표를 건너뛴 경우에는 그 숫자 뒤로 이만큼 더 본다
 # ('… EPS 3,898원에 멀티플 13.3배를 적용하여 52,000원을 제시').
 _TARGET_EXTEND = 90
+# PDF 1쪽에서 '…투자의견과 목표주가를 유지한다. 종가(26.11.11) 38,700원'의 종가를 목표가로 읽었다
+# (상상인 JYP·YG). 문장이 끝났거나 종가·현재가 칸이면 그 숫자는 목표가가 아니다.
+_SENTENCE_END = re.compile(r"다\s*[.。]")
+_PRICE_LABEL = re.compile(r"종가|현재가|현재\s*주가")
 
 
 def _target_value(num):
@@ -419,6 +424,10 @@ def extract_opinion_from_text(text):
             pos = num.end()
             before = s[seg_start:num.start()]
             seg_start = num.end()
+            if _SENTENCE_END.search(before):
+                break  # '목표주가를 유지한다. 종가 38,700원' — 문장이 끝난 뒤 숫자는 목표가가 아니다
+            if _PRICE_LABEL.search(before):
+                continue  # 종가·현재가 칸
             if _PREV_TARGET.search(s[:num.start()]):
                 continue  # 기존 목표가는 건너뛰고 다음 금액을 본다
             if _PER_SHARE.search(before):
@@ -746,6 +755,347 @@ def wise_page_info(payload):
     if not isinstance(payload, dict):
         return None, None, None
     return to_int(payload.get("cp")), to_int(payload.get("tp")), to_int(payload.get("tc"))
+
+
+# ------------------------------- 증권사 직접 수집 2차 (iM·BNK·상상인) 파서
+
+# 2026-11-16 실측. 셋 다 로그인 없이 목록이 열리고 PDF가 공개 경로에 있다.
+# - iM증권: 모바일 리서치 게시판 JSON(_json/source.jsp). 제목 '[종목/의견] 제목', 첨부 조회로 PDF 경로를 받는다
+#   (파일명 끝에 종목코드: '[13080033]_011200.pdf').
+# - BNK투자증권: 기업분석 게시판 HTML. 제목 '[종목/의견] 제목', 종목코드 없음(이름 매핑), PDF는 /uploads/.
+# - 상상인증권: 기업리포트 JSON(종목코드 있음). 상세 본문 '[BUY / 340,000]'에 의견·목표가.
+IM_SITE = "https://www.imfnsec.com"
+IM_LIST_URL = IM_SITE + "/mobile/invest/invest02.jsp?bid=R_E08&isSmartHi=N"
+IM_UPLOAD = IM_SITE + "/upload/"
+BNK_SITE = "https://www.bnkfn.co.kr"
+BNK_LIST_URL = BNK_SITE + "/research/analysingCompany.jspx"
+SSI_SITE = "https://www.sangsanginib.com"
+SSI_LIST_URL = SSI_SITE + "/research/enterpriseReport/enterpriseReportView"
+SSI_PDF_URL = SSI_SITE + "/_upload/attFile/%s/%s_%s_%s.%s"
+
+_BRACKET_TITLE = re.compile(r"^\s*\[\s*([^\]/]+?)\s*/\s*([^\]]+?)\s*\]\s*(.*)$")
+_NAME_JUNK = re.compile(r"\(주\)|㈜|[\s.·,'\"&()\-_/]+")
+
+
+def split_bracket_title(raw):
+    """'[HMM/Hold] 실적은 기대 이상' -> ('HMM', 'Hold', '실적은 기대 이상').
+
+    이 꼴이 아니면(전략·산업 글 등) (None, None, 원문 제목).
+    """
+    s = _WS.sub(" ", str(raw or "")).strip()
+    m = _BRACKET_TITLE.match(s)
+    if m is None:
+        return None, None, s
+    return m.group(1).strip() or None, m.group(2).strip() or None, m.group(3).strip() or s
+
+
+def name_key(name):
+    """종목명 비교용 키. 공백·문장부호·(주)를 떼고 소문자로."""
+    return _NAME_JUNK.sub("", str(name or "")).lower()
+
+
+def build_name_map(universe_rows=None, records=None):
+    """{name_key: 종목코드}. 유니버스(app/universe.json 행 [코드, 이름, ...])가 먼저,
+    보관 중인 레코드의 (이름, 코드)가 빈 자리를 채운다."""
+    out = {}
+    for row in universe_rows or ():
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        code = str(row[0] or "").strip().upper()
+        key = name_key(row[1])
+        if key and is_stock_code(code):
+            out.setdefault(key, code)
+    for rec in records or ():
+        code = str(rec.get("code") or "").strip().upper()
+        key = name_key(rec.get("name"))
+        if key and is_stock_code(code):
+            out.setdefault(key, code)
+    return out
+
+
+def lookup_code(name, name_map):
+    """이름 -> 종목코드. 없으면 None."""
+    key = name_key(name)
+    return (name_map or {}).get(key) if key else None
+
+
+def parse_im_list(payload):
+    """iM증권 기업분석 목록(_json/source.jsp, board_list) -> 레코드 리스트.
+
+    응답은 [[행...], [{"total_count"}], []]. 제목이 '[종목/의견] 제목' 꼴이 아니면 종목 리포트가 아니다.
+    종목코드·PDF는 첨부 조회(parse_im_attach)에서 채운다. im_bid는 첨부 조회용 임시 키.
+    """
+    rows = []
+    items = payload[0] if isinstance(payload, list) and payload else []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        aid = str(it.get("aid") or "").strip()
+        name, rating, title = split_bracket_title(it.get("title"))
+        date = normalize_date(it.get("reg_dt"))
+        if not aid or not name or not date:
+            continue
+        rows.append({
+            "id": "im:%s" % aid,
+            "source": "im",
+            "code": None,
+            "name": name,
+            "title": title,
+            "broker": "iM증권",
+            "analyst": str(it.get("username") or "").strip() or None,
+            "date": date,
+            "target": None,
+            "rating_raw": rating,
+            "pdf": None,
+            "url": IM_LIST_URL,
+            "summary": None,
+            # 사이트 조회수는 네이버와 척도가 달라 쓰지 않는다
+            "views": None,
+            "im_bid": str(it.get("bid") or "").strip() or None,
+        })
+    return rows
+
+
+def im_list_total(payload):
+    """목록 응답의 전체 건수. 못 읽으면 None."""
+    try:
+        return to_int(payload[1][0].get("total_count"))
+    except (TypeError, IndexError, AttributeError, KeyError):
+        return None
+
+
+def im_list_dates(payload):
+    """목록 응답에 든 모든 행의 날짜(버린 행 포함). 페이지 넘김을 멈출 때 쓴다."""
+    items = payload[0] if isinstance(payload, list) and payload else []
+    return [d for d in (normalize_date(it.get("reg_dt")) for it in items
+                        if isinstance(it, dict)) if d]
+
+
+_FILE_CODE = re.compile(r"_(%s)\.pdf$" % STOCK_CODE, re.IGNORECASE)
+
+
+def parse_im_attach(payload):
+    """첨부 조회(db/research/twbbacl_attach) -> (PDF URL, 파일명의 종목코드). 없으면 None."""
+    files = payload[0] if isinstance(payload, list) and payload else []
+    for f in files if isinstance(files, list) else []:
+        if not isinstance(f, dict):
+            continue
+        fname = str(f.get("file_name") or "").strip()
+        fdir = str(f.get("file_dir") or "").strip().strip("/")
+        if not fname.lower().endswith(".pdf") or not fdir:
+            continue
+        m = _FILE_CODE.search(fname)
+        url = IM_UPLOAD + quote("%s/%s" % (fdir, fname), safe="/")
+        return url, (m.group(1).upper() if m else None)
+    return None, None
+
+
+_BNK_VIEW = re.compile(r"viewAction\(\s*this\s*,\s*'(\d+)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*\)")
+
+
+def parse_bnk_list(html):
+    """BNK투자증권 기업분석 목록 HTML -> 레코드 리스트.
+
+    종목코드가 없어 code는 None(수집기가 이름으로 매핑한다). 제목이 '[종목/의견] 제목' 꼴만 남긴다.
+    """
+    soup = _soup(html)
+    rows = []
+    for tr in soup.select("tbody tr"):
+        link = tr.find("a", onclick=_BNK_VIEW)
+        if link is None:
+            continue
+        m = _BNK_VIEW.search(link.get("onclick") or "")
+        seq, path, fname = m.group(1), m.group(2).strip(), m.group(3).strip()
+        name, rating, title = split_bracket_title(_text(link))
+        tds = tr.find_all("td", recursive=False)
+        date = None
+        for td in tds:
+            parsed = normalize_date(_text(td)) if re.fullmatch(
+                r"\d{4}\.\d{1,2}\.\d{1,2}", _text(td)) else None
+            if parsed:
+                date = parsed
+        if not name or not date:
+            continue
+        analyst = _text(tds[2]) if len(tds) > 2 else ""
+        pdf = None
+        if fname.lower().endswith(".pdf") and path:
+            pdf = BNK_SITE + quote("%s/%s" % (path.rstrip("/"), fname), safe="/")
+        rows.append({
+            "id": "bnk:%s" % seq,
+            "source": "bnk",
+            "code": None,
+            "name": name,
+            "title": title,
+            "broker": "BNK투자증권",
+            "analyst": analyst or None,
+            "date": date,
+            "target": None,
+            "rating_raw": rating,
+            "pdf": pdf,
+            "url": pdf or BNK_LIST_URL,
+            "summary": None,
+            "views": None,
+        })
+    return rows
+
+
+def bnk_list_dates(html):
+    """목록 HTML의 모든 행 날짜(종목 리포트가 아닌 행 포함)."""
+    return [normalize_date(d) for d in re.findall(r"<td>\s*(\d{4}\.\d{2}\.\d{2})\s*</td>",
+                                                  html or "")]
+
+
+def bnk_last_page(html):
+    """페이지 나눔의 마지막 쪽 번호. 못 읽으면 None."""
+    nums = [int(n) for n in re.findall(r"fn_search\('(\d+)'\)", html or "")]
+    return max(nums) if nums else None
+
+
+_SSI_TITLE = re.compile(r"^.*?\(\s*%s\s*\)\s*:\s*(.*)$" % STOCK_CODE)
+
+
+def parse_sangsangin_list(payload):
+    """상상인증권 기업리포트 목록(/notice/getNoticeList) -> 레코드 리스트.
+
+    의견·목표가·PDF·애널리스트는 상세(parse_sangsangin_detail)에서 채운다.
+    목록의 NM('리서치센터'·'research')은 작성 부서라 애널리스트로 쓰지 않는다.
+    """
+    rows = []
+    block = payload[0] if isinstance(payload, list) and payload else {}
+    items = block.get("getNoticeList") if isinstance(block, dict) else None
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        no = str(it.get("NT_NO") or "").strip()
+        code = str(it.get("STOCK_CD") or "").strip().upper()
+        date = normalize_date(it.get("REGDT"))
+        raw = _WS.sub(" ", str(it.get("TITLE") or "")).strip()
+        if not no or not is_stock_code(code) or not date or not raw:
+            continue
+        m = _SSI_TITLE.match(raw)
+        title = (m.group(1).strip() if m else "") or raw
+        rows.append({
+            "id": "sangsangin:%s" % no,
+            "source": "sangsangin",
+            "code": code,
+            "name": str(it.get("STOCK_NM") or "").strip() or None,
+            "title": title,
+            "broker": "상상인증권",
+            "analyst": None,
+            "date": date,
+            "target": None,
+            "rating_raw": None,
+            "pdf": None,
+            "url": SSI_LIST_URL,
+            "summary": None,
+            "views": None,
+        })
+    return rows
+
+
+def sangsangin_list_dates(payload):
+    block = payload[0] if isinstance(payload, list) and payload else {}
+    items = block.get("getNoticeList") if isinstance(block, dict) else None
+    return [d for d in (normalize_date(it.get("REGDT")) for it in items or []
+                        if isinstance(it, dict)) if d]
+
+
+def sangsangin_total(payload):
+    block = payload[0] if isinstance(payload, list) and payload else {}
+    return to_int(block.get("getCount")) if isinstance(block, dict) else None
+
+
+_SSI_OPINION = re.compile(
+    r"\[\s*([A-Za-z가-힣][A-Za-z가-힣 .()]*?)\s*/\s*(?:TP\s*[:：]?\s*)?(\d[\d,]*|-|N/?A)\s*원?\s*\]",
+    re.IGNORECASE)
+_SSI_ANALYST = re.compile(r"\[\s*상상인증권\s+([^\]]+?)\s*\]")
+
+
+def parse_sangsangin_detail(payload):
+    """상세(/notice/getNoticeDetail) -> {'rating_raw', 'target', 'analyst', 'pdf', 'summary'}.
+
+    본문 첫머리 '[BUY / 340,000]'에서 의견·목표가를, '[상상인증권 IT/전기전자 엄우용]'에서
+    애널리스트(마지막 낱말)를 뽑는다. 꼴이 다르면 본문 문장에서 한 번 더 찾는다.
+    """
+    out = {"rating_raw": None, "target": None, "analyst": None, "pdf": None, "summary": None}
+    if not isinstance(payload, dict):
+        return out
+    notice = payload.get("notice") or {}
+    text = _html_to_text(notice.get("CONTS")) if isinstance(notice, dict) else ""
+    if text:
+        m = _SSI_OPINION.search(text)
+        if m:
+            out["rating_raw"] = _WS.sub(" ", m.group(1)).strip() or None
+            out["target"] = positive_int(m.group(2)) if m.group(2)[0].isdigit() else None
+        if out["rating_raw"] is None or out["target"] is None:
+            rating_raw, target = extract_opinion_from_text(text)
+            out["rating_raw"] = out["rating_raw"] or rating_raw
+            out["target"] = out["target"] or target
+        a = _SSI_ANALYST.search(text)
+        if a:
+            out["analyst"] = a.group(1).split()[-1]
+        summary = clean_summary(text)
+        out["summary"] = summary[:600] if summary else None
+    for f in payload.get("file") or []:
+        if not isinstance(f, dict):
+            continue
+        fname = str(f.get("FNM") or "")
+        if not fname.lower().endswith(".pdf"):
+            continue
+        cms = str(f.get("CMS_CD") or "").strip()
+        if cms and f.get("NT_NO") is not None and f.get("FNO") is not None:
+            out["pdf"] = SSI_PDF_URL % (cms, cms, f.get("NT_NO"), f.get("FNO"), "pdf")
+            break
+    return out
+
+
+# PDF 1쪽 텍스트(pypdf)에서 의견·목표가를 뽑는다. 본문 추출 규칙(extract_opinion_from_text)이
+# 만 단위 표기와 EPS·BPS·주당 수치를 이미 걸러 주므로 그것을 먼저 쓰고, 영문 표기만 덧붙인다.
+_SPACED_TARGET = re.compile(r"목\s*표\s*주\s*가")
+_SPACED_OPINION = re.compile(r"투\s*자\s*의\s*견")
+# '투자의견 [유지] 매수', '투자의견(12M) Buy' — 꼬리표·기간이 끼어 있는 경우
+_PDF_OPINION = re.compile(
+    r"투자의견\s*(?:\([^)]{0,8}\))?\s*[:：]?\s*(?:\[[^\]]{1,6}\]\s*)?" + _RATING_WORDS,
+    re.IGNORECASE)
+_PDF_TP_EN = re.compile(
+    r"(?:Target\s*Price|\bTP)\s*(?:\([^)]{0,8}\))?\s*[:：]?\s*(?:KRW|₩|W)?\s*(\d[\d,]{2,})\s*(?:원|KRW)?",
+    re.IGNORECASE)
+
+
+def extract_pdf_opinion(text):
+    """PDF 1쪽 텍스트 -> (투자의견 원문, 목표주가). 못 찾으면 각각 None."""
+    if not text:
+        return None, None
+    s = _SPACED_TARGET.sub("목표주가", str(text))
+    s = _SPACED_OPINION.sub("투자의견", s)
+    rating_raw, target = extract_opinion_from_text(s)
+    flat = _WS.sub(" ", s.replace("\xa0", " "))
+    if rating_raw is None:
+        m = _PDF_OPINION.search(flat)
+        if m:
+            rating_raw = _WS.sub(" ", m.group(1)).strip()
+    if target is None:
+        m = _PDF_TP_EN.search(flat)
+        if m:
+            value = to_int(m.group(1))
+            target = value if value and value >= 100 else None
+    return rating_raw, target
+
+
+_PAREN_CODE = re.compile(r"\(\s*A?(%s)\s*\)" % STOCK_CODE)
+
+
+def extract_code_from_text(text, name=None, head=1500):
+    """PDF 1쪽 머리에서 '종목명 (035720)'의 코드를 찾는다. 못 찾으면 None.
+
+    name이 있으면 코드 바로 앞(40자 안)에 그 이름이 있는 것만 받는다.
+    """
+    s = str(text or "")[:head]
+    want = name_key(name)
+    for m in _PAREN_CODE.finditer(s):
+        if not want or want in name_key(s[max(0, m.start() - 40):m.start()]):
+            return m.group(1)
+    return None
 
 
 # --------------------------------------- 네이버 산업·시황 리포트 파서

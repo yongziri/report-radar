@@ -27,7 +27,8 @@ RECORD_FIELDS = (
     "target_change", "naver_prev_target", "price_at_write", "pdf", "url", "views",
 )
 # 값이 있을 때만 쓰는 필드. detail_tries는 수집기 내부용(상세 재시도 횟수)이다.
-OPTIONAL_FIELDS = ("suspect", "rating_inferred", "has_summary", "detail_tries")
+# direct는 이 레코드에 붙은 증권사 직접 수집 2차 건의 id(예 "im:15078")다.
+OPTIONAL_FIELDS = ("suspect", "rating_inferred", "has_summary", "detail_tries", "direct")
 
 _MONTH_FILE = re.compile(r"^(\d{4}-\d{2})\.json$")
 
