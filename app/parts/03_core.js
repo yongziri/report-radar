@@ -8,6 +8,12 @@ const KR_KOSPI_RAW = "__KR_KOSPI__";
 const KR_KOSDAQ_RAW = "__KR_KOSDAQ__";
 const SECTORS = "__SECTORS__".split(";");
 const INDUSTRIES = "__INDUSTRIES__".split(";");
+/* 세부 업종 -> 대분류 (build.py BROAD 가 유일한 기준). 리포트 탭도 이 표로 대분류를 정한다 */
+const IND_BROAD = (function(){
+  var idx = "__IND_BROAD__".split(";"), m = {};
+  INDUSTRIES.forEach(function(n, i){ var b = SECTORS[+idx[i]]; if(n && b) m[n] = b; });
+  return m;
+})();
 function parseKR(raw, market){
   if(!raw || raw.indexOf("__") === 0) return [];
   return raw.split(";").map(function(s){

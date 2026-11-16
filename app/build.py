@@ -138,6 +138,8 @@ def main():
         "__KR_KOSDAQ__": pack(kosdaq, industries),
         "__SECTORS__": ";".join(BROAD_NAMES),
         "__INDUSTRIES__": ";".join(clean(n) for n in ind_names),
+        # INDUSTRIES 와 같은 순서의 대분류 idx — 리포트 탭이 record.industry 로 대분류를 찾는다
+        "__IND_BROAD__": ";".join(str(IND2BROAD.get(n, FALLBACK)) for n in ind_names),
     }
     for token, val in repl.items():
         assert token in html, "placeholder %s not found" % token

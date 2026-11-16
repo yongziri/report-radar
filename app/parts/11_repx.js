@@ -22,6 +22,7 @@ let MR_CFG = { on:true, types:{ "new":true, up:true, down:true, rating:true }, b
 let MR_SEEN = null;              // { v:1, codes:{ code:{ key:"YYYY-MM-DD" } }, unread:[id] }
 let mrFresh = {};                // 이번 세션에 새로 들어온 리포트 id (패널에서 강조)
 let mrViewTimer = null;
+let mrPanelVis = false;          // 내 종목 리포트 패널이 지금 화면에 보이는지 (IntersectionObserver)
 
 function mrLoadCfg(){
   try{
@@ -162,6 +163,7 @@ function myRepOnData(){
   found.forEach(function(r){ mrFresh[r.id] = 1; });
   if(found.length) mrAlert(found);
   mrRender();
+  if(found.length) mrArmSeen();
 }
 
 function mrBadges(){
@@ -185,6 +187,15 @@ function myRepMarkSeen(){
   seen.unread = [];
   mrSaveSeen();
   mrBadges();
+}
+
+/* 패널이 보이고 안 읽은 것이 있으면 2초 뒤 읽음 처리 (보이는 채로 새로 들어온 것도 포함) */
+function mrArmSeen(){
+  clearTimeout(mrViewTimer);
+  if(!mrPanelVis || document.hidden || !mrLoadSeen().unread.length) return;
+  mrViewTimer = setTimeout(function(){
+    if(mrPanelVis && curTab === "dash" && !document.hidden) myRepMarkSeen();
+  }, 2000);
 }
 
 function mrRender(){
@@ -233,7 +244,8 @@ function mrRender(){
         '<td class="l"><a class="tk rpgo" href="#" data-go="' + esc(r.code) + '" title="종목분석에서 열기">' +
           esc(rpName(r.code, r.name)) + "</a>" +
           (link ? ' <a class="rnav" href="' + esc(link) + '" target="_blank" rel="noopener" title="' +
-                  esc(r.title || "원문") + '">원문↗</a>' : "") + "</td>" +
+                  esc(r.title || "원문") + (r.pdf ? "" : " (원문 페이지)") + '">' +
+                  (!r.pdf && r.source === "wise" ? "와이즈↗" : "원문↗") + "</a>" : "") + "</td>" +
         '<td class="l">' + esc(r.broker || "") + "</td>" +
         '<td class="c">' + rpBadgeOf(r) + "</td>" +
         "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +
@@ -294,12 +306,11 @@ function mrInit(){
     /* 패널이 화면에 2초 넘게 보이면 읽은 것으로 친다 */
     if(window.IntersectionObserver){
       new IntersectionObserver(function(ents){
-        var vis = ents.some(function(en){ return en.isIntersecting; });
-        clearTimeout(mrViewTimer);
-        if(vis) mrViewTimer = setTimeout(function(){
-          if(curTab === "dash" && !document.hidden) myRepMarkSeen();
-        }, 2000);
+        mrPanelVis = ents.some(function(en){ return en.isIntersecting; });
+        mrArmSeen();
       }, { threshold:0.4 }).observe(panel);
+      /* 창을 다시 보거나, 패널이 보이는 채로 새 리포트가 들어와도 다시 잰다 */
+      document.addEventListener("visibilitychange", mrArmSeen);
     }
   }
   /* 관심종목·보유 종목이 바뀌면 패널도 다시 그린다 (04 를 건드리지 않고 전역을 감싼다) */
@@ -601,7 +612,9 @@ function indOptions(sel, counts, all, cur){
   sel.classList.toggle("on", !!cur);
 }
 function indLinks(r){
-  return '<a class="rtitle" href="' + esc(r.url || r.pdf || "#") + '" target="_blank" rel="noopener">' + esc(r.title || "") + "</a>" +
+  var link = r.url || r.pdf || "";
+  if(!link) return '<span class="rtitle nolink">' + esc(r.title || "") + "</span>";
+  return '<a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(r.title || "") + "</a>" +
          (r.pdf ? ' <a class="rpdf" href="' + esc(r.pdf) + '" target="_blank" rel="noopener" title="PDF 원문">PDF</a>' : "");
 }
 function rpRenderIndustry(){

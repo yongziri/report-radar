@@ -6,7 +6,8 @@
    시세·유니버스·트리맵·테마는 앱의 기존 것을 그대로 쓴다(중복 구현 없음).
    ========================================================================= */
 
-const RP_LS = "rr:filters:v1";                       // stock-helper 키와 분리
+const RP_LS = "rr:filters:v2";                       // stock-helper 키와 분리
+const RP_LS_OLD = ["rr:filters:v1"];                 // v1: 수집기 11분류(IT·통신·미디어…) 시절 — 읽어서 옮긴 뒤 지운다
 const RP_RATINGS = ["BUY","HOLD","SELL","NR"];
 const RP_UNCL = "미분류";
 const RP_PAGE = 500;                                 // 표를 한 번에 그리는 행 수
@@ -19,9 +20,15 @@ const RP_SUSPECT_TIP = {
 };
 const RP_DATA_IV = 300000;                           // 리포트 갱신 확인 주기 (5분)
 const RP_LIVE_MAX = 120;                             // 한 번에 시세를 붙이는 종목 수 상한
-/* 대분류. scraper/sectors.py 의 SECTOR_ORDER 와 같은 순서다 (네이버 업종 대분류와 다름) */
-const RP_SECTORS = ["IT","헬스케어","금융","산업재","경기소비재","필수소비재",
-                    "소재","에너지","유틸리티","통신·미디어","기타"];
+/* 대분류: 스크리너·트리맵과 같은 12분류(build.py BROAD, 같은 순서). 수집기의 record.sector 는 쓰지 않고
+   record.industry(네이버 세부 업종) -> IND_BROAD, 없으면 유니버스의 종목 대분류, 그래도 없으면 미분류 */
+const RP_SECTORS = SECTORS.slice();
+function rpBroadOf(r){
+  var b = r.industry ? IND_BROAD[r.industry] : "";
+  if(b) return b;
+  var u = r.code ? UNI_BY_KEY["KR:" + r.code] : null;
+  return (u && u.sector && RP_SECTORS.indexOf(u.sector) >= 0) ? u.sector : "";
+}
 
 let RPT = [];                    // 리포트 원본
 let RMETA = null;
@@ -89,11 +96,20 @@ function rpShiftISO(iso, days){
 function rpSave(){ try{ localStorage.setItem(RP_LS, JSON.stringify(RP)); }catch(e){} }
 function rpLoadState(){
   try{
-    var raw = localStorage.getItem(RP_LS);
+    var raw = localStorage.getItem(RP_LS), migrated = false;
+    if(!raw){
+      for(var i=0;i<RP_LS_OLD.length && !raw;i++) raw = localStorage.getItem(RP_LS_OLD[i]);
+      migrated = !!raw;
+    }
+    RP_LS_OLD.forEach(function(k){ localStorage.removeItem(k); });
     if(!raw) return;
     var o = JSON.parse(raw);
     if(!o || typeof o !== "object") return;
     for(var k in RP){ if(Object.prototype.hasOwnProperty.call(o, k)) RP[k] = o[k]; }
+    /* 지금 대분류 이름이 아닌 값(옛 IT·통신·미디어·기타 등)은 버린다 — 남으면 목록이 말없이 비게 된다 */
+    if(Array.isArray(RP.sectors))
+      RP.sectors = RP.sectors.filter(function(s){ return RP_SECTORS.indexOf(s) >= 0 || s === RP_UNCL; });
+    if(migrated) rpSave();
   }catch(e){}
 }
 
@@ -439,9 +455,15 @@ function rpRebuild(){
   }
   RP.brokers = RP.brokers.filter(function(b){ return RP_BROKERS.indexOf(b) >= 0; });
 
-  /* 대분류 */
+  /* 대분류: record.sector(수집기 분류)를 앱의 12분류로 덮어쓴다 — 이후 모든 집계·표시는 r.sector 를 본다 */
   RP_SECLIST = RP_SECTORS.slice();
-  for(var i=0;i<RPT.length;i++){ if(!RPT[i].sector){ RP_SECLIST.push(RP_UNCL); break; } }
+  var uncl = false;
+  for(var i=0;i<RPT.length;i++){
+    var rr = RPT[i];
+    if(rr._sec === undefined){ rr._sec = rpBroadOf(rr); rr.sector = rr._sec; }
+    if(!rr.sector) uncl = true;
+  }
+  if(uncl) RP_SECLIST.push(RP_UNCL);
   RP.sectors = RP.sectors.filter(function(s){ return RP_SECLIST.indexOf(s) >= 0; });
 
   /* 종목 색인 + 코드별 리포트 */
@@ -651,8 +673,11 @@ function rpPeriodLabel(){
 /* 소스 하나가 조용히 멈춰도 총 건수만 보면 눈치채기 어렵다. 개요 소제목 옆에
    소스별 최신 리포트 날짜를 적고, 영업일 기준으로 밀린 소스는 경고색으로 둔다.
    (실제 경보는 scraper/check_sources.py 가 Actions 에서 낸다) */
-const RP_SRC_ORDER = ["naver", "kb", "nh", "kis", "hankyung"];
-const RP_SRC_LABEL = { naver:"naver", kb:"kb", nh:"nh", kis:"kis", hankyung:"한경" };
+/* meta.source_status 의 키를 전부 보인다. 아래 순서가 앞, 모르는 키는 뒤에 원래 이름으로 */
+const RP_SRC_ORDER = ["naver", "hankyung", "kb", "nh", "kis", "samsung", "im", "hmc", "wise"];
+const RP_SRC_LABEL = { naver:"네이버", hankyung:"한경", kb:"KB", nh:"NH", kis:"한투", wise:"와이즈",
+                       samsung:"삼성", im:"iM", hmc:"현대차" };
+const RP_SRC_COMPACT = 5;    // 이보다 많으면 가장 오래된 것만 보이고 나머지는 툴팁·펼침으로
 const RP_SRC_STALE_BD = 2;   // 이만큼 영업일이 비면 경고색
 
 function rpBizDaysSince(from, to){
@@ -668,20 +693,36 @@ function rpBizDaysSince(from, to){
 }
 function rpSourceStatusHtml(){
   var st = RMETA && RMETA.source_status;
-  if(!st) return "";
+  if(!st || typeof st !== "object") return "";
   var today = new Date(); today.setHours(0, 0, 0, 0);
-  var out = [];
-  RP_SRC_ORDER.forEach(function(k){
-    var s = st[k];
-    if(!s || !s.last_date) return;
-    var p = String(s.last_date).split("-");
-    var d = new Date(+p[0], +p[1] - 1, +p[2]);
-    var stale = rpBizDaysSince(d, today) >= RP_SRC_STALE_BD;
-    out.push('<span class="' + (stale ? "down" : "") + '" title="' +
-             esc(k + " 최신 " + s.last_date + " · 보관 " + fmt(s.total || 0) + "건") + '">' +
-             esc(RP_SRC_LABEL[k] || k) + " " + esc(String(s.last_date).slice(5)) + "</span>");
+  var keys = Object.keys(st).sort(function(a, b){
+    var ia = RP_SRC_ORDER.indexOf(a), ib = RP_SRC_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
   });
-  return out.length ? '<span class="src">' + out.join(" · ") + "</span>" : "";
+  var items = [];
+  keys.forEach(function(k){
+    var s = st[k];
+    if(!s || typeof s !== "object") return;
+    var ld = s.last_date || s.fetched_last_date || "";
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ld));
+    var stale = m ? rpBizDaysSince(new Date(+m[1], +m[2] - 1, +m[3]), today) >= RP_SRC_STALE_BD : true;
+    items.push({ k:k, label:RP_SRC_LABEL[k] || k, date:m ? m[0] : "", stale:stale, total:s.total || 0 });
+  });
+  if(!items.length) return "";
+  function one(it){
+    return '<span class="' + (it.stale ? "down" : "") + '" title="' +
+           esc(it.label + " 최신 " + (it.date || "없음") + " · 보관 " + fmt(it.total) + "건") + '">' +
+           esc(it.label) + " " + esc(it.date ? it.date.slice(5) : "-") + "</span>";
+  }
+  if(items.length <= RP_SRC_COMPACT)
+    return '<span class="src">' + items.map(one).join(" · ") + "</span>";
+  /* 소스가 많으면: 가장 오래된 최신일(멈춘 소스 신호)만 앞에 두고 전체는 툴팁·펼침에 */
+  var oldest = items.slice().sort(function(a, b){ return (a.date || "0").localeCompare(b.date || "0"); })[0];
+  var nStale = items.filter(function(it){ return it.stale; }).length;
+  var tip = items.map(function(it){ return it.label + " " + (it.date || "-"); }).join(" · ");
+  return '<details class="src srcdd"><summary title="' + esc(tip) + '">소스 ' + items.length + "곳 · 가장 늦은 " +
+         one(oldest) + (nStale ? ' <span class="down">(지연 ' + nStale + ")</span>" : "") + "</summary>" +
+         '<span class="srclist">' + items.map(one).join(" · ") + "</span></details>";
 }
 function rpRenderStats(rows){
   var a = rpAgg(rows), n = a.n || 1;
@@ -730,9 +771,17 @@ function rpIsMobile(){ return !!(window.matchMedia && window.matchMedia("(max-wi
 function rpMoreBtn(total, lim){
   return '<button class="btn" id="rpMore">더 보기 (+' + fmt(RP_PAGE) + ") · 남은 " + fmt(total - lim) + "건</button>";
 }
+/* 리포트 제목: PDF 우선, 없으면 url(와이즈는 종목 리포트 목록 페이지 — 출처 표시), 둘 다 없으면 글자만 */
+function rpTitleLink(r){
+  var t = esc(r.title || ""), link = r.pdf || r.url || "";
+  if(!link) return '<span class="rtitle nolink">' + t + "</span>";
+  var wise = !r.pdf && r.source === "wise";
+  return '<a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener"' +
+         (wise ? ' title="WiseReport 종목 리포트 목록 (원문 PDF 없음)"' : (r.pdf ? "" : ' title="원문 페이지"')) + ">" + t + "</a>" +
+         (wise ? ' <span class="rsrc">와이즈</span>' : "");
+}
 /* 카드 한 장. head: 첫 줄 오른쪽(목표가·괴리율 등) HTML */
 function rpCardHtml(r, head){
-  var link = r.pdf || r.url || "#";
   var hasSum = rpHasSum(r), open = hasSum && rpOpenSum[r.id];
   return '<div class="rcard' + (hasSum ? " hs" : "") + (open ? " open" : "") + '"' +
          (hasSum ? ' data-csum="' + esc(r.id) + '"' : "") + ">" +
@@ -740,8 +789,7 @@ function rpCardHtml(r, head){
       (r.code ? '<a class="tk rpgo" href="#" data-go="' + esc(r.code) + '">' + esc(rpName(r.code, r.name)) + "</a>"
               : '<span class="tk">' + esc(r.name || "") + "</span>") +
       " " + rpBadgeOf(r) + rpSuspectTag(r) + rpHitTag(r) + '</span><span class="v">' + head + "</span></div>" +
-    '<div class="l2"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
-      esc(r.title || "") + "</a></div>" +
+    '<div class="l2">' + rpTitleLink(r) + "</div>" +
     '<div class="l3">' + esc(r.broker || "") + (r.analyst ? "(" + esc(r.analyst) + ")" : "") +
       " · " + esc((r.date || "").slice(2)) +
       (typeof r.views === "number" ? " · 조회 " + fmt(r.views) : "") +
@@ -777,14 +825,12 @@ function rpRenderReports(rows){
   // 정렬·집계는 전체 기준으로 끝내고 그리는 행 수만 끊는다
   for(var i=0;i<lim;i++){
     var r = rows[i];
-    var link = r.pdf || r.url || "#";
     var hasSum = rpHasSum(r);
     var open = hasSum && rpOpenSum[r.id];
     html.push("<tr>");
     html.push('<td class="l dt">' + esc((r.date || "").slice(2)) + "</td>");
     html.push('<td class="l">' + rpStockCell(r.code, r.name, r.industry, r.sector) + "</td>");
-    html.push('<td class="l wr"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
-              esc(r.title || "") + "</a>" +
+    html.push('<td class="l wr">' + rpTitleLink(r) +
               (hasSum ? ' <button class="tgl" data-sum="' + esc(r.id) + '" aria-expanded="' +
                         (open ? "true" : "false") + '">' + (open ? "▴" : "▾") + "</button>" : "") + "</td>");
     html.push('<td class="l">' + esc(r.broker || "") +
@@ -833,7 +879,8 @@ function rpGroupByStock(rows){
                           BUY:0, HOLD:0, SELL:0, NR:0 };
     }
     g.n++;
-    if(r.industry){ g.industry = r.industry; g.sector = r.sector; }
+    if(r.industry) g.industry = r.industry;
+    if(r.sector && (r.industry || !g.sector)) g.sector = r.sector;   // 업종 없는 레코드도 유니버스 대분류를 쓴다
     if((r.date || "") > g.date) g.date = r.date || "";
     var p = rpPrice(r);
     if(p) g.price = p;
@@ -1628,13 +1675,11 @@ function rpRenderAnal(){
           price ? fmt(price) + "원 기준" : "시세 없음") + "</div>";
 
   $("#anRepBody").innerHTML = list.slice(0, 30).map(function(r){
-    var link = r.pdf || r.url || "#";
     return "<tr>" +
       '<td class="l dt">' + esc((r.date || "").slice(2)) + "</td>" +
       '<td class="l">' + esc(r.broker || "") + "</td>" +
       '<td class="l" style="color:var(--tx3)">' + esc(r.analyst || "") + "</td>" +
-      '<td class="l wr"><a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener">' +
-        esc(r.title || "") + "</a></td>" +
+      '<td class="l wr">' + rpTitleLink(r) + "</td>" +
       '<td class="c">' + rpBadgeOf(r) + "</td>" +
       "<td>" + rpTargetCell(r) + rpSuspectTag(r) + rpHitTag(r) + "</td>" +
       "<td>" + rpRecGapCell(r) + "</td></tr>";

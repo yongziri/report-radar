@@ -10,7 +10,7 @@
    - 다른 출처(네이버 JSONP·rss2json·TradingView 등)는 가로채지 않는다
    빌드 ID 가 바뀌면 캐시 이름이 바뀌고, activate 에서 이전 캐시를 모두 지운다. */
 "use strict";
-const BUILD_ID = "bc72af5dd5ff";
+const BUILD_ID = "8ef98fb4a5c3";
 const CACHE = "gongdo-radar-" + BUILD_ID;
 const CACHE_PREFIX = "gongdo-radar-";
 const PRECACHE = [
