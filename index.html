@@ -5153,23 +5153,28 @@ function rpSourceStatusHtml(){
     if(!s || typeof s !== "object") return;
     var ld = s.last_date || s.fetched_last_date || "";
     var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ld));
-    var stale = m ? rpBizDaysSince(new Date(+m[1], +m[2] - 1, +m[3]), today) >= RP_SRC_STALE_BD : true;
-    items.push({ k:k, label:RP_SRC_LABEL[k] || k, date:m ? m[0] : "", stale:stale, total:s.total || 0 });
+    /* 날짜가 한 번도 없던 소스는 '지연'이 아니라 '미수집'으로 따로 센다 */
+    var stale = m ? rpBizDaysSince(new Date(+m[1], +m[2] - 1, +m[3]), today) >= RP_SRC_STALE_BD : false;
+    items.push({ k:k, label:RP_SRC_LABEL[k] || k, date:m ? m[0] : "", stale:stale, none:!m, total:s.total || 0 });
   });
   if(!items.length) return "";
   function one(it){
     return '<span class="' + (it.stale ? "down" : "") + '" title="' +
            esc(it.label + " 최신 " + (it.date || "없음") + " · 보관 " + fmt(it.total) + "건") + '">' +
-           esc(it.label) + " " + esc(it.date ? it.date.slice(5) : "-") + "</span>";
+           esc(it.label) + " " + esc(it.date ? it.date.slice(5) : "미수집") + "</span>";
   }
   if(items.length <= RP_SRC_COMPACT)
     return '<span class="src">' + items.map(one).join(" · ") + "</span>";
   /* 소스가 많으면: 가장 오래된 최신일(멈춘 소스 신호)만 앞에 두고 전체는 툴팁·펼침에 */
-  var oldest = items.slice().sort(function(a, b){ return (a.date || "0").localeCompare(b.date || "0"); })[0];
+  var dated = items.filter(function(it){ return !it.none; });
+  var oldest = dated.slice().sort(function(a, b){ return a.date.localeCompare(b.date); })[0];
   var nStale = items.filter(function(it){ return it.stale; }).length;
-  var tip = items.map(function(it){ return it.label + " " + (it.date || "-"); }).join(" · ");
-  return '<details class="src srcdd"><summary title="' + esc(tip) + '">소스 ' + items.length + "곳 · 가장 늦은 " +
-         one(oldest) + (nStale ? ' <span class="down">(지연 ' + nStale + ")</span>" : "") + "</summary>" +
+  var nNone = items.length - dated.length;
+  var tip = items.map(function(it){ return it.label + " " + (it.date || "미수집"); }).join(" · ");
+  return '<details class="src srcdd"><summary title="' + esc(tip) + '">소스 ' + items.length + "곳" +
+         (oldest ? " · 가장 늦은 " + one(oldest) : "") +
+         (nStale ? ' <span class="down">(지연 ' + nStale + ")</span>" : "") +
+         (nNone ? " · 미수집 " + nNone : "") + "</summary>" +
          '<span class="srclist">' + items.map(one).join(" · ") + "</span></details>";
 }
 function rpRenderStats(rows){
