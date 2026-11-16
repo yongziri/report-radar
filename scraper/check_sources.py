@@ -31,6 +31,10 @@ META_PATH = os.path.join(ROOT, "data", "meta.json")
 LIMITS = {"naver": 2, "hankyung": 3, "kb": 2, "nh": 2, "kis": 2, "wise": 2,
           "im": 5, "bnk": 5, "sangsangin": 5}
 SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise", "im", "bnk", "sangsangin")
+# 보조 소스: 멈춰도 잡을 실패시키지 않고 ::warning:: 만 남긴다.
+# 직접 수집은 기존 리포트에 PDF 를 붙이는 보강 용도라 없어도 본 기능이 돈다.
+# (해외 러너에서 접속이 막히면 매 실행 실패 메일이 오는 것을 막는다)
+OPTIONAL = ("im", "bnk", "sangsangin")
 
 
 def parse_date(s):
@@ -65,13 +69,16 @@ def stale_sources(status, today):
         if not isinstance(st, dict):
             continue
         limit = LIMITS.get(src, 2)
-        last = parse_date(st.get("last_date"))
+        # 상위 소스에 흡수돼 자기 이름으로 보관된 건이 없어도, 목록에서 본 최신일이 있으면 그걸 쓴다
+        dates = [d for d in (parse_date(st.get("last_date")),
+                             parse_date(st.get("fetched_last_date"))) if d]
+        last = max(dates) if dates else None
         if last is None:
             out.append({"source": src, "last_date": None, "limit": limit, "days": None})
             continue
         days = business_days_since(last, today)
         if days >= limit:
-            out.append({"source": src, "last_date": st.get("last_date"),
+            out.append({"source": src, "last_date": last.isoformat(),
                         "limit": limit, "days": days})
     return out
 
@@ -108,17 +115,21 @@ def main(argv=None):
         print("  %-8s 최신 %s | 보관 %s건"
               % (src, st.get("last_date") or "-", st.get("total", 0)))
 
-    if not bad:
-        print("소스 점검 통과 (%s 기준)" % today.isoformat())
-        return 0
-
+    failed = False
     for item in bad:
+        optional = item["source"] in OPTIONAL
+        level = "warning" if optional else "error"
+        failed = failed or not optional
         if item["last_date"]:
-            print("::error::소스 %s: 최근 리포트 %s, %d영업일 이상 신규 없음"
-                  % (item["source"], item["last_date"], item["limit"]))
+            print("::%s::소스 %s: 최근 리포트 %s, %d영업일 이상 신규 없음"
+                  % (level, item["source"], item["last_date"], item["limit"]))
         else:
-            print("::error::소스 %s: 보관된 리포트가 없음" % item["source"])
-    return 1
+            print("::%s::소스 %s: 수집된 리포트가 없음" % (level, item["source"]))
+    if failed:
+        return 1
+    print("소스 점검 통과 (%s 기준)%s"
+          % (today.isoformat(), " — 보조 소스 경고 있음" if bad else ""))
+    return 0
 
 
 if __name__ == "__main__":
