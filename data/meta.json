@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-11-17T14:52:15+09:00",
-"count": 5631,
+"updated_at": "2026-11-17T17:49:35+09:00",
+"count": 5635,
 "latest_date": "2026-11-17",
 "brokers": [
 "DS투자증권",
@@ -41,8 +41,8 @@
 },
 "kb": {
 "last_date": "2026-11-17",
-"new_run": 0,
-"total": 493
+"new_run": 4,
+"total": 497
 },
 "nh": {
 "last_date": "2026-11-17",
