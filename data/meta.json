@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-11-17T17:49:35+09:00",
-"count": 5635,
+"updated_at": "2026-11-17T21:43:17+09:00",
+"count": 5647,
 "latest_date": "2026-11-17",
 "brokers": [
 "DS투자증권",
@@ -32,17 +32,18 @@
 "naver": {
 "last_date": "2026-11-17",
 "new_run": 0,
-"total": 3802
+"total": 3798
 },
 "hankyung": {
 "last_date": "2026-11-17",
 "new_run": 0,
-"total": 648
+"total": 533,
+"fetched_last_date": "2026-11-17"
 },
 "kb": {
 "last_date": "2026-11-17",
-"new_run": 4,
-"total": 497
+"new_run": 2,
+"total": 499
 },
 "nh": {
 "last_date": "2026-11-17",
@@ -51,8 +52,95 @@
 },
 "kis": {
 "last_date": "2026-11-17",
-"new_run": 0,
+"new_run": 1,
 "total": 316
+},
+"wise": {
+"last_date": null,
+"new_run": 0,
+"total": 0,
+"fetched_at": null,
+"fetched_last_date": null
+},
+"im": {
+"last_date": "2026-11-17",
+"new_run": 9,
+"total": 9,
+"fetched_last_date": "2026-11-17"
+},
+"bnk": {
+"last_date": null,
+"new_run": 0,
+"total": 0,
+"fetched_last_date": null
+},
+"sangsangin": {
+"last_date": "2026-11-17",
+"new_run": 120,
+"total": 120,
+"fetched_last_date": "2026-11-17"
 }
+},
+"data_version": 2,
+"months": [
+{
+"month": "2026-11",
+"count": 1358,
+"v": "84f2c1bd5c",
+"sv": "b29f6de1a4"
+},
+{
+"month": "2026-10",
+"count": 1515,
+"v": "81adbdeb59",
+"sv": "7cebdc5609"
+},
+{
+"month": "2026-09",
+"count": 621,
+"v": "305b1cc575",
+"sv": "270df9f9a7"
+},
+{
+"month": "2026-08",
+"count": 1478,
+"v": "2568097d2f",
+"sv": "81767a83fa"
+},
+{
+"month": "2026-07",
+"count": 675,
+"v": "34600dd924",
+"sv": "8169ca76ca"
 }
+],
+"prices_v": "076e5df582",
+"perf_v": "1871f649bc",
+"industry_months": [
+{
+"month": "2026-11",
+"count": 520,
+"v": "13f1e6d0f7"
+},
+{
+"month": "2026-10",
+"count": 790,
+"v": "25f01f1a5c"
+},
+{
+"month": "2026-09",
+"count": 717,
+"v": "561ac3bea2"
+},
+{
+"month": "2026-08",
+"count": 708,
+"v": "79003c6b27"
+},
+{
+"month": "2026-07",
+"count": 167,
+"v": "2a5f62e8a9"
+}
+]
 }
