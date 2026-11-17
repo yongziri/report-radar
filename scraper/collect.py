@@ -138,32 +138,43 @@ def fetch(session, url, params=None, encoding=None, referer=None,
     return None
 
 
-def fetch_json(session, url, params=None, referer=None):
+def fetch_json(session, url, params=None, referer=None, timeout=None, retries=None,
+               diag=None):
     """JSON API 전용 fetch. 다른 호스트로 넘어가면 실패로 본다.
 
     네이버가 옛 finance 주소를 stock.naver.com으로 302 시키면서 표 없는 HTML을
     돌려준 적이 있다. 그때 '0건 정상'으로 넘어가지 않도록 리다이렉트를 따르지 않고,
     최종 URL의 호스트가 요청 호스트와 다르면 실패로 처리한다.
+    timeout·retries를 안 주면 TIMEOUT·RETRIES. diag(dict)를 주면 끝내 실패했을 때
+    짧은 사유를 diag['error']에 적는다(direct.error_reason, 본문·헤더는 넣지 않음).
     """
     headers = {"Referer": referer} if referer else None
     want = urlparse(url).netloc
+    timeout = TIMEOUT if timeout is None else timeout
+    retries = RETRIES if retries is None else retries
     last = None
-    for attempt in range(RETRIES + 1):
+    for attempt in range(retries + 1):
         try:
-            resp = session.get(url, params=params, timeout=TIMEOUT, headers=headers,
+            resp = session.get(url, params=params, timeout=timeout, headers=headers,
                                allow_redirects=False)
             if resp.is_redirect or resp.is_permanent_redirect:
-                raise RuntimeError("리다이렉트 %s -> %s"
-                                   % (resp.status_code, resp.headers.get("Location")))
+                raise direct_mod.BadResponse(
+                    "HTTP %d redirect" % resp.status_code,
+                    "리다이렉트 -> %s" % resp.headers.get("Location"))
             resp.raise_for_status()
             if urlparse(resp.url).netloc != want:
-                raise RuntimeError("응답 호스트가 다릅니다: %s" % resp.url)
-            return resp.json()
+                raise direct_mod.BadResponse("other host", "응답 호스트가 다릅니다: %s" % resp.url)
+            try:
+                return resp.json()
+            except ValueError:
+                raise direct_mod.BadResponse(direct_mod.non_json_reason(resp))
         except Exception as exc:  # 네트워크/HTTP/JSON 모두 동일 취급
             last = exc
-            if attempt < RETRIES:
+            if attempt < retries:
                 time.sleep(0.8 * (attempt + 1))
     log("  ! 요청 실패: %s (%s)" % (url, last))
+    if diag is not None:
+        diag["error"] = direct_mod.error_reason(last)
     return None
 
 
@@ -497,9 +508,11 @@ def build_source_status(records, before_ids, seen=None):
     """소스별 {최신 리포트 날짜, 이번 실행 신규 건수, 보관 건수}.
 
     before_ids 는 이번 실행 전에 이미 갖고 있던 id 집합이다.
-    seen: {소스: {"fetched_last_date", ("fetched_at")}}. 와이즈·한경 건은 상위 소스와 겹치면
+    seen: {소스: {"fetched_last_date", ("fetched_at", "tried_at", "error")}}. 와이즈·한경 건은 상위 소스와 겹치면
     흡수돼 사라지므로, 응답에서 본 가장 최근 작성일(fetched_last_date)도 last_date에 반영한다.
     그러지 않으면 수집은 잘 되는데 보관 건이 없어 check_sources.py가 정지로 오판한다.
+    tried_at(마지막 시도 시각)·error(마지막 시도의 실패 사유)는 그대로 옮긴다. 성공하면
+    호출 쪽에서 error 키를 지우므로 상태에도 남지 않는다.
     """
     status = {}
     for src in KNOWN_SOURCES:
@@ -520,10 +533,33 @@ def build_source_status(records, before_ids, seen=None):
         last = info.get("fetched_last_date")
         if last and (st["last_date"] is None or last > st["last_date"]):
             st["last_date"] = last
-        for key in ("fetched_at", "fetched_last_date"):
+        for key in STATUS_CARRY_KEYS:
             if key in info:
                 st[key] = info[key]
     return status
+
+
+# 실행을 넘어 이어지는 source_status 키 (build_source_status가 seen에서 옮긴다)
+STATUS_CARRY_KEYS = ("fetched_at", "fetched_last_date", "tried_at", "error")
+
+
+def carry_status(old_st, keys):
+    """이전 meta.json 의 source_status[src] 에서 이어 갈 값만 꺼낸다. error 는 있을 때만."""
+    old_st = old_st if isinstance(old_st, dict) else {}
+    out = {k: old_st.get(k) for k in keys}
+    for k in ("tried_at", "error"):
+        if old_st.get(k):
+            out[k] = old_st[k]
+    return out
+
+
+def note_attempt(info, now, error=None):
+    """수집 시도 결과를 info 에 적는다. 실패면 error, 성공이면 error 를 지운다."""
+    info["tried_at"] = now.isoformat(timespec="seconds")
+    if error:
+        info["error"] = str(error)[:direct_mod.ERROR_MAX]
+    else:
+        info.pop("error", None)
 
 
 def note_detail_result(records):
@@ -576,12 +612,11 @@ def main(argv=None):
 
     old_meta = store.load_meta(LAYOUT)
     old_status = old_meta.get("source_status") or {}
-    old_wise = old_status.get("wise") or {}
-    wise_info = {"fetched_at": old_wise.get("fetched_at"),
-                 "fetched_last_date": old_wise.get("fetched_last_date")}
+    # tried_at·error(마지막 시도와 실패 사유)도 이어 간다. 해외 러너에서 막힌 소스를 공개 meta로 진단한다.
+    wise_info = carry_status(old_status.get("wise"), ("fetched_at", "fetched_last_date"))
     hk_info = {"fetched_last_date": (old_status.get("hankyung") or {}).get("fetched_last_date")}
     # 직접 수집 2차 건은 네이버·와이즈·한경에 붙으면 사라지므로 목록에서 본 최신일을 따로 남긴다.
-    direct_info = {src: {"fetched_last_date": (old_status.get(src) or {}).get("fetched_last_date")}
+    direct_info = {src: carry_status(old_status.get(src), ("fetched_last_date",))
                    for src in direct_mod.DIRECT_SOURCES}
 
     existing, old_prices, migrating = load_reports()
@@ -712,6 +747,7 @@ def main(argv=None):
                 if last and (not direct_info[src]["fetched_last_date"]
                              or last > direct_info[src]["fetched_last_date"]):
                     direct_info[src]["fetched_last_date"] = last
+                note_attempt(direct_info[src], now, info.get("error"))
             d_new = [r for r in d_rows if r["id"] not in merged]
             for rec in d_new:
                 merged[rec["id"]] = rec
@@ -724,20 +760,29 @@ def main(argv=None):
 
     # 와이즈리포트. 우선순위는 네이버·KB·NH·한투 > 와이즈 > 한경. 같은 리포트가 위쪽 소스에
     # 있으면 정규화 패스(absorb_wise)에서 빈 칸만 채우고 사라진다. 평소엔 3시간에 한 번 1페이지.
-    if not args.no_wise and (args.wise_backfill or wise_mod.wise_due(wise_info["fetched_at"], now)):
+    # 실패하면 tried_at 기준 WISE_RETRY_HOURS 시간 뒤에 다시 시도한다(매 실행이 타임아웃을 물지 않게).
+    if not args.no_wise and (args.wise_backfill or wise_mod.wise_due(
+            wise_info["fetched_at"], now, tried_at=wise_info.get("tried_at"))):
         until = None
         if args.wise_backfill:
             dates_all = [r.get("date") for r in records if r.get("date")]
             until = min(dates_all) if dates_all else date_from
             log("와이즈리포트 백필 (%s까지)..." % until)
+        wise_diag = {}
+        t_wise = time.time()
         try:
-            wise_rows, wise_newest = wise_mod.collect_wise(session, fetch_json, log, until=until)
+            wise_rows, wise_newest = wise_mod.collect_wise(session, fetch_json, log, until=until,
+                                                           diag=wise_diag)
         except Exception as exc:
             log("  ! 와이즈리포트 수집 실패 (무시하고 진행): %s" % exc)
             wise_rows, wise_newest = None, None
+            wise_diag["error"] = direct_mod.error_reason(exc)
         if wise_rows is None:
-            log("와이즈리포트: 받지 못했습니다 (다음 실행에서 다시 시도)")
+            note_attempt(wise_info, now, wise_diag.get("error") or "unknown")
+            log("와이즈리포트: 받지 못했습니다 (%s, %.1f초) — %d시간 뒤 다시 시도"
+                % (wise_info["error"], time.time() - t_wise, wise_mod.WISE_RETRY_HOURS))
         else:
+            note_attempt(wise_info, now)
             wise_info["fetched_at"] = now.isoformat(timespec="seconds")
             if wise_newest and (not wise_info["fetched_last_date"]
                                 or wise_newest > wise_info["fetched_last_date"]):
@@ -748,6 +793,9 @@ def main(argv=None):
                 records.append(rec)
             log("와이즈리포트 %d건 (보관 안 된 것 %d건, 상위 소스와 겹치는지는 정규화에서 판단)"
                 % (len(wise_rows), len(fresh)))
+    elif not args.no_wise and wise_info.get("error"):
+        log("와이즈리포트: 마지막 시도 %s 실패(%s) — %d시간이 안 지나 건너뜀"
+            % (wise_info.get("tried_at"), wise_info["error"], wise_mod.WISE_RETRY_HOURS))
     elif not args.no_wise:
         log("와이즈리포트: 마지막 수집 %s — %d시간이 안 지나 건너뜀"
             % (wise_info["fetched_at"], wise_mod.WISE_INTERVAL_HOURS))

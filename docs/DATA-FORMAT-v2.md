@@ -34,6 +34,12 @@ v1은 `data/reports.json` 한 파일(전체 레코드 배열, 요약·현재가 
   증권사 직접 수집 2차 소스 키 `im`(iM증권), `bnk`(BNK투자증권), `sangsangin`(상상인증권)도 항상 들어간다.
   이 건들은 같은 리포트가 네이버·와이즈·한경에 있으면 그 레코드에 붙고 사라지므로 `fetched_last_date`
   (목록에서 본 가장 최근 작성일)가 붙는다. `check_sources.py`의 정지 기준은 5영업일.
+  `wise`와 직접 수집 2차 소스에는 시도 기록도 붙는다: `tried_at`(마지막 시도 시각, KST ISO)과,
+  그 시도가 실패했을 때만 `error`(짧은 사유, 120자 이내. 예: `"ConnectTimeout"`, `"SSLError"`, `"HTTP 403"`,
+  `"HTTP 200 non-JSON (text/html, 1532 bytes)"`, `"empty list"`). 다음에 성공하면 `error`는 지워진다.
+  응답 본문·쿠키·헤더는 넣지 않는다. 와이즈는 실패하면 `tried_at` 기준 1시간 뒤에 다시 시도한다.
+  `check_sources.py`는 날짜를 한 번도 얻은 적 없는 소스(`last_date`·`fetched_last_date` 모두 없음)를
+  경고만 하고 잡을 실패시키지 않는다.
 
 ### `data/reports/YYYY-MM.json`
 그 달(`date` 기준) 리포트 레코드 배열, 날짜 내림차순.

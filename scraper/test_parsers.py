@@ -2002,6 +2002,130 @@ class TestAbsorbDirect(unittest.TestCase):
         self.assertEqual(bad[0]["limit"], 5)
 
 
+# ------------------------------- 해외 러너에서 막힌 소스: 경보 등급·실패 사유·재시도 간격
+
+class SourceFailureTest(unittest.TestCase):
+    MONDAY = datetime.date(2026, 11, 16)
+
+    def test_never_seen_is_warning(self):
+        from check_sources import alert_lines
+        status = {"naver": {"last_date": "2026-11-13"},
+                  "wise": {"last_date": None, "fetched_at": None, "fetched_last_date": None,
+                           "error": "ConnectTimeout", "tried_at": "2026-11-16T09:00:00+09:00"},
+                  "bnk": {"last_date": None, "fetched_last_date": None}}
+        bad = stale_sources(status, self.MONDAY)
+        self.assertEqual(sorted(b["source"] for b in bad), ["bnk", "wise"])
+        lines, failed = alert_lines(bad, status)
+        self.assertFalse(failed)
+        self.assertTrue(all(l.startswith("::warning::") for l in lines))
+        self.assertTrue(any("ConnectTimeout" in l for l in lines))
+
+    def test_seen_then_stalled_still_fails(self):
+        from check_sources import alert_lines
+        # fetched_last_date 만 있어도 "날짜를 얻은 적 있음"
+        status = {"wise": {"last_date": None, "fetched_last_date": "2026-11-11"},
+                  "bnk": {"last_date": "2026-11-06"}}
+        bad = stale_sources(status, self.MONDAY)
+        lines, failed = alert_lines(bad, status)
+        self.assertTrue(failed)
+        self.assertEqual([l.split("::")[1] for l in lines], ["error", "warning"])  # wise, bnk(보조)
+
+    def test_error_reason(self):
+        import requests
+        import direct
+        resp = requests.Response()
+        resp.status_code = 403
+        self.assertEqual(direct.error_reason(requests.HTTPError(response=resp)), "HTTP 403")
+        self.assertEqual(direct.error_reason(requests.exceptions.ConnectTimeout()), "ConnectTimeout")
+        self.assertEqual(direct.error_reason(requests.exceptions.SSLError()), "SSLError")
+        resp = requests.Response()
+        resp.status_code = 200
+        resp.headers["Content-Type"] = "text/html; charset=utf-8"
+        resp._content = b"x" * 1532
+        self.assertEqual(direct.non_json_reason(resp), "HTTP 200 non-JSON (text/html, 1532 bytes)")
+        self.assertLessEqual(len(direct.error_reason(direct.BadResponse("x" * 500))), 120)
+
+    def test_collect_wise_diag(self):
+        import wise
+        calls = []
+
+        def fail(session, url, params=None, referer=None, timeout=None, retries=None, diag=None):
+            calls.append((params["curPage"], timeout, retries))
+            diag["error"] = "ConnectTimeout"
+            return None
+
+        diag = {}
+        self.assertEqual(wise.collect_wise(None, fail, log=lambda m: None, diag=diag), (None, None))
+        self.assertEqual(diag["error"], "ConnectTimeout")
+        # 첫 페이지 실패면 바로 멈춘다. 평소 실행은 짧은 타임아웃·재시도 1회.
+        self.assertEqual(calls, [(1, wise.WISE_TIMEOUT, wise.WISE_RETRIES)])
+
+        diag = {}
+        empty = lambda *a, **k: {"lists": []}  # noqa: E731
+        self.assertEqual(wise.collect_wise(None, empty, log=lambda m: None, diag=diag), (None, None))
+        self.assertEqual(diag["error"], "empty list")
+
+    def test_collect_direct_records_error(self):
+        import direct
+        saved = dict(direct.LISTERS)
+
+        def broken(session, until=None, diag=None):
+            diag["error"] = "SSLError"
+            return [], None
+
+        try:
+            direct.LISTERS.update({"im": broken, "bnk": lambda s, until=None, diag=None: ([], None),
+                                   "sangsangin": broken})
+            orig_gap, direct.REQUEST_GAP = direct.REQUEST_GAP, 0
+            out, info, _ = direct.collect_direct(None, set(), {}, [], log=lambda m: None)
+        finally:
+            direct.LISTERS.clear()
+            direct.LISTERS.update(saved)
+            direct.REQUEST_GAP = orig_gap
+        self.assertEqual(out, [])
+        self.assertEqual(info["im"], {"fetched_last_date": None, "error": "SSLError"})
+        self.assertEqual(info["bnk"]["error"], "empty list")
+
+    def test_status_error_recorded_and_cleared(self):
+        import collect
+        now = datetime.datetime(2026, 11, 16, 9, 0, tzinfo=KST_TZ)
+        info = collect.carry_status({"fetched_at": None, "fetched_last_date": None}, ("fetched_at", "fetched_last_date"))
+        collect.note_attempt(info, now, "HTTP 200 non-JSON (text/html, 1532 bytes)")
+        st = collect.build_source_status([], set(), {"wise": info})["wise"]
+        self.assertEqual(st["error"], "HTTP 200 non-JSON (text/html, 1532 bytes)")
+        self.assertEqual(st["tried_at"], "2026-11-16T09:00:00+09:00")
+        # 다음 실행: 이전 meta 에서 이어 받는다
+        info2 = collect.carry_status(st, ("fetched_at", "fetched_last_date"))
+        self.assertEqual(info2["error"], st["error"])
+        self.assertEqual(collect.build_source_status([], set(), {"wise": info2})["wise"]["error"],
+                         st["error"])
+        # 성공하면 error 는 사라지고 tried_at 은 갱신
+        later = now + datetime.timedelta(hours=1)
+        collect.note_attempt(info2, later)
+        info2["fetched_at"] = later.isoformat(timespec="seconds")
+        st3 = collect.build_source_status([], set(), {"wise": info2})["wise"]
+        self.assertNotIn("error", st3)
+        self.assertEqual(st3["tried_at"], "2026-11-16T10:00:00+09:00")
+        # 기록이 아예 없던 소스엔 tried_at/error 키를 만들지 않는다
+        self.assertEqual(collect.carry_status(None, ("fetched_last_date",)),
+                         {"fetched_last_date": None})
+
+    def test_wise_hourly_retry(self):
+        now = datetime.datetime(2026, 11, 16, 11, 0, tzinfo=KST_TZ)
+        # 한 번도 성공 못 함: 마지막 실패 30분 전이면 쉬고, 1시간 지나면 다시
+        self.assertFalse(wise_due(None, now, tried_at="2026-11-16T10:30:00+09:00"))
+        self.assertTrue(wise_due(None, now, tried_at="2026-11-16T10:00:00+09:00"))
+        self.assertTrue(wise_due(None, now, tried_at=None))
+        # 성공 이력이 4시간 전, 실패가 20분 전: 쉰다
+        self.assertFalse(wise_due("2026-11-16T07:00:00+09:00", now,
+                                  tried_at="2026-11-16T10:40:00+09:00"))
+        # 성공 후에는 3시간 간격 유지 (tried_at == fetched_at)
+        self.assertFalse(wise_due("2026-11-16T09:00:00+09:00", now,
+                                  tried_at="2026-11-16T09:00:00+09:00"))
+        self.assertTrue(wise_due("2026-11-16T08:00:00+09:00", now,
+                                 tried_at="2026-11-16T08:00:00+09:00"))
+
+
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
     print("\n%s — 실행 %d, 실패 %d, 오류 %d"

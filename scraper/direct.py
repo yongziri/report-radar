@@ -60,6 +60,11 @@ RETRIES = 2
 PDF_CAP = 15          # 평소 실행에서 세 곳을 합친 PDF 다운로드 상한
 TIME_BUDGET = 30.0    # 평소 실행에서 상세·PDF에 쓰는 시간 상한(초). 목록 요청은 따로.
 MAX_TRIES = 3         # 레코드별 PDF 재시도 상한 (detail_tries)
+# 평소 실행의 목록 요청: 해외 러너에서 접속이 막힌 곳이 매 실행을 오래 붙잡지 않게
+# (연결 5초, 읽기 15초) x 2회. 최악 약 2 x 20 + 1 = 41초. 백필은 TIMEOUT·RETRIES 그대로.
+LIST_TIMEOUT = (5, 15)
+LIST_RETRIES = 1
+ERROR_MAX = 120       # source_status.error 길이 상한
 
 IM_JSON = IM_SITE + "/_json/source.jsp"
 IM_PAGE_FIRST = 20
@@ -101,28 +106,66 @@ class Budget:
             self.pdf_left -= 1
 
 
-def _request(session, method, url, **kwargs):
+class BadResponse(Exception):
+    """응답은 왔지만 쓸 수 없음. reason은 meta.json에 남기는 짧은 사유(본문·헤더 없음)."""
+
+    def __init__(self, reason, detail=None):
+        super().__init__(reason if detail is None else "%s: %s" % (reason, detail))
+        self.reason = reason
+
+
+def error_reason(exc):
+    """예외 -> source_status.error 에 남길 짧은 사유 (예: 'ConnectTimeout', 'HTTP 403').
+
+    응답 본문·쿠키·헤더는 넣지 않는다. 최대 ERROR_MAX자.
+    """
+    if isinstance(exc, BadResponse):
+        reason = exc.reason
+    else:
+        resp = getattr(exc, "response", None)
+        code = getattr(resp, "status_code", None)
+        reason = "HTTP %d" % code if code else type(exc).__name__
+    return str(reason)[:ERROR_MAX]
+
+
+def non_json_reason(resp):
+    """JSON이 아닌 200 응답의 사유. 'HTTP 200 non-JSON (text/html, 1532 bytes)'."""
+    ctype = (resp.headers.get("Content-Type") or "?").split(";", 1)[0].strip()[:40]
+    return "HTTP %d non-JSON (%s, %d bytes)" % (resp.status_code, ctype, len(resp.content or b""))
+
+
+def _request(session, method, url, timeout=TIMEOUT, retries=RETRIES, diag=None, **kwargs):
+    """끝내 실패하면 None. diag(dict)를 주면 실패 사유를 diag['error']에 적는다."""
     last = None
-    for attempt in range(RETRIES + 1):
+    for attempt in range(retries + 1):
         try:
-            resp = session.request(method, url, timeout=TIMEOUT, **kwargs)
+            resp = session.request(method, url, timeout=timeout, **kwargs)
             resp.raise_for_status()
             return resp
         except Exception as exc:
             last = exc
-            if attempt < RETRIES:
+            if attempt < retries:
                 time.sleep(REQUEST_GAP * (attempt + 1))
     _log("  ! 요청 실패: %s (%s)" % (url, last))
+    if diag is not None:
+        diag["error"] = error_reason(last)
     return None
 
 
-def _json(resp, encoding="utf-8"):
+def _json(resp, encoding="utf-8", diag=None):
     if resp is None:
         return None
     try:
         return json.loads(resp.content.decode(encoding, errors="replace"))
     except ValueError:
+        if diag is not None:
+            diag["error"] = non_json_reason(resp)
         return None
+
+
+def _list_policy(until):
+    """목록 요청의 (timeout, retries). 평소 실행은 짧게, 백필은 기본값."""
+    return (TIMEOUT, RETRIES) if until else (LIST_TIMEOUT, LIST_RETRIES)
 
 
 def load_name_map(records, path=UNIVERSE_PATH):
@@ -164,19 +207,29 @@ def _pages(fetch_page, dates_of, until, max_pages):
     return out, newest
 
 
-def list_im(session, until=None):
+def _shape_error(payload, diag):
+    """JSON은 왔는데 목록 모양이 아닐 때 사유를 남긴다(이미 사유가 있으면 그대로)."""
+    if diag is not None and payload is not None and "error" not in diag:
+        diag["error"] = "unexpected JSON (%s)" % type(payload).__name__
+
+
+def list_im(session, until=None, diag=None):
     size = IM_PAGE_BACKFILL if until else IM_PAGE_FIRST
     state = {"pages": None}
+    timeout, retries = _list_policy(until)
 
     def fetch_page(page):
         if state["pages"] is not None and page > state["pages"]:
             return None
+        d = diag if page == 1 else None
         payload = _json(_request(session, "POST", IM_JSON, data={
             "tr_cd": "db/board/TWBBACL/board_list", "aid": "", "bid": "R_E08",
             "cur_page": str(page), "num_page": str(size), "condition": "",
             "keyOption": "ALL", "iKey": "%25%25", "sdate": "20050630", "edate": "",
-            "dnURL": "/upload/", "iKey_view": ""}, headers={"Referer": IM_LIST_URL}))
+            "dnURL": "/upload/", "iKey_view": ""}, headers={"Referer": IM_LIST_URL},
+            timeout=timeout, retries=retries, diag=d), diag=d)
         if not isinstance(payload, list):
+            _shape_error(payload, d)
             return None
         total = im_list_total(payload)
         if total:
@@ -186,14 +239,16 @@ def list_im(session, until=None):
     return _pages(fetch_page, im_list_dates, until, IM_MAX_PAGES)
 
 
-def list_bnk(session, until=None):
+def list_bnk(session, until=None, diag=None):
     state = {"last": None}
+    timeout, retries = _list_policy(until)
 
     def fetch_page(page):
         if state["last"] is not None and page > state["last"]:
             return None
         resp = _request(session, "GET", BNK_LIST_URL, params={
-            "bbsId": "analysingCompany", "cmd": "list", "curPage": str(page)})
+            "bbsId": "analysingCompany", "cmd": "list", "curPage": str(page)},
+            timeout=timeout, retries=retries, diag=diag if page == 1 else None)
         if resp is None:
             return None
         html = resp.content.decode("utf-8", errors="replace")
@@ -205,19 +260,23 @@ def list_bnk(session, until=None):
     return _pages(fetch_page, bnk_list_dates, until, BNK_MAX_PAGES)
 
 
-def list_sangsangin(session, until=None):
+def list_sangsangin(session, until=None, diag=None):
     size = SSI_PAGE_BACKFILL if until else SSI_PAGE_FIRST
     state = {"pages": None}
+    timeout, retries = _list_policy(until)
 
     def fetch_page(page):
         if state["pages"] is not None and page > state["pages"]:
             return None
+        d = diag if page == 1 else None
         # JSON 바디로 보내면 오류 페이지가 온다. 폼 바디.
         payload = _json(_request(session, "POST", SSI_LIST_API, data={
             "pageNum": page, "src": "all", "cmsCd": SSI_CMS, "rowNum": size,
             "startRow": (page - 1) * size, "sdt": "", "edt": ""},
-            headers={"Referer": SSI_LIST_URL}))
+            headers={"Referer": SSI_LIST_URL},
+            timeout=timeout, retries=retries, diag=d), diag=d)
         if not isinstance(payload, list):
+            _shape_error(payload, d)
             return None
         total = sangsangin_total(payload)
         if total:
@@ -307,7 +366,10 @@ def _new_stats():
 
 def collect_direct(session, known_ids, name_map, records, log=_log, until=None,
                    budget=None, sources=DIRECT_SOURCES):
-    """세 증권사의 새 리포트. (새 레코드 리스트, {소스: {"fetched_last_date"}}, {소스: 통계}).
+    """세 증권사의 새 리포트. (새 레코드 리스트, {소스: {"fetched_last_date", ("error")}}, {소스: 통계}).
+
+    시도한 소스는 모두 info에 들어간다. 목록을 못 받았으면 fetched_last_date는 None이고
+    error에 짧은 사유('SSLError', 'HTTP 403', 'empty list' 등)가 붙는다.
 
     known_ids: 이미 본 id(보관 레코드 id + 다른 레코드의 direct 값). until: 백필 시작일(없으면 첫 페이지만).
     records: 보관 레코드(네이버에 같은 리포트가 있는지 보고 PDF를 아끼는 데 쓴다).
@@ -320,15 +382,23 @@ def collect_direct(session, known_ids, name_map, records, log=_log, until=None,
     known = set(known_ids or ())
     for src in sources:
         stats = all_stats[src] = _new_stats()
+        diag = {}
         try:
-            rows, newest = LISTERS[src](session, until=until)
+            rows, newest = LISTERS[src](session, until=until, diag=diag)
         except Exception as exc:
             log("  ! %s 목록 실패 (무시하고 진행): %s" % (BROKER_LABEL[src], exc))
+            info[src] = {"fetched_last_date": None, "error": error_reason(exc)}
+            continue
+        if not rows and not newest and "error" not in diag:
+            diag["error"] = "empty list"
+        info[src] = {"fetched_last_date": newest}
+        if not rows and not newest:
+            # 첫 페이지부터 못 받음: 다음 페이지·상세로 넘어가지 않는다
+            info[src]["error"] = diag["error"]
+            log("  ! %s 목록을 받지 못했습니다: %s" % (BROKER_LABEL[src], diag["error"]))
             continue
         time.sleep(REQUEST_GAP)
         stats["listed"] = len(rows)
-        if newest:
-            info[src] = {"fetched_last_date": newest}
         fresh = sorted((r for r in rows if r["id"] not in known),
                        key=lambda r: (r.get("date") or "", r["id"]), reverse=True)
         stats["new"] = len(fresh)

@@ -6,6 +6,7 @@ success 였다. 수집이 "성공"해도 알맹이가 없을 수 있으므로 �
 실행:  python scraper/check_sources.py [--data-dir <data 디렉터리>]
        정상이면 exit 0, 멈춘 소스가 있으면 ::error:: 를 찍고 exit 1.
        (GitHub Actions 에서 잡이 실패하면 메일 알림이 온다)
+       날짜를 한 번도 얻은 적 없는 소스는 어느 소스든 ::warning:: 만 남긴다(alert_level).
 """
 
 import argparse
@@ -83,6 +84,38 @@ def stale_sources(status, today):
     return out
 
 
+def alert_level(item):
+    """'error'(잡 실패) 또는 'warning'.
+
+    - 날짜를 한 번도 얻은 적 없는 소스(last_date·fetched_last_date 모두 없음): 모든 소스 warning.
+      새로 붙인 소스가 해외 러너에서 처음부터 막히면 매 실행 실패 메일이 오는 것을 막는다.
+    - 날짜를 얻다가 멈춘 소스: 필수 소스는 error, OPTIONAL 은 warning.
+    """
+    if item.get("last_date") is None:
+        return "warning"
+    return "warning" if item["source"] in OPTIONAL else "error"
+
+
+def alert_lines(bad, status=None):
+    """(출력할 ::error::/::warning:: 줄 목록, 잡을 실패시킬지)."""
+    status = status or {}
+    lines = []
+    failed = False
+    for item in bad:
+        level = alert_level(item)
+        failed = failed or level == "error"
+        st = status.get(item["source"])
+        err = st.get("error") if isinstance(st, dict) else None
+        why = " (마지막 시도 실패: %s)" % err if err else ""
+        if item["last_date"]:
+            lines.append("::%s::소스 %s: 최근 리포트 %s, %d영업일 이상 신규 없음%s"
+                         % (level, item["source"], item["last_date"], item["limit"], why))
+        else:
+            lines.append("::%s::소스 %s: 수집된 리포트가 아직 없음%s"
+                         % (level, item["source"], why))
+    return lines, failed
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="소스 정지 경보")
     p.add_argument("--data-dir", default=None, help="data 디렉터리 (기본: 저장소의 data/)")
@@ -112,23 +145,18 @@ def main(argv=None):
         st = status.get(src)
         if not isinstance(st, dict):
             continue
-        print("  %-8s 최신 %s | 보관 %s건"
-              % (src, st.get("last_date") or "-", st.get("total", 0)))
+        print("  %-8s 최신 %s | 보관 %s건%s"
+              % (src, st.get("last_date") or "-", st.get("total", 0),
+                 " | 마지막 시도 %s 실패: %s" % (st.get("tried_at") or "-", st["error"])
+                 if st.get("error") else ""))
 
-    failed = False
-    for item in bad:
-        optional = item["source"] in OPTIONAL
-        level = "warning" if optional else "error"
-        failed = failed or not optional
-        if item["last_date"]:
-            print("::%s::소스 %s: 최근 리포트 %s, %d영업일 이상 신규 없음"
-                  % (level, item["source"], item["last_date"], item["limit"]))
-        else:
-            print("::%s::소스 %s: 수집된 리포트가 없음" % (level, item["source"]))
+    lines, failed = alert_lines(bad, status)
+    for line in lines:
+        print(line)
     if failed:
         return 1
     print("소스 점검 통과 (%s 기준)%s"
-          % (today.isoformat(), " — 보조 소스 경고 있음" if bad else ""))
+          % (today.isoformat(), " — 경고 있음" if bad else ""))
     return 0
 
 
