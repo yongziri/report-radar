@@ -700,7 +700,9 @@ def main(argv=None):
         if args.direct_backfill:
             dates_all = [r.get("date") for r in records if r.get("date")]
             until = min(dates_all) if dates_all else date_from
-            budget = direct_mod.Budget(pdf_cap=None, time_budget=None)
+            # 과거분도 상세·PDF에 쓰는 시간은 15분으로 묶는다. 남은 건은 이후 실행이
+            # 실행당 PDF_CAP개씩 이어서 채운다 (첫 실행이 몇 시간씩 붙잡히지 않게).
+            budget = direct_mod.Budget(pdf_cap=None, time_budget=900.0)
             log("증권사 직접 수집 2차 백필 (%s까지)..." % until)
         try:
             d_rows, d_seen, direct_stats = direct_mod.collect_direct(
