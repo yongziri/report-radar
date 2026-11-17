@@ -43,15 +43,26 @@ report-radar/
 │  ├─ samples/, make_import_samples.py, test_parsers.mjs
 │  └─ PROXY_SETUP.md
 ├─ data/
-│  ├─ reports.json               # 리포트 누적 (최근 180일, 최신순 배열)
+│  ├─ reports/YYYY-MM.json       # 월별 리포트 (최근 730일, 최신순 배열, 요약 제외)
+│  ├─ summaries/YYYY-MM.json     # 월별 요약 {id: 본문}
+│  ├─ prices.json                # 리포트 종목의 수집 시점 현재가
+│  ├─ industry/YYYY-MM.json      # 월별 산업·시황 리포트 (네이버)
+│  ├─ perf.json                  # 리포트별 발간 후 성과 (하루 1회)
 │  ├─ sectors.json               # 업종 분류표 (종목코드 → 업종 → 대분류)
-│  └─ meta.json                  # 갱신 시각·건수·최신 리포트 날짜·증권사 목록·소스 상태
+│  └─ meta.json                  # 갱신 시각·건수·증권사 목록·소스 상태 + 월별 파일 버전(v2)
 ├─ scraper/
 │  ├─ collect.py                 # 수집기 (CLI)
 │  ├─ check_sources.py           # 소스 정지 경보 (meta.json 점검)
 │  ├─ brokers.py                 # 증권사 직접 수집 (KB·NH·한투 네트워크 호출)
+│  ├─ direct.py                  # 증권사 직접 수집 2차 (iM·BNK·상상인, 원문 PDF 링크용)
+│  ├─ pdftext.py                 # 리포트 PDF 1쪽 텍스트 추출 (pypdf)
+│  ├─ wise.py                    # 와이즈리포트 수집 (전 증권사 종목 리포트 목록)
+│  ├─ industry.py                # 네이버 산업·시황 리포트 수집
+│  ├─ perf.py                    # 일봉으로 발간 후 성과 계산 (perf.json)
 │  ├─ sectors.py                 # 업종 분류 수집 + 대분류 매핑표
 │  ├─ parsers.py                 # 순수 파싱·계산 함수 (네트워크를 타지 않음)
+│  ├─ normalize.py               # 저장 전 정규화 (중복 병합·의견 승계·확인 필요 표시)
+│  ├─ store.py                   # 데이터 파일 읽기/쓰기 (형식 v2, v1 이전)
 │  ├─ test_parsers.py            # 픽스처 기반 테스트
 │  └─ requirements.txt
 ├─ docs/stock-helper-PLAN.md     # 합치기 전 주식 대시보드 설계 메모
@@ -85,6 +96,12 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 | [KB증권 리서치](https://rc.kbsec.com/) | KB증권 리포트 (`source: "kb"`) | 목록 JSON에 의견·목표가·요약이 다 들어 있다. **JSON 바디로 POST** 해야 한다(form이면 500) |
 | [NH투자증권 리서치](https://www.nhsec.com/research/boardList.action?rsh_ppr_dit_cd=01) | NH투자증권 리포트 (`source: "nh"`) | 목록엔 의견·목표가가 없어 요약문에서 캔다. 응답 인코딩이 **EUC-KR**인데 본문은 JSON이다 |
 | [한국투자증권 리서치](https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=10) | 한국투자증권 리포트 (`source: "kis"`) | **브라우저 UA 필수**. 의견·목표가는 상세 본문에서 캔다. PDF는 로그인이 필요해 `pdf`가 `null`이다 |
+| [iM증권 리서치(모바일)](https://www.imfnsec.com/mobile/invest/invest02.jsp?bid=R_E08&isSmartHi=N) | iM증권 리포트 원문 PDF (`source: "im"`) | 목록은 `POST /_json/source.jsp`(`tr_cd=db/board/TWBBACL/board_list`, `bid=R_E08`). 제목 `[종목/의견] 제목`. 새 건마다 첨부 조회(`tr_cd=db/research/twbbacl_attach`, 행의 `bid`)로 PDF 경로를 받고 파일명 끝 6자리가 종목코드. 목표가는 PDF 1쪽 |
+| [BNK투자증권 기업분석](https://www.bnkfn.co.kr/research/analysingCompany.jspx) | BNK투자증권 리포트 원문 PDF (`source: "bnk"`) | HTML 목록(한 쪽 10건, `?bbsId=analysingCompany&cmd=list&curPage=N`), 제목 `[종목/의견] 제목`. 종목코드가 없어 이름으로 맞춘다(유니버스 → 보관 레코드 → PDF 1쪽 `종목 (코드)`). PDF는 `/uploads/…`, 목표가는 PDF 1쪽 |
+| [상상인증권 기업리포트](https://www.sangsanginib.com/research/enterpriseReport/enterpriseReportView) | 상상인증권 리포트 원문 PDF (`source: "sangsangin"`) | 목록 `POST /notice/getNoticeList`(폼 바디, `cmsCd=CM0079`)에 종목코드가 있다. 새 건마다 상세 `POST /notice/getNoticeDetail` 본문 `[BUY / 340,000]`에서 의견·목표가, 첨부에서 PDF(`/_upload/attFile/…`) |
+| 와이즈리포트 (`comp.wisereport.co.kr/company/ajax/c1080001_data.aspx?cmp_cd=&perPage=500&curPage=N`) | 전 증권사 종목 리포트 목록 (`source: "wise"`): 빠진 리포트 추가, 기존 리포트의 빈 애널리스트·목표가·의견·요약 보강 | 로그인 없음, 응답은 JSON(content-type은 text/html). 작성일 `ANL_DT`(`26/11/13`), 의견·목표가·애널리스트·요약 3줄. 회사 IR 자료(`해당기업`)는 버린다. PDF는 로그인 뷰어라 `pdf`는 `null`, `url`은 종목별 리포트 목록 페이지. **3시간에 한 번 1페이지(500건)**만 받는다(`meta.json` `source_status.wise.fetched_at`). 비공식 내부 AJAX라 언제든 막힐 수 있다 |
+| 네이버 증권 리서치 API (`/api/research/industry`, `/api/research/market`) | 산업·시황 리포트 (`data/industry/`) | 종목분석과 같은 모양. 목록에 PDF가 없어 새 건마다 상세(`/{kind}/{researchId}`)를 한 번 받는다. 애널리스트는 없다. 처음엔 종목 리포트 보관 시작일까지 백필, 이후엔 아는 id가 나오면 멈춘다 |
+| 네이버 일봉 (`api.finance.naver.com/siseJson.naver`) | 발간 후 성과(`data/perf.json`), 발간일 종가 기준 목표가 범위 재판정 | 엄밀한 JSON이 아니라 정규식으로 행을 줍는다. 종목마다 한 번(가장 이른 발간일 14일 전 ~ 오늘), 스레드 4개. **하루 한 번**(16:00 KST 이후 첫 실행, 또는 파일이 없거나 20시간 넘게 지났을 때) |
 | 네이버 증권 업종 API (`m.stock.naver.com/api/stocks/industry`) | 종목의 업종(`industry`)·대분류(`sector`) | 업종 목록 1회 + 업종별 종목(`/{no}?page=N&pageSize=100`) 79회를 훑는다. **7일마다** 다시 받는다 |
 | 네이버 증권 시총 API (`m.stock.naver.com/api/stocks/marketValue/{KOSPI\|KOSDAQ}`) | 앱 유니버스(`app/universe.json`)의 코드·종목명·시총 | `app/fetch_universe.py` 전용. ETF·ETN 목록은 `finance.naver.com/api/sise/etfItemList.nhn`·`etnItemList.nhn` |
 
@@ -93,13 +110,30 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 > 같은 사고를 조용히 넘기지 않으려고 네이버 요청은 **리다이렉트를 따르지 않고**
 > 최종 호스트가 다르면 실패로 처리한다. 목록 API 한 페이지도 못 받으면 수집을 중단한다.
 >
-> 향후: 산업분석 `/api/research/industry`, 시황 `/api/research/market` 도 같은 모양으로 열려 있다.
-> 지금은 종목분석(`/api/research/company`)만 쓴다.
+> 산업분석 `/api/research/industry`, 시황 `/api/research/market` 도 같은 모양이라
+> `data/industry/`로 따로 모은다(종목 리포트와 섞지 않는다).
 
 이 세 곳은 네이버 리서치에 리포트를 거의 올리지 않아 각 사 사이트에서 직접 긁는다.
-소스 우선순위는 **네이버 > KB·NH·한투 > 한경**이다. `(종목코드, 작성일, 증권사 정규화명)`으로
+소스 우선순위는 **네이버 > KB·NH·한투 > 와이즈 > 한경**이다. `(종목코드, 작성일, 증권사 정규화명)`으로
 같은 리포트를 맞춰, 상위 소스 레코드가 있으면 하위 레코드를 새로 넣지 않고 상위 레코드의
 빈 칸(`analyst`·`target`·`rating_raw`·`summary`·`pdf`)만 채운다.
+와이즈는 제목 표기가 조금씩 달라(`[AI 실적속보] …` 머리말, `3Q26 Review:` 생략, 오탈자, 영문판)
+같은 종목·증권사에서 작성일 ±3일 안의 상위 소스 리포트와 제목이 같거나 한쪽이 다른 쪽을 품거나
+유사도 0.8 이상이면 같은 리포트로 보고 빈 칸(`analyst`·`target`·`rating_raw`·`summary`)만 채운다
+(`normalize.absorb_wise`). 한글 리포트의 영문판(제목에 한글이 없음)은 같은 날, 또는 ±3일 안에서
+목표가가 같으면 번역본으로 본다.
+
+증권사 직접 수집 2차(iM·BNK·상상인, `scraper/direct.py`)는 와이즈에 없는 **원문 PDF 링크**와
+증권사가 직접 밝힌 의견·목표가를 얻으려는 것이다. 우선순위는 KB·NH·한투와 같지만, 같은 리포트
+(와이즈와 같은 규칙: 종목·증권사, ±3일, 제목 유사)가 이미 있으면 그 레코드에 붙고 사라진다
+(`normalize.absorb_direct`). 네이버 레코드는 그대로 두고 빈 칸만 채우며, 와이즈·한경 레코드에는
+`pdf`·`url`을 붙이고 의견·목표가는 직접 수집 값을 우선한다(목표가가 2배 넘게 다르면 바꾸지 않고
+로그만 남긴다). 붙은 레코드에는 `direct: "im:15078"` 같은 표시가 남아 다음 실행에서 다시 받지 않는다.
+비용 규칙: 평소엔 목록 첫 페이지만, 새 건만 상세를 받고, 목표가·의견·종목코드가 비었을 때만
+PDF 1쪽을 읽는다(한 실행에 세 곳 합쳐 15개, 상세·PDF 30초까지. 남은 새 건은 다음 실행으로 미룬다.
+네이버에 같은 리포트가 의견·목표가와 함께 있으면 PDF를 받지 않는다). 요청 간격 1초.
+2026-11 실측에서 삼성증권(기업리포트가 로그인 화면으로 넘어감)과 현대차증권(Report&Note 메뉴가
+로그인 화면을 띄움)은 로그인 없이 볼 수 없어 넣지 않았다.
 어느 소스가 실패해도 전체 수집은 계속된다(경고만 남긴다).
 
 ## 실행
@@ -131,6 +165,32 @@ python scraper/collect.py --no-hankyung --no-brokers --no-price
 # 업종 분류만 강제로 다시 받기 / 아예 건너뛰기
 python scraper/collect.py --refresh-sectors
 python scraper/collect.py --no-sectors
+
+# 네트워크 없이 저장된 데이터의 v1→v2 이전·정규화만
+python scraper/collect.py --migrate-only
+
+# 저장된 한투 리포트 전부의 상세를 다시 받아 목표가·의견을 다시 읽기 (추출 규칙 수정 후 1회)
+python scraper/collect.py --refetch-kis
+
+# 와이즈리포트를 보관 시작일까지 백필 (처음 1회, 페이지 사이 1.5초) / 와이즈 끄기
+python scraper/collect.py --wise-backfill
+python scraper/collect.py --no-wise
+
+# 증권사 직접 수집 2차(iM·BNK·상상인)를 보관 시작일까지 백필 (PDF 상한 없음, 처음 1회) / 끄기
+# (--no-brokers 는 KB·NH·한투와 함께 이것도 끈다)
+python scraper/collect.py --direct-backfill
+python scraper/collect.py --no-direct
+
+# 산업·시황 리포트 끄기 (처음 실행 때는 보관 시작일까지 자동 백필)
+python scraper/collect.py --no-industry
+
+# 성과(perf.json)를 시각과 관계없이 지금 계산 / 끄기
+python scraper/collect.py --perf
+python scraper/collect.py --no-perf
+
+# 저장소 data/ 대신 다른 디렉터리에 읽고 쓰기 (실험용 사본 등)
+python scraper/collect.py --data-dir /tmp/data-copy
+python scraper/check_sources.py --data-dir /tmp/data-copy
 ```
 
 요청 사이에 0.4초를 쉬고, 실패하면 2회까지 다시 시도한다. 상세 페이지를 못 읽어도
@@ -146,7 +206,8 @@ python scraper/test_parsers.py
 네트워크 없이 픽스처 문자열만으로 돈다. 목록·상세·한경·KB·NH·한투·업종 파서,
 본문에서 의견·목표가를 캐는 추출기, 투자의견 정규화, 괴리율, 목표가 변동 판정,
 업종 79개가 모두 대분류에 매핑되는지, 소스 정지 판정(`stale_sources`)이
-영업일 경계에서 맞는지를 검증한다.
+영업일 경계에서 맞는지, 와이즈 파서와 흡수(빈 칸 채우기)·산업·시황 파서·일봉(siseJson) 파서·
+성과 계산(목표가 도달일, 발간일 종가 대체)·발간일 종가 기준 목표가 범위 재판정을 검증한다.
 
 ### 화면 빌드
 
@@ -168,7 +229,8 @@ python -m http.server 3491
 
 ## 레코드 스키마
 
-`data/reports.json`은 최신순 배열이고, 각 항목은 다음과 같다.
+데이터 형식은 v2다(규약: `docs/DATA-FORMAT-v2.md`). 리포트는 작성월별로
+`data/reports/YYYY-MM.json`에 최신순 배열로 들어 있고, 각 항목은 다음과 같다.
 
 ```json
 {
@@ -191,20 +253,31 @@ python -m http.server 3491
   "price_at_write": 152000,
   "pdf": "https://stock.pstatic.net/.../20260907_company_169484000.pdf",
   "url": "https://m.stock.naver.com/research/company/96032",
-  "summary": "…",
   "views": 4031,
-  "price": 152000,
-  "price_date": "2026-09-07",
-  "gap": 31.58
+  "has_summary": true
 }
 ```
 
+- 요약은 `data/summaries/YYYY-MM.json`(`{id: 본문}`)에, 현재가는 `data/prices.json`
+  (`{"updated_at", "prices": {code: {"p": 가격, "d": "수집일"}}}`)에 따로 있다.
+  v1에 있던 `summary`·`price`·`price_date`·`gap`은 레코드에서 빠졌고, 괴리율은 앱이 계산한다.
+- **`meta.json`** — `updated_at`·`count`·`latest_date`·`brokers`·`source_status`에 더해
+  `data_version: 2`, `months`(최신 달 먼저, `{month, count, v, sv}`), `prices_v`.
+  `v`·`sv`·`prices_v`는 각 파일 내용의 sha1 앞 10자이고, 앱은 `?v=` 캐시 키로 쓴다.
 - **`rating`** — 원문(`rating_raw`)을 `BUY`/`HOLD`/`SELL`/`NR` 넷으로 정규화한 값.
   매수·Buy·비중확대·Outperform 등은 `BUY`, 중립·Hold·시장수익률은 `HOLD`,
   매도·Sell·비중축소는 `SELL`, 없음·Not Rated는 `NR`이다.
   표에 없는 값이 오면 `NR`로 두되 원문은 `rating_raw`에 그대로 남긴다.
-- **`gap`** — 괴리율 `(목표가 − 현재가) / 현재가 × 100`, 소수 2자리. 둘 중 하나라도
-  없으면 `null`.
+- **`rating_inferred`** — `true`면 목표가는 있는데 원문 의견이 없어(`NR`) 같은 종목+증권사의
+  직전(더 이른 날짜) 의견을 이어받은 것. 매 실행 다시 계산한다.
+- **`suspect`** — 값이 의심스러운 이유. 앱은 통계에서 빼고 "확인 필요"로 표시한다.
+  - `name_is_broker`: 종목명이 곧 증권사명(`…증권`)이고 제목도 그 회사 얘기가 아님.
+    한경 소스에서 이런 행은 원문 입력 오류라 아예 버린다.
+  - `target_range`: 목표가가 기준가의 0.3~3.5배 밖. 기준가는 본인 `price_at_write` →
+    같은 종목 다른 리포트의 `price_at_write`(작성일 ±7일 안) → 판정 시점 현재가 순.
+    리포트마다 한 번(처음 모았을 때, 목표가가 바뀌었을 때)만 판정하고 결과를 남긴다.
+    주가가 나중에 움직여도 다시 판정하지 않는다. 목표가 값은 그대로 둔다.
+- **`detail_tries`** — 수집기 내부용. 상세에서 의견을 못 뽑은 횟수. 3회가 되면 더 요청하지 않는다.
 - **`target_change`** — 같은 `code` + 같은 `broker`의 **직전(더 오래된 날짜)** 리포트
   목표가와 비교한 결과. `up`/`down`/`same`, 직전 리포트가 없으면 `new`,
   둘 중 하나라도 목표가가 없으면 `null`. 매 실행마다 전체 이력을 놓고 다시 계산한다.
@@ -212,21 +285,28 @@ python -m http.server 3491
   있으면 그 값으로 `prev_target`을 채우고 다시 판정한다.
 - **`naver_prev_target`·`price_at_write`** — 네이버 상세가 주는 직전 목표가(`prevGoalPrice`)와
   작성일 종가(`priceAtWriteDate`). 우리가 이력으로 계산하는 `prev_target`과는 별개 필드이고,
-  네이버 소스가 아닌 리포트에서는 `null`이다.
+  네이버 소스가 아닌 리포트에서는 `null`이다(중복 병합으로 네이버 값을 받은 경우 제외).
 - **`source`** — `naver`·`kb`·`nh`·`kis`·`hankyung`. `id`는 `소스:원본키` 꼴이다
   (`naver:96032`, `kb:20260904133704237K`, `nh:000000000000147095`, `kis:159058`).
 - **`code`** — 종목코드. 2026년부터 영문자를 품는 신형 코드가 섞여 나온다
   (`0126Z0` 삼성에피스홀딩스, `00680K` 미래에셋증권2우B, `0167A0` SOL AI반도체TOP2플러스).
   여섯 자리이고 첫 자리는 늘 숫자다. 수집기·앱 모두 `\d{6}`이 아니라
   `[0-9][0-9A-Z]{5}`로 판정한다. 시세 API도 영문자 코드를 그대로 받는다.
-- 중복 판정 키는 `id`다. 이미 저장된 리포트의 본문은 건드리지 않고,
-  `price`·`gap`·`prev_target`·`target_change`만 실행할 때마다 새로 채운다.
-- 작성일이 180일보다 오래된 건은 저장할 때 걸러낸다.
+- **중복** — 같은 (`code`, `date`, 정규화한 `broker`)는 한 건만 남긴다. 제목이 같으면
+  (공백·문장부호 무시) 합치고, 같은 소스에서 제목이 다르면 둘 다 남긴다(하루 두 편).
+  다른 소스끼리 제목이 다르면 한쪽이 한경일 때만 같은 리포트로 본다. 남는 쪽은
+  naver > kb·nh·kis > hankyung 순이고, 빈 `analyst`·`target`·`rating_raw`·`summary`·`pdf`는
+  합쳐지는 쪽에서 채운다. 매 실행 전체 레코드에 다시 돌린다.
+- 작성월이 730일 전 날짜가 속한 달보다 이전이면 그 달 파일을 통째로 지운다.
+- 저장은 내용이 바뀐 파일만 다시 쓴다(바이트 비교). 보통 한 번의 실행에서 바뀌는 파일은
+  당월 리포트·요약, `prices.json`, `meta.json`이다.
 
 - **`industry`·`sector`** — 종목의 업종과 대분류. 아래 *업종 분류* 참고. 매 실행마다
   전체 레코드에 다시 붙인다. 분류표에 없는 종목(신규 상장·스팩 등)은 둘 다 `null`이다.
 
-저장은 임시파일에 쓴 뒤 이름을 바꾸는 방식이라, 도중에 죽어도 반쪽짜리 JSON이 남지 않는다.
+v1 `data/reports.json`(전체 배열 한 파일)이 남아 있고 `data/reports/`가 없으면, 수집기가
+처음 실행할 때 읽어서 v2로 옮기고 지운다. 저장은 임시파일에 쓴 뒤 이름을 바꾸는 방식이라,
+도중에 죽어도 반쪽짜리 JSON이 남지 않는다.
 
 ## 업종 분류
 
@@ -320,7 +400,8 @@ python -m http.server 3491
 수집기는 `data/meta.json` 의 `source_status` 에 소스별 최신 리포트 날짜(`last_date`),
 이번 실행 신규 건수(`new_run`), 보관 건수(`total`)를 남긴다.
 워크플로는 데이터를 커밋·push한 **뒤에** `python scraper/check_sources.py` 를 돌려,
-KST 오늘 기준으로 어떤 소스의 최신 리포트가 2영업일(한경은 3영업일) 이상 밀렸으면
+KST 오늘 기준으로 어떤 소스의 최신 리포트가 2영업일(한경은 3영업일, 직접 수집 2차 `im`·`bnk`·`sangsangin`은
+발간이 드물어 5영업일) 이상 밀렸으면
 `::error::` 를 찍고 잡을 실패시킨다 — 그러면 GitHub가 메일로 알려 준다.
 커밋 뒤에 두었으므로 경보가 떠도 그날 모은 데이터는 그대로 남고,
 `deploy` 잡도 `if: always()` 라 사이트는 평소대로 갱신된다.

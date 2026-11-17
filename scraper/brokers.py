@@ -238,8 +238,12 @@ def collect_nh(session, date_from, date_to, known_ids=None):
 
 # ---------------------------------------------------------- 한국투자증권
 
-def enrich_kis(session, records):
-    """상세 페이지 본문에서 의견·목표가를 캔다. (성공, 실패) 건수."""
+def enrich_kis(session, records, overwrite=False):
+    """상세 페이지 본문에서 의견·목표가를 캔다. (성공, 실패) 건수.
+
+    overwrite=True면 새로 읽은 목표가로 기존 값을 바꾼다(못 읽었으면 None).
+    추출 규칙을 고친 뒤 저장된 건을 다시 읽을 때 쓴다.
+    """
     ok = 0
     fail = 0
     total = len(records)
@@ -253,7 +257,10 @@ def enrich_kis(session, records):
             detail = parse_kis_detail(resp.text)
             # 재시도로 들어온 건의 기존 값을 None으로 덮지 않는다
             rec["rating_raw"] = detail["rating_raw"] or rec.get("rating_raw")
-            rec["target"] = detail["target"] or rec.get("target")
+            if overwrite:
+                rec["target"] = detail["target"]
+            else:
+                rec["target"] = detail["target"] or rec.get("target")
             # 목록의 body_sub가 우선이고, 비었을 때만 본문으로 채운다.
             if not rec.get("summary"):
                 rec["summary"] = detail["summary"]

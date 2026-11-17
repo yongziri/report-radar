@@ -89,7 +89,8 @@ function renderIndex(idx){
 function renderMarket(){
   var m = marketOpen();
   $("#mkKr").className = "mkb" + (m.kr ? " open" : "");
-  $("#mkKr").textContent = "국내장 " + (m.kr ? "개장" : "마감");
+  $("#mkKr").textContent = "국내장 " + (m.kr ? "개장" : (m.holiday ? "휴장" : "마감"));
+  $("#mkKr").title = m.holiday ? "KRX 휴장일 (" + m.holiday + ")" : "";
 }
 
 /* 상승/하락 게이지 — 스캔 캐시 기반 */
@@ -516,7 +517,7 @@ function renderWatchlist(){
     }
     var del = document.createElement("td");
     del.className = "c";
-    del.innerHTML = '<button class="btn xs">×</button>';
+    del.innerHTML = '<button class="btn xs" aria-label="' + esc(w.name) + ' 관심종목에서 삭제">×</button>';
     del.firstChild.onclick = function(ev){ ev.stopPropagation(); WL().splice(i,1); save(); renderWatchlist(); };
     tr.appendChild(del);
     tr.onclick = function(){ selectStock({ mk:w.mk, code:w.code, name:w.name }); showTab("anal"); };

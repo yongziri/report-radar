@@ -8,6 +8,12 @@ const KR_KOSPI_RAW = "__KR_KOSPI__";
 const KR_KOSDAQ_RAW = "__KR_KOSDAQ__";
 const SECTORS = "__SECTORS__".split(";");
 const INDUSTRIES = "__INDUSTRIES__".split(";");
+/* 세부 업종 -> 대분류 (build.py BROAD 가 유일한 기준). 리포트 탭도 이 표로 대분류를 정한다 */
+const IND_BROAD = (function(){
+  var idx = "__IND_BROAD__".split(";"), m = {};
+  INDUSTRIES.forEach(function(n, i){ var b = SECTORS[+idx[i]]; if(n && b) m[n] = b; });
+  return m;
+})();
 function parseKR(raw, market){
   if(!raw || raw.indexOf("__") === 0) return [];
   return raw.split(";").map(function(s){
@@ -125,56 +131,61 @@ function load(){
   try{
     var raw = localStorage.getItem(LS_KEY);
     if(!raw) return JSON.parse(JSON.stringify(DEFAULTS));
-    var o = JSON.parse(raw), d = JSON.parse(JSON.stringify(DEFAULTS));
-    /* v1 -> v2 마이그레이션: 단일 watchlist 를 "기본" 그룹으로 옮긴다 */
-    if(!o.wlGroups){
-      o.wlGroups = [{ name:"기본", items:Array.isArray(o.watchlist) ? o.watchlist : [] }];
-      o.wlActive = 0;
-      delete o.watchlist;
-      o.v = 2;
-      console.info("관심종목을 그룹 스키마(v2)로 마이그레이션했습니다.");
-    }
-    /* v2 -> v3: 미국 주식 지원 종료. 남아 있는 미국 종목·설정을 제거하고 1회만 안내한다. */
-    if(!(o.v >= 3)){
-      var removed = 0;
-      var isUS = function(x){ return x && (x.mk === "US" || !/^[0-9][0-9A-Z]{5}$/.test(String(x.code || ""))); };
-      (o.wlGroups || []).forEach(function(g){
-        var before = (g.items || []).length;
-        g.items = (g.items || []).filter(function(x){ return !isUS(x); });
-        removed += before - g.items.length;
-      });
-      ["portfolio", "alerts"].forEach(function(k){
-        var before = (o[k] || []).length;
-        o[k] = (o[k] || []).filter(function(x){ return !isUS(x); });
-        removed += before - o[k].length;
-      });
-      o.settings = o.settings || {};
-      ["td", "fh", "fx"].forEach(function(k){ delete o.settings[k]; });
-      o.v = 3;
-      if(removed) MIGRATE_MSG = "미국 주식 지원이 종료되어 " + removed + "종목이 제거되었습니다.";
-    }
-    /* v3 -> v4: 단일 포트폴리오를 "종합 주식 계좌" 로 옮긴다 (계좌별 보유 기록) */
-    if(!Array.isArray(o.accounts) || !o.accounts.length){
-      var pf = Array.isArray(o.portfolio) ? o.portfolio : [];
-      o.accounts = [{ id:"acc1", name:"종합 주식 계좌", items:pf.map(function(x){
-        return { mk:x.mk || "KR", code:x.code, name:x.name,
-                 qty:Number(x.qty) || 0, avg:Number(x.avg) || 0, memo:"" };
-      }) }];
-      o.acctSel = "acc1";
-      if(pf.length) console.info("보유 " + pf.length + "종목을 “종합 주식 계좌”로 옮겼습니다(v4).");
-    }
-    delete o.portfolio;                        // 합산 뷰(게터)로 대체됨
-    o.v = 4;
-    Object.keys(d).forEach(function(k){ if(o[k] === undefined) o[k] = d[k]; });
-    o.settings = o.settings || {};
-    Object.keys(d.settings).forEach(function(k){
-      if(o.settings[k] === undefined) o.settings[k] = d.settings[k];
-    });
-    return o;
+    return migrateState(JSON.parse(raw));
   }catch(e){
     console.warn("상태 복원 실패, 기본값 사용", e);
     return JSON.parse(JSON.stringify(DEFAULTS));
   }
+}
+/* 저장 상태 v1~v4 -> 현재(v4) 스키마. 저장소 복원(load)과 백업 가져오기(importJson)가 같이 쓴다.
+   인자 객체를 고쳐서 돌려준다 — 호출자가 사본을 넘길 것. */
+function migrateState(o){
+  var d = JSON.parse(JSON.stringify(DEFAULTS));
+  /* v1 -> v2 마이그레이션: 단일 watchlist 를 "기본" 그룹으로 옮긴다 */
+  if(!o.wlGroups){
+    o.wlGroups = [{ name:"기본", items:Array.isArray(o.watchlist) ? o.watchlist : [] }];
+    o.wlActive = 0;
+    delete o.watchlist;
+    o.v = 2;
+    console.info("관심종목을 그룹 스키마(v2)로 마이그레이션했습니다.");
+  }
+  /* v2 -> v3: 미국 주식 지원 종료. 남아 있는 미국 종목·설정을 제거하고 1회만 안내한다. */
+  if(!(o.v >= 3)){
+    var removed = 0;
+    var isUS = function(x){ return x && (x.mk === "US" || !/^[0-9][0-9A-Z]{5}$/.test(String(x.code || ""))); };
+    (o.wlGroups || []).forEach(function(g){
+      var before = (g.items || []).length;
+      g.items = (g.items || []).filter(function(x){ return !isUS(x); });
+      removed += before - g.items.length;
+    });
+    ["portfolio", "alerts"].forEach(function(k){
+      var before = (o[k] || []).length;
+      o[k] = (o[k] || []).filter(function(x){ return !isUS(x); });
+      removed += before - o[k].length;
+    });
+    o.settings = o.settings || {};
+    ["td", "fh", "fx"].forEach(function(k){ delete o.settings[k]; });
+    o.v = 3;
+    if(removed) MIGRATE_MSG = "미국 주식 지원이 종료되어 " + removed + "종목이 제거되었습니다.";
+  }
+  /* v3 -> v4: 단일 포트폴리오를 "종합 주식 계좌" 로 옮긴다 (계좌별 보유 기록) */
+  if(!Array.isArray(o.accounts) || !o.accounts.length){
+    var pf = Array.isArray(o.portfolio) ? o.portfolio : [];
+    o.accounts = [{ id:"acc1", name:"종합 주식 계좌", items:pf.map(function(x){
+      return { mk:x.mk || "KR", code:x.code, name:x.name,
+               qty:Number(x.qty) || 0, avg:Number(x.avg) || 0, memo:"" };
+    }) }];
+    o.acctSel = "acc1";
+    if(pf.length) console.info("보유 " + pf.length + "종목을 “종합 주식 계좌”로 옮겼습니다(v4).");
+  }
+  delete o.portfolio;                        // 합산 뷰(게터)로 대체됨
+  o.v = 4;
+  Object.keys(d).forEach(function(k){ if(o[k] === undefined) o[k] = d[k]; });
+  o.settings = o.settings || {};
+  Object.keys(d.settings).forEach(function(k){
+    if(o.settings[k] === undefined) o.settings[k] = d.settings[k];
+  });
+  return o;
 }
 function save(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }
@@ -243,20 +254,70 @@ function toast(msg, kind){
   }, 4200);
 }
 function kstNow(){ var n = new Date(); return new Date(n.getTime() + n.getTimezoneOffset()*60000 + 9*3600000); }
+/* KRX 휴장일 (평일만 적어 둔다 — 주말은 요일로 이미 걸러진다).
+   ※ 매년 갱신 필요: KRX 가 12월에 발표하는 다음 해 휴장일과 대조해 고칠 것.
+      대체공휴일·임시공휴일·선거일, 연말 휴장일(12-31)을 포함한다.
+   2027 메모: 제헌절(7-17)은 토요일이라 넣지 않았다 — 공휴일 재지정·대체 여부를 발표 후 확인.
+   네이버 응답의 장 상태(ms)가 있으면 그쪽이 우선이라 표가 틀려도 장중 판정은 곧 바로잡힌다. */
+const KRX_HOLIDAYS = {
+  /* 2026 */
+  "2026-12-25":"성탄절", "2026-12-31":"연말 휴장일",
+  /* 2027 */
+  "2027-01-01":"신정",
+  "2027-02-05":"설날 연휴", "2027-02-08":"설날 대체공휴일",
+  "2027-03-01":"삼일절",
+  "2027-05-05":"어린이날",
+  "2027-05-13":"부처님오신날",
+  "2027-08-16":"광복절 대체공휴일",
+  "2027-09-14":"추석", "2027-09-15":"추석", "2027-09-16":"추석",
+  "2027-10-04":"개천절 대체공휴일",
+  "2027-10-11":"한글날 대체공휴일",
+  "2027-12-27":"성탄절 대체공휴일",
+  "2027-12-31":"연말 휴장일"
+};
+function kstYmd(k){
+  var p = function(n){ return (n<10?"0":"") + n; };
+  return k.getFullYear() + "-" + p(k.getMonth()+1) + "-" + p(k.getDate());
+}
+/* k: kstNow() 형식 Date. 주말 또는 KRX 휴장일이면 휴장명(문자열), 아니면 "" */
+function krxClosedDay(k){
+  var day = k.getDay();
+  if(day === 0 || day === 6) return "주말";
+  return KRX_HOLIDAYS[kstYmd(k)] || "";
+}
+/* 네이버 실시간 응답의 지수 장 상태 — naverRealtime() 이 SERVICE_INDEX 를 받을 때마다 기록한다.
+   실측 값: "OPEN" / "CLOSE" (휴장일 평일 장중에도 "CLOSE") */
+let MKT_MS = null;     // { ms, ymd, hm, at }
+function noteMarketState(ms){
+  if(!ms) return;
+  var k = kstNow();
+  MKT_MS = { ms:String(ms), ymd:kstYmd(k), hm:k.getHours()*60 + k.getMinutes(), at:Date.now() };
+}
 function marketOpen(){
-  var k = kstNow(), day = k.getDay(), hm = k.getHours()*60 + k.getMinutes();
-  return { kr: day >= 1 && day <= 5 && hm >= 540 && hm <= 930 };   // 09:00~15:30 KST
+  var k = kstNow(), hm = k.getHours()*60 + k.getMinutes();
+  var hol = krxClosedDay(k);
+  var inHours = hm >= 540 && hm <= 930;                      // 09:00~15:30 KST
+  var kr = inHours && !hol;
+  /* 장중 시각(09:05 이후)에 받은 최근 15분 내 응답이 있으면 그 상태를 따른다.
+     — 표에 없는 임시 휴장도 잡고, 표가 틀린 날도 실제 개장이면 개장으로 본다.
+     장 시작 직후에는 직전(장 전) 응답이 CLOSE 일 수 있어 09:05 전 응답은 무시한다. */
+  if(inHours && hol !== "주말" && MKT_MS && MKT_MS.ymd === kstYmd(k) &&
+     MKT_MS.hm >= 545 && Date.now() - MKT_MS.at < 15*60000){
+    kr = MKT_MS.ms !== "CLOSE";
+    if(!kr && !hol) hol = "휴장";
+  }
+  return { kr:kr, holiday:(hol && hol !== "주말") ? hol : "" };
 }
 /* kstNow() 로 만든 '가짜 KST 로컬' Date 를 실제 epoch 로 되돌린다 */
 function kstToEpoch(d){
   return d.getTime() - new Date().getTimezoneOffset()*60000 - 9*3600000;
 }
-/* 가장 최근 정규장 마감(평일 15:30 KST) 시각의 epoch */
+/* 가장 최근 정규장 마감(거래일 15:30 KST) 시각의 epoch — 주말·KRX 휴장일은 건너뛴다 */
 function lastMarketCloseEpoch(){
   var now = kstNow(), d = kstNow();
   d.setHours(15, 30, 0, 0);
-  if(now < d) d.setDate(d.getDate() - 1);
-  while(d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  if(now < d || krxClosedDay(d)) d.setDate(d.getDate() - 1);
+  for(var i=0;i<14 && krxClosedDay(d);i++) d.setDate(d.getDate() - 1);
   return kstToEpoch(d);
 }
 
@@ -303,13 +364,31 @@ const JSONP = (function(){
 })();
 
 let failStreak = 0;
-function noteOk(){ failStreak = 0; }
+let lastQuoteOk = 0;          // 마지막 시세 수신 성공 시각 (epoch)
+function noteOk(){
+  failStreak = 0; lastQuoteOk = Date.now();
+  syncQuoteStatus();
+}
 function noteFail(){
   failStreak++;
+  syncQuoteStatus();
   if(failStreak >= 3 && S.auto){
     S.auto = false; save(); syncAutoBtn(); stopTimer();
     toast("네트워크 오류가 반복되어 자동갱신을 일시 중지했습니다.", "err");
   }
+}
+/* 헤더의 "시세 지연" 표시 — 실패가 이어지는 동안만 보이고 다음 성공 때 사라진다 */
+function syncQuoteStatus(){
+  var el = document.getElementById("qStat");
+  if(!el) return;
+  if(!failStreak){ el.classList.add("hide"); el.textContent = ""; el.removeAttribute("title"); return; }
+  var last = lastQuoteOk
+    ? new Date(lastQuoteOk).toLocaleTimeString("ko-KR", { hour12:false, hour:"2-digit", minute:"2-digit" })
+    : "";
+  el.innerHTML = "시세 지연" + (last ? '<span class="qt"> · 마지막 수신 ' + esc(last) + "</span>" : "");
+  el.title = "시세 요청이 " + failStreak + "회 연속 실패했습니다" +
+    (last ? " (마지막 성공 " + last + ")" : "") + ". 네트워크 상태를 확인하세요.";
+  el.classList.remove("hide");
 }
 
 /* ===================== 네이버 API ===================== */
@@ -328,6 +407,8 @@ function naverRealtime(codes, withIndex){
         if(a.name === "SERVICE_INDEX") out.index[d.cd] = d; else out.items[d.cd] = d;
       });
     });
+    if(out.index.KOSPI) noteMarketState(out.index.KOSPI.ms);   // 휴장 판정용 장 상태
+    else if(out.index.KOSDAQ) noteMarketState(out.index.KOSDAQ.ms);
     return out;
   });
 }

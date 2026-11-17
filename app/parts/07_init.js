@@ -110,7 +110,7 @@ function buildNameLookup(){
     var n = s.replace(/\s/g, "");
     if(norm[n] === undefined) norm[n] = { code:code, mk:mk };
   }
-  UNIVERSE.forEach(function(u){ add(u.name, u.code, u.market === "US" ? "US" : "KR"); });
+  UNIVERSE.forEach(function(u){ add(u.name, u.code, "KR"); });
   allWL().concat(S.portfolio).forEach(function(x){ add(x.name, x.code, x.mk); });
   return function(name){
     if(!name) return null;
@@ -206,11 +206,15 @@ function renderImportPreview(){
   $("#impFixWrap").classList.toggle("hide", !un.length);
   $("#impFix").innerHTML = un.slice(0, 20).map(function(r){
     return '<div class="impfix"><span class="nm">' + esc(r.name || "(이름없음)") + '</span>' +
-      '<input type="text" data-nm="' + esc(r.name) + '" placeholder="005930 또는 AAPL"></div>';
+      '<input type="text" data-nm="' + esc(r.name) + '" placeholder="6자리 코드 (예: 005930)" maxlength="12"></div>';
   }).join("");
   $$("#impFix input").forEach(function(inp){
     inp.onchange = function(){
       var v = inp.value.trim();
+      if(v && !impIsCode(v)){                  // 국내 6자리 코드만 받는다 (미국 주식 지원 종료)
+        toast("종목코드는 6자리로 입력하세요 (예: 005930).", "err");
+        return;
+      }
       if(v) IMP.fix[inp.dataset.nm] = v; else delete IMP.fix[inp.dataset.nm];
       renderImportPreview();
     };
@@ -225,10 +229,7 @@ function importResolved(){
   return IMP.parsed.rows.map(function(r){
     var code = r.code, mk = r.mk;
     var f = IMP.fix[r.name];
-    if(!code && f){
-      if(impIsCode(f)){ code = impCode(f); mk = "KR"; }
-      else { code = f.toUpperCase(); mk = "US"; }
-    }
+    if(!code && f && impIsCode(f)){ code = impCode(f); mk = "KR"; }
     return code ? { mk:mk, code:code, name:r.name || code, qty:r.qty, avg:r.avg } : null;
   }).filter(Boolean);
 }
@@ -321,9 +322,34 @@ function initImport(){
 }
 
 /* ---------- 탭 / 테마 / 타이머 ---------- */
+/* 지연 렌더: 숨은 탭의 큰 표(리포트 최대 500행·스크리너 최대 300행)는 처음 열 때 그린다.
+   - 스크리너: applyFilter() 가 탭이 닫혀 있으면 scrDirty 만 세운다 (06_screener.js).
+   - 리포트: 09_reports.js 는 건드리지 않고 전역 rpRender 를 아래 rpLazyHook() 으로 감싼다.
+     리포트 탭이 아닐 때 rpRender() 호출은 rpDirty 만 세우고 건너뛰며, showTab("rep") 이 그린다.
+     rpRenderToday()(대시보드 "오늘의 리포트")·rpRenderAnal()·rpAnnotate() 는 감싸지 않으므로 그대로 동작한다. */
+let rpDirty = false, rpDirtyReset = false;
+function rpLazyHook(){
+  var rpRenderNow = rpRender;
+  rpRender = function(keepLimit){
+    if(curTab !== "rep"){
+      rpDirty = true;
+      if(!keepLimit) rpDirtyReset = true;        // 보류 중 필터가 바뀌었으면 열 때 행 수를 처음으로
+      return;
+    }
+    var keep = keepLimit && !rpDirtyReset;
+    rpDirty = false; rpDirtyReset = false;
+    return rpRenderNow(keep);
+  };
+}
 function showTab(id){
+  if(!document.getElementById("tab-" + id)) return;
   curTab = id;
-  $$("nav.tabs button").forEach(function(b){ b.classList.toggle("act", b.dataset.tab === id); });
+  $$("nav.tabs button").forEach(function(b){
+    var on = b.dataset.tab === id;
+    b.classList.toggle("act", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+  });
   $$(".tab").forEach(function(t){ t.classList.toggle("act", t.id === "tab-" + id); });
   if(id === "anal" && AN.sel) setTimeout(drawChart, 20);
   if(id === "dash") setTimeout(function(){
@@ -333,8 +359,28 @@ function showTab(id){
   }, 20);
   if(id === "acct") setTimeout(function(){ renderAccounts(); refreshAll(); }, 20);
   if(id === "cmp" && !CMP.sel && AN.sel) selectCompany(AN.sel);
-  if(id === "scr" && scrView === "tree") setTimeout(function(){ renderScrTree(lastList); }, 20);
-  if(id === "rep") setTimeout(function(){ rpRender(true); refreshAll(); }, 20);
+  if(id === "scr") setTimeout(function(){
+    if(curTab !== "scr") return;
+    if(scrDirty) applyFilter();
+    else if(scrView === "tree") renderScrTree(lastList);
+  }, 20);
+  if(id === "rep"){ myRepMarkSeen(); setTimeout(function(){ rpRender(true); refreshAll(); }, 20); }
+  if(id === "alr"){ renderAlerts(); mrSyncCfgUI(); }
+}
+/* 탭 키보드 이동 (WAI-ARIA tabs 패턴: ←/→ 이동, Home/End 처음·끝, 이동 즉시 전환) */
+function onTabKey(e){
+  var tabs = $$("nav.tabs button[role=tab]");
+  var i = tabs.indexOf(e.target);
+  if(i < 0) return;
+  var j = -1;
+  if(e.key === "ArrowRight") j = (i + 1) % tabs.length;
+  else if(e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
+  else if(e.key === "Home") j = 0;
+  else if(e.key === "End") j = tabs.length - 1;
+  if(j < 0) return;
+  e.preventDefault();
+  tabs[j].focus();
+  showTab(tabs[j].dataset.tab);
 }
 function applyTheme(){
   document.documentElement.setAttribute("data-theme", S.theme);
@@ -343,9 +389,10 @@ function applyTheme(){
   renderLegend();
   renderWatchlist();
   if(TMAP_LOADED) renderTreemap();
-  if(scrView === "tree") renderScrTree(lastList);
+  if(curTab !== "scr") scrDirty = true;          // 열 때 새 색으로 다시 그린다
+  else if(scrView === "tree") renderScrTree(lastList);
   else if(scrView === "chart") renderScrChart(lastList);
-  if(RP_READY) rpRender(true);                   // 리포트 히트맵·괴리율 배경색 재계산
+  if(RP_READY) rpRender(true);                   // 리포트 히트맵·괴리율 배경색 재계산 (닫혀 있으면 보류)
   if(AN.sel) drawChart();
   var cf = $("#calFrame");                       // 캘린더 위젯도 테마를 따라간다
   if(cf && cf.src) cf.src = calendarUrl();
@@ -389,18 +436,95 @@ function exportJson(){
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
   toast("설정을 JSON으로 내보냈습니다.", "ok");
 }
+/* 전체 백업 파일 검사. 문제가 있으면 사용자에게 보일 한국어 사유를, 없으면 "" 를 돌려준다. */
+function backupProblem(o){
+  if(!o || typeof o !== "object" || Array.isArray(o)) return "백업 파일 형식이 아닙니다 (JSON 객체가 아님).";
+  if(o.type === "stock-helper-accounts")
+    return "계좌 전용 백업 파일입니다. 계좌 탭의 ‘JSON 가져오기’를 사용하세요.";
+  if(o.v !== undefined && !(typeof o.v === "number" && o.v >= 1 && o.v <= DEFAULTS.v && Math.floor(o.v) === o.v))
+    return (typeof o.v === "number" && o.v > DEFAULTS.v)
+      ? "더 최신 버전의 앱에서 만든 백업입니다 (v" + o.v + "). 앱을 새로고침해 최신으로 받은 뒤 다시 시도하세요."
+      : "알 수 없는 백업 버전입니다 (v=" + String(o.v).slice(0, 20) + ").";
+  var known = ["wlGroups","watchlist","accounts","portfolio","alerts","settings","screens"];
+  if(!known.some(function(k){ return o[k] !== undefined; }))
+    return "이 앱의 백업 파일이 아닙니다 (관심종목·계좌·설정 항목이 없음).";
+  var arrs = ["wlGroups","watchlist","accounts","portfolio","alerts","alertLog","screens"];
+  for(var i=0;i<arrs.length;i++){
+    if(o[arrs[i]] !== undefined && !Array.isArray(o[arrs[i]])) return "‘" + arrs[i] + "’ 항목이 목록 형식이 아닙니다.";
+  }
+  if(o.cols !== undefined && o.cols !== null && !Array.isArray(o.cols)) return "‘cols’ 항목 형식이 잘못되었습니다.";
+  if(o.settings !== undefined && (!o.settings || typeof o.settings !== "object" || Array.isArray(o.settings)))
+    return "‘settings’ 항목 형식이 잘못되었습니다.";
+  if(o.settings && o.settings.iv !== undefined && !isFinite(Number(o.settings.iv)))
+    return "자동갱신 주기 값이 숫자가 아닙니다.";
+  ["theme","acctSel"].forEach(function(k){ if(o[k] !== undefined && typeof o[k] !== "string") o[k] = undefined; });
+  var isObj = function(x){ return x && typeof x === "object" && !Array.isArray(x); };
+  var okItem = function(x){ return isObj(x) && (typeof x.code === "string" || typeof x.code === "number"); };
+  var bad = "";
+  (o.wlGroups || []).forEach(function(g, gi){
+    if(bad) return;
+    if(!isObj(g)) bad = "관심종목 그룹 " + (gi+1) + "번 형식이 잘못되었습니다.";
+    else if(g.items !== undefined && !Array.isArray(g.items)) bad = "관심종목 그룹 “" + String(g.name || gi+1) + "”의 종목 목록이 잘못되었습니다.";
+    else if((g.items || []).some(function(x){ return !okItem(x); })) bad = "관심종목 그룹 “" + String(g.name || gi+1) + "”에 종목코드가 없는 항목이 있습니다.";
+  });
+  if(bad) return bad;
+  ["watchlist","portfolio","alerts"].forEach(function(k){
+    if(!bad && (o[k] || []).some(function(x){ return !okItem(x); })) bad = "‘" + k + "’에 종목코드가 없는 항목이 있습니다.";
+  });
+  if(bad) return bad;
+  (o.accounts || []).forEach(function(a, ai){
+    if(bad) return;
+    if(!isObj(a)) bad = "계좌 " + (ai+1) + "번 형식이 잘못되었습니다.";
+    else if(a.items !== undefined && !Array.isArray(a.items)) bad = "계좌 “" + String(a.name || ai+1) + "”의 보유 목록이 잘못되었습니다.";
+    else (a.items || []).forEach(function(x){
+      if(bad) return;
+      if(!okItem(x)) bad = "계좌 “" + String(a.name || ai+1) + "”에 종목코드가 없는 항목이 있습니다.";
+      else if((x.qty !== undefined && x.qty !== "" && !isFinite(Number(x.qty))) ||
+              (x.avg !== undefined && x.avg !== "" && !isFinite(Number(x.avg))))
+        bad = "계좌 “" + String(a.name || ai+1) + "”의 " + String(x.name || x.code) + " 수량·평단가가 숫자가 아닙니다.";
+    });
+  });
+  if(bad) return bad;
+  (o.alerts || []).forEach(function(a){
+    if(!bad && (!COND_LABEL[a.cond] || !isFinite(Number(a.val)))) bad = "알림 규칙 형식이 잘못되었습니다 (" + String(a.name || a.code) + ").";
+  });
+  return bad;
+}
 function importJson(file){
   var fr = new FileReader();
   fr.onload = function(){
+    var o;
+    try{ o = JSON.parse(fr.result); }
+    catch(e){ toast("가져오기 실패: JSON 파일을 읽을 수 없습니다.", "err"); return; }
+    var why = backupProblem(o);
+    if(why){ toast("가져오기 실패: " + why + " 기존 데이터는 그대로입니다.", "err"); return; }
+    var next;
     try{
-      var o = JSON.parse(fr.result);
-      if(!o || typeof o !== "object") throw new Error("형식 오류");
-      S = o;
-      Object.keys(DEFAULTS).forEach(function(k){ if(S[k] === undefined) S[k] = DEFAULTS[k]; });
-      bindPortfolioView(S);
-      save(); location.reload();
-    }catch(e){ toast("가져오기 실패: " + e.message, "err"); }
+      var prevMsg = MIGRATE_MSG;
+      next = migrateState(JSON.parse(JSON.stringify(o)));   // 사본으로 v1~v4 마이그레이션
+      MIGRATE_MSG = prevMsg;
+      /* 계좌는 계좌 백업과 같은 정규화를 거친다 (id 중복·숫자 문자열 정리) */
+      next.accounts = acctNormalize(next.accounts) || [];
+      if(!next.accounts.length) next.accounts = JSON.parse(JSON.stringify(DEFAULTS.accounts));
+      if(!next.accounts.some(function(a){ return a.id === next.acctSel; })) next.acctSel = next.accounts[0].id;
+      next.alerts.forEach(function(a){ a.val = Number(a.val); a.code = String(a.code); a.mk = "KR"; });
+      next.wlGroups.forEach(function(g){
+        g.name = String(g.name || "그룹");
+        g.items = (g.items || []).map(function(x){ return { mk:"KR", code:String(x.code), name:String(x.name || x.code) }; });
+      });
+      if(!(next.wlActive >= 0 && next.wlActive < next.wlGroups.length)) next.wlActive = 0;
+      next.settings.iv = Math.max(20, Number(next.settings.iv) || 60);
+      if(next.theme !== "light") next.theme = "dark";
+    }catch(e){
+      console.warn("백업 변환 실패", e);
+      toast("가져오기 실패: 백업 내용을 현재 형식으로 바꾸지 못했습니다. 기존 데이터는 그대로입니다.", "err");
+      return;
+    }
+    S = next;
+    bindPortfolioView(S);
+    save(); location.reload();
   };
+  fr.onerror = function(){ toast("파일을 읽지 못했습니다.", "err"); };
   fr.readAsText(file);
 }
 
@@ -408,7 +532,7 @@ function importJson(file){
 function init(){
   applyTheme(); syncAutoBtn(); renderMaLegend(); renderMarket();
   buildFilterUI(); buildPresetBtns(); buildColPicker(); renderScreens();
-  renderWatchlist(); renderPortfolio(); renderAccounts(); renderAlerts(); syncNotiState();
+  renderWatchlist(); renderPortfolio(); renderAccounts(); syncNotiState();   // 알림 표는 탭을 열 때 그린다
 
   initTmapEvents($("#tmap"));
   initTmapEvents($("#scrTmap"));
@@ -418,7 +542,9 @@ function init(){
   initHover();
   initImport();
   initAccounts();
+  rpLazyHook();                                   // 리포트 표는 리포트 탭을 처음 열 때 그린다
   rpInit();                                       // 증권사 리포트 (데이터는 백그라운드 적재)
+  repxInit();                                     // 내 종목 리포트·성적표·산업·시황 (11_repx.js)
   setupSearch("#srchCmp", function(it){ selectCompany(it); });
 
   /* 헤더 지수 클릭 → 지수 차트 */
@@ -488,6 +614,7 @@ function init(){
   syncAutoScan();
 
   $$("nav.tabs button").forEach(function(b){ b.onclick = function(){ showTab(b.dataset.tab); }; });
+  $("nav.tabs").addEventListener("keydown", onTabKey);
 
   $("#btnRefresh").onclick = function(){ failStreak = 0; refreshAll(); };
   $("#btnAuto").onclick = function(){
@@ -658,7 +785,7 @@ function init(){
     rt = setTimeout(function(){
       if(AN.sel) drawChart();
       if(TMAP_LOADED) renderTreemap();
-      if(scrView === "tree") renderScrTree(lastList);
+      if(scrView === "tree"){ if(curTab === "scr") renderScrTree(lastList); else scrDirty = true; }
       if(RP_READY && curTab === "rep") rpRender(true);
       renderWatchlist();
     }, 160);
@@ -670,6 +797,21 @@ function init(){
   renderDisclosures();
   if(S.auto) startTimer();
   setInterval(renderMarket, 30000);
+  registerSW();
+}
+
+/* 서비스 워커 (오프라인·캐시). https 또는 localhost 에서만 — file:// 에서는 등록하지 않는다 */
+function registerSW(){
+  if(!("serviceWorker" in navigator)) return;
+  var h = location.hostname;
+  var local = h === "localhost" || h === "127.0.0.1" || h === "[::1]" || /\.localhost$/.test(h);
+  if(location.protocol !== "https:" && !(location.protocol === "http:" && local)) return;
+  var go = function(){
+    navigator.serviceWorker.register("sw.js").catch(function(e){
+      console.warn("서비스 워커 등록 실패:", e && e.message ? e.message : e);
+    });
+  };
+  if(document.readyState === "complete") go(); else window.addEventListener("load", go);
 }
 
 if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

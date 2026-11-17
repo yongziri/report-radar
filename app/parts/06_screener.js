@@ -220,10 +220,14 @@ function sortList(list){
   });
 }
 
+/* 스크리너 탭이 닫혀 있으면 목록만 계산하고 DOM(최대 300행)은 탭을 열 때 그린다 — showTab 참조 */
+let scrDirty = false;
 function applyFilter(){
   rpAnnotate(SCREEN);                       // 리포트(1M)·컨센 괴리율 컬럼 값 채우기
   var list = sortList(SCREEN.filter(statFilter).filter(passFilter));
   lastList = list;
+  if(curTab !== "scr"){ scrDirty = true; renderScrSum(list); return; }
+  scrDirty = false;
   renderScrHead();
   if(scrView === "table") renderScreen(list);
   else if(scrView === "tree") renderScrTree(list);
@@ -310,6 +314,7 @@ function renderScreen(list){
       }).join("") + '<td class="c"></td>';
     var b = document.createElement("button");
     b.className = "btn xs"; b.textContent = "+"; b.title = "관심종목 추가";
+    b.setAttribute("aria-label", q.name + " 관심종목 추가");
     b.onclick = function(ev){ ev.stopPropagation(); addWatch({ mk:"KR", code:q.code, name:q.name }); };
     tr.lastChild.appendChild(b);
     tr.onclick = function(ev){
