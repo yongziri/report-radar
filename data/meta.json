@@ -1,9 +1,10 @@
 {
-"updated_at": "2026-11-18T10:18:58+09:00",
-"count": 5815,
+"updated_at": "2026-11-18T10:21:16+09:00",
+"count": 7015,
 "latest_date": "2026-11-18",
 "brokers": [
 "BNK투자증권",
+"DB증권",
 "DS투자증권",
 "IBK투자증권",
 "KB증권",
@@ -13,57 +14,63 @@
 "SK증권",
 "iM증권",
 "교보증권",
+"다올투자증권",
 "대신증권",
+"리딩투자증권",
 "메리츠증권",
 "미래에셋증권",
+"부국증권",
 "삼성증권",
 "상상인증권",
 "서울평가정보",
 "신한투자증권",
 "유안타증권",
 "유진투자증권",
+"유화증권",
 "키움증권",
 "하나증권",
 "한국IR협의회",
 "한국투자증권",
+"한양증권",
 "한화투자증권",
-"현대차증권"
+"현대차증권",
+"흥국증권"
 ],
 "source_status": {
 "naver": {
 "last_date": "2026-11-18",
-"new_run": 31,
+"new_run": 0,
 "total": 3829
 },
 "hankyung": {
 "last_date": "2026-11-18",
-"new_run": 1,
+"new_run": 0,
 "total": 534,
 "fetched_last_date": "2026-11-18"
 },
 "kb": {
 "last_date": "2026-11-18",
-"new_run": 1,
+"new_run": 0,
 "total": 500
 },
 "nh": {
 "last_date": "2026-11-18",
-"new_run": 1,
+"new_run": 0,
 "total": 373
 },
 "kis": {
 "last_date": "2026-11-18",
-"new_run": 1,
+"new_run": 0,
 "total": 317
 },
 "thinkpool": {
 "last_date": "2026-11-18",
-"new_run": 2,
-"total": 2,
-"fetched_at": "2026-11-18T10:18:58+09:00",
+"new_run": 1200,
+"total": 1202,
+"fetched_at": "2026-11-18T10:21:16+09:00",
 "fetched_last_date": "2026-11-18",
-"fetched_last_id": 569015,
-"tried_at": "2026-11-18T10:18:58+09:00"
+"fetched_last_id": 569016,
+"tried_at": "2026-11-18T10:21:16+09:00"
 },
 "im": {
 "last_date": "2026-11-17",
@@ -92,15 +99,15 @@
 "months": [
 {
 "month": "2026-11",
-"count": 1423,
-"v": "37b3c0acc1",
-"sv": "899ad8b06b"
+"count": 2335,
+"v": "37fe0710c2",
+"sv": "3e7f99a820"
 },
 {
 "month": "2026-10",
-"count": 1549,
-"v": "6452bdc748",
-"sv": "7cebdc5609"
+"count": 1837,
+"v": "cf708e7c9b",
+"sv": "48e7d682cd"
 },
 {
 "month": "2026-09",
@@ -121,7 +128,7 @@
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "43a4750376",
+"prices_v": "b5f455a065",
 "perf_v": "1871f649bc",
 "industry_months": [
 {
