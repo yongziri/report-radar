@@ -4,6 +4,7 @@
 테스트(test_parsers.py)는 픽스처 문자열만으로 이 파일을 검증한다.
 """
 
+import datetime
 import re
 from html import unescape as _unescape
 from urllib.parse import quote
@@ -755,6 +756,117 @@ def wise_page_info(payload):
     if not isinstance(payload, dict):
         return None, None, None
     return to_int(payload.get("cp")), to_int(payload.get("tp")), to_int(payload.get("tc"))
+
+
+# ------------------------------------------------ 씽크풀 (api.thinkpool.com) 파서
+
+# 2026-11-18 실측: allReport?pno=N 응답은 {"totalCount", "todayDate": "2026.11.18", "list": [...]},
+# 한 페이지 20건. 행: rcpNo(정수 id), date('11/18', 연도 없음), stockCode, stockName, price·ratio
+# (조회 시점 현재가·등락률이라 쓰지 않음), targetPrice(없으면 키가 없음), targetChange('하향' 등, 가끔),
+# subject(제목), opinion, compName(증권사), past·delay(불린, 뜻 불명이라 쓰지 않음), cont(요약).
+# PDF·애널리스트·공개 리포트 주소가 없다 → pdf·url·analyst는 null.
+
+# 씽크풀이 옛 사명으로 내려주는 증권사를 보관 중인 현재 사명으로 맞춘다.
+THINKPOOL_BROKER_ALIASES = {
+    "하나금융투자": "하나증권",
+    "이베스트투자증권": "LS증권",
+    "이베스트증권": "LS증권",
+    "하이투자증권": "iM증권",
+    "메리츠종금증권": "메리츠증권",
+    "신한금융투자": "신한투자증권",
+    "KTB투자증권": "다올투자증권",
+    "DB금융투자": "DB증권",
+}
+
+
+def thinkpool_broker(name):
+    """씽크풀 증권사명 -> 보관 레코드에서 쓰는 이름. 공백을 줄이고 옛 사명은 현재 사명으로."""
+    s = _WS.sub(" ", str(name or "").strip())
+    return THINKPOOL_BROKER_ALIASES.get(s.replace(" ", ""), THINKPOOL_BROKER_ALIASES.get(s, s))
+
+
+def thinkpool_today(payload):
+    """응답의 todayDate('2026.11.18') -> date. 없거나 깨졌으면 None."""
+    if not isinstance(payload, dict):
+        return None
+    iso = normalize_date(payload.get("todayDate"))
+    try:
+        return datetime.date.fromisoformat(iso) if iso else None
+    except ValueError:
+        return None
+
+
+def infer_year_date(value, anchor):
+    """연도 없는 'MM/DD'를 anchor(date) 기준 미래가 아닌 가장 최근 날짜로. 'YYYY-MM-DD' 또는 None.
+
+    연도가 들어 있으면('2026.11.18', '26/11/18') 그 값을 쓴다. 12월 날짜를 1월에 읽으면 전년도다.
+    2월 29일처럼 그해에 없는 날은 그 날이 있는 직전 해로 간다(최대 8년).
+    """
+    s = str(value or "").strip()
+    full = normalize_date(s)
+    if full:
+        return full
+    m = re.fullmatch(r"(\d{1,2})[./\-](\d{1,2})\.?", s)
+    if not m or anchor is None:
+        return None
+    mo, d = int(m.group(1)), int(m.group(2))
+    for year in range(anchor.year, anchor.year - 9, -1):
+        try:
+            cand = datetime.date(year, mo, d)
+        except ValueError:
+            continue
+        if cand <= anchor:
+            return cand.isoformat()
+    return None
+
+
+def parse_thinkpool_list(payload, today=None):
+    """씽크풀 allReport 응답 -> 레코드 리스트.
+
+    연도 추정 기준일은 응답의 todayDate, 없으면 today(date). 종목코드가 올바르지 않은 행
+    (산업·시황 등)과 증권사·제목·날짜가 빈 행은 버린다.
+    """
+    rows = []
+    items = payload.get("list") if isinstance(payload, dict) else None
+    anchor = thinkpool_today(payload) or today
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        rid = str(it.get("rcpNo") or "").strip()
+        code = str(it.get("stockCode") or "").strip().upper()
+        broker = thinkpool_broker(it.get("compName"))
+        if not rid or not is_stock_code(code) or not broker:
+            continue
+        date = infer_year_date(it.get("date"), anchor)
+        title = _WS.sub(" ", str(it.get("subject") or "").strip())
+        if not date or not title:
+            continue
+        summary = clean_summary(_html_to_text(it.get("cont")))
+        rows.append({
+            "id": "thinkpool:%s" % rid,
+            "source": "thinkpool",
+            "code": code,
+            "name": str(it.get("stockName") or "").strip() or None,
+            "title": title,
+            "broker": broker,
+            "analyst": None,
+            "date": date,
+            "target": positive_int(it.get("targetPrice")),
+            "rating_raw": str(it.get("opinion") or "").strip() or None,
+            "pdf": None,
+            "url": None,
+            "summary": summary[:600] if summary else None,
+            "views": None,
+        })
+    return rows
+
+
+def thinkpool_rcp_no(rec_id):
+    """'thinkpool:569000' -> 569000. 아니면 None."""
+    s = str(rec_id or "")
+    if not s.startswith("thinkpool:"):
+        return None
+    return to_int(s.split(":", 1)[1])
 
 
 # ------------------------------- 증권사 직접 수집 2차 (iM·BNK·상상인) 파서

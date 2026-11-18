@@ -245,7 +245,7 @@ function mrRender(){
           esc(rpName(r.code, r.name)) + "</a>" +
           (link ? ' <a class="rnav" href="' + esc(link) + '" target="_blank" rel="noopener" title="' +
                   esc(r.title || "원문") + (r.pdf ? "" : " (원문 페이지)") + '">' +
-                  (!r.pdf && r.source === "wise" ? "와이즈↗" : "원문↗") + "</a>" : "") + "</td>" +
+                  (rpSrcHint(r) ? (RP_SRC_LABEL[r.source] || r.source) + "↗" : "원문↗") + "</a>" : "") + "</td>" +
         '<td class="l">' + esc(r.broker || "") + "</td>" +
         '<td class="c">' + rpBadgeOf(r) + "</td>" +
         "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +

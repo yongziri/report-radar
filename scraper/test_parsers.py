@@ -2010,11 +2010,11 @@ class SourceFailureTest(unittest.TestCase):
     def test_never_seen_is_warning(self):
         from check_sources import alert_lines
         status = {"naver": {"last_date": "2026-11-13"},
-                  "wise": {"last_date": None, "fetched_at": None, "fetched_last_date": None,
-                           "error": "ConnectTimeout", "tried_at": "2026-11-16T09:00:00+09:00"},
+                  "thinkpool": {"last_date": None, "fetched_at": None, "fetched_last_date": None,
+                                "error": "ConnectTimeout", "tried_at": "2026-11-16T09:00:00+09:00"},
                   "bnk": {"last_date": None, "fetched_last_date": None}}
         bad = stale_sources(status, self.MONDAY)
-        self.assertEqual(sorted(b["source"] for b in bad), ["bnk", "wise"])
+        self.assertEqual(sorted(b["source"] for b in bad), ["bnk", "thinkpool"])
         lines, failed = alert_lines(bad, status)
         self.assertFalse(failed)
         self.assertTrue(all(l.startswith("::warning::") for l in lines))
@@ -2023,12 +2023,12 @@ class SourceFailureTest(unittest.TestCase):
     def test_seen_then_stalled_still_fails(self):
         from check_sources import alert_lines
         # fetched_last_date 만 있어도 "날짜를 얻은 적 있음"
-        status = {"wise": {"last_date": None, "fetched_last_date": "2026-11-11"},
+        status = {"kb": {"last_date": None, "fetched_last_date": "2026-11-11"},
                   "bnk": {"last_date": "2026-11-06"}}
         bad = stale_sources(status, self.MONDAY)
         lines, failed = alert_lines(bad, status)
         self.assertTrue(failed)
-        self.assertEqual([l.split("::")[1] for l in lines], ["error", "warning"])  # wise, bnk(보조)
+        self.assertEqual([l.split("::")[1] for l in lines], ["error", "warning"])  # kb, bnk(보조)
 
     def test_error_reason(self):
         import requests
@@ -2124,6 +2124,337 @@ class SourceFailureTest(unittest.TestCase):
                                   tried_at="2026-11-16T09:00:00+09:00"))
         self.assertTrue(wise_due("2026-11-16T08:00:00+09:00", now,
                                  tried_at="2026-11-16T08:00:00+09:00"))
+
+
+# ------------------------------------------------------- 씽크풀 (api.thinkpool.com)
+
+# allReport?pno=1 실측(2026-11-18) 응답에서 네 행을 골라 cont 를 줄인 것. 마지막 행은 종목코드가
+# 없는 꼴을 보려고 만든 행이다(실측 1페이지에는 없었다).
+THINKPOOL_PAYLOAD = {
+    "totalCount": 437962,
+    "todayDate": "2026.11.18",
+    "list": [
+        {"rcpNo": 568999, "date": "11/18", "stockCode": "099320", "stockName": "쎄트렉아이",
+         "price": 61100, "ratio": 3.04, "targetPrice": 100000, "subject": "숫자로 설명되는 구간",
+         "opinion": "매수(유지)", "compName": "신한투자증권", "past": False, "delay": True,
+         "cont": "3분기 영업이익이 컨센서스를 상회하며 원가율이 정상화되었다."},
+        {"rcpNo": 568998, "date": "11/18", "stockCode": "332570", "stockName": "PS일렉트로닉스",
+         "price": 6630, "ratio": 9.77, "subject": "서버는 증명했고, 본업은 턴",
+         "opinion": "Not Rated", "compName": "신한투자증권", "past": False, "delay": True,
+         "cont": "AI 투자에 대한 시장의 우려와 달리 현장의 서버 수급은 오히려 더 타이트하다."},
+        {"rcpNo": 568987, "date": "11/18", "stockCode": "068270", "stockName": "셀트리온",
+         "price": 210000, "ratio": -1.41, "targetPrice": 310000, "subject": "혼란한 시장 속에 듬직한 회사",
+         "opinion": "BUY(신규)", "compName": "하나증권", "past": False, "delay": True,
+         "cont": "3Q26까지 약속한 성장세 보이는 중, 미국 매출 상승세 뚜렷."},
+        {"rcpNo": 568981, "date": "11/18", "stockCode": "365340", "stockName": "성일하이텍",
+         "price": 23850, "ratio": -0.42, "targetPrice": 27000, "subject": "가동률 정상화, 이제는 원가의 차례",
+         "opinion": "Trading Buy", "compName": "IBK투자증권", "past": False, "delay": True,
+         "cont": "26년 3분기, 판매량 확대에도 원가 부담으로 적자전환."},
+        {"rcpNo": 568900, "date": "11/17", "stockCode": "", "stockName": "반도체",
+         "subject": "업종 코멘트", "opinion": "", "compName": "KB증권", "past": False, "delay": True,
+         "cont": ""},
+    ],
+}
+
+
+def _tp_payload(rows, today="2026.11.18"):
+    return {"totalCount": 1, "todayDate": today, "list": rows}
+
+
+def _tp_row(no, day, **kw):
+    row = {"rcpNo": no, "date": day, "stockCode": "099320", "stockName": "쎄트렉아이",
+           "subject": "제목 %d" % no, "opinion": "매수", "compName": "신한투자증권", "cont": ""}
+    row.update(kw)
+    return row
+
+
+class TestThinkpoolParser(unittest.TestCase):
+    def test_parse_real_rows(self):
+        rows = P.parse_thinkpool_list(THINKPOOL_PAYLOAD)
+        self.assertEqual([r["id"] for r in rows],
+                         ["thinkpool:568999", "thinkpool:568998", "thinkpool:568987",
+                          "thinkpool:568981"])  # 종목코드 없는 행은 버린다
+        first = rows[0]
+        self.assertEqual((first["source"], first["code"], first["name"], first["date"]),
+                         ("thinkpool", "099320", "쎄트렉아이", "2026-11-18"))
+        self.assertEqual((first["broker"], first["target"], first["rating_raw"]),
+                         ("신한투자증권", 100000, "매수(유지)"))
+        self.assertIsNone(first["pdf"])
+        self.assertIsNone(first["url"])
+        self.assertIsNone(first["analyst"])
+        self.assertTrue(first["summary"].startswith("3분기 영업이익"))
+        self.assertIsNone(rows[1]["target"])  # targetPrice 키가 없음
+        self.assertEqual([P.normalize_rating(r["rating_raw"]) for r in rows],
+                         ["BUY", "NR", "BUY", "BUY"])
+
+    def test_year_inference(self):
+        nov18 = datetime.date(2026, 11, 18)
+        self.assertEqual(P.infer_year_date("11/18", nov18), "2026-11-18")
+        self.assertEqual(P.infer_year_date("11/19", nov18), "2025-11-19")  # 미래면 작년
+        self.assertEqual(P.infer_year_date("1/5", nov18), "2026-01-05")
+        # 12월 → 1월 경계
+        jan2 = datetime.date(2027, 1, 2)
+        self.assertEqual(P.infer_year_date("12/31", jan2), "2026-12-31")
+        self.assertEqual(P.infer_year_date("01/02", jan2), "2027-01-02")
+        self.assertEqual(P.infer_year_date("02/29", datetime.date(2027, 3, 1)), "2024-02-29")
+        # 연도가 들어 있으면 그대로
+        self.assertEqual(P.infer_year_date("2026.12.31", jan2), "2026-12-31")
+        self.assertIsNone(P.infer_year_date("", jan2))
+        self.assertIsNone(P.infer_year_date("11/18", None))
+        # 응답의 todayDate 가 기준이다
+        rows = P.parse_thinkpool_list(_tp_payload([_tp_row(1, "12/31"), _tp_row(2, "01/02")],
+                                                  today="2027.01.02"))
+        self.assertEqual([r["date"] for r in rows], ["2026-12-31", "2027-01-02"])
+        # todayDate 가 없으면 넘겨준 today
+        rows = P.parse_thinkpool_list({"list": [_tp_row(1, "12/31")]}, today=jan2)
+        self.assertEqual(rows[0]["date"], "2026-12-31")
+
+    def test_broker_mapping(self):
+        self.assertEqual(P.thinkpool_broker("하나금융투자"), "하나증권")
+        self.assertEqual(P.thinkpool_broker("이베스트투자증권"), "LS증권")
+        self.assertEqual(P.thinkpool_broker("하이투자증권"), "iM증권")
+        self.assertEqual(P.thinkpool_broker("메리츠종금증권"), "메리츠증권")
+        self.assertEqual(P.thinkpool_broker(" 신한 금융투자 "), "신한투자증권")
+        self.assertEqual(P.thinkpool_broker("유진투자증권"), "유진투자증권")
+        rows = P.parse_thinkpool_list(_tp_payload([_tp_row(1, "11/18", compName="이베스트투자증권")]))
+        self.assertEqual(normalize_broker(rows[0]["broker"]), normalize_broker("LS증권"))
+        self.assertEqual(P.thinkpool_rcp_no("thinkpool:569000"), 569000)
+        self.assertIsNone(P.thinkpool_rcp_no("wise:1"))
+
+
+def _tp_rec(**kw):
+    rec = {"id": "thinkpool:1", "source": "thinkpool", "code": "099320", "name": "쎄트렉아이",
+           "date": "2026-11-18", "title": "숫자로 설명되는 구간", "broker": "신한투자증권",
+           "analyst": None, "target": 100000, "rating_raw": "매수(유지)", "summary": "요약",
+           "pdf": None, "url": None}
+    rec.update(kw)
+    return rec
+
+
+def _up_rec(**kw):
+    rec = {"id": "naver:1", "source": "naver", "code": "099320", "name": "쎄트렉아이",
+           "date": "2026-11-18", "title": "숫자로 설명되는 구간", "broker": "신한투자증권",
+           "analyst": "홍길동", "target": None, "rating_raw": None, "summary": None,
+           "pdf": "https://example.com/a.pdf", "url": "https://example.com/a"}
+    rec.update(kw)
+    return rec
+
+
+class TestAbsorbThinkpool(unittest.TestCase):
+    def test_fill_empty_only(self):
+        up = _up_rec()
+        out, st = norm.absorb_thinkpool([up, _tp_rec()])
+        self.assertEqual(out, [up])
+        self.assertEqual((up["target"], up["rating_raw"], up["summary"]),
+                         (100000, "매수(유지)", "요약"))
+        self.assertEqual((up["analyst"], up["pdf"]), ("홍길동", "https://example.com/a.pdf"))
+        self.assertEqual(st["absorbed"], 1)
+        self.assertEqual(st["filled_records"], 1)
+        # 값이 있는 칸은 그대로
+        up2 = _up_rec(target=90000, rating_raw="Buy", summary="원래 요약")
+        out, st = norm.absorb_thinkpool([up2, _tp_rec(date="2026-11-17")])  # ±3일
+        self.assertEqual(out, [up2])
+        self.assertEqual((up2["target"], up2["rating_raw"], up2["summary"]),
+                         (90000, "Buy", "원래 요약"))
+        self.assertEqual(st["filled_records"], 0)
+
+    def test_unmatched_stays_and_idempotent(self):
+        other = _tp_rec(id="thinkpool:2", title="전혀 다른 제목의 리포트입니다")
+        far = _tp_rec(id="thinkpool:3", date="2026-11-10")
+        up = _up_rec()
+        recs = [up, other, far]
+        out, st = norm.absorb_thinkpool(recs)
+        self.assertEqual([r["id"] for r in out], ["naver:1", "thinkpool:2", "thinkpool:3"])
+        self.assertEqual(st["absorbed"], 0)
+        out2, st2 = norm.absorb_thinkpool(list(out))
+        self.assertEqual([r["id"] for r in out2], [r["id"] for r in out])
+        self.assertEqual(st2["absorbed"], 0)
+
+    def test_broker_alias_matches(self):
+        up = _up_rec(broker="하나증권")
+        tp = _tp_rec(broker="하나금융투자")
+        out, st = norm.absorb_thinkpool([up, tp])
+        self.assertEqual(out, [up])
+        # 저장돼 있던 옛 사명 단독 건도 현재 사명으로 바뀐다
+        lone = _tp_rec(broker="하이투자증권", code="000001")
+        out, _ = norm.absorb_thinkpool([lone])
+        self.assertEqual(out[0]["broker"], "iM증권")
+
+    def test_later_higher_record_absorbs(self):
+        # 씽크풀 단독으로 보관돼 있다가 한경 건이 들어온다
+        tp = _tp_rec(analyst=None)
+        hk = _up_rec(id="hankyung:9", source="hankyung", analyst="김애널", target=None,
+                     rating_raw="매수", pdf=None, url="https://consensus.hankyung.com/x",
+                     title="[쎄트렉아이] 숫자로 설명되는 구간")
+        out, st = norm.absorb_thinkpool([tp, hk])
+        self.assertEqual(out, [hk])
+        self.assertEqual((hk["analyst"], hk["url"], hk["rating_raw"], hk["target"]),
+                         ("김애널", "https://consensus.hankyung.com/x", "매수", 100000))
+        self.assertEqual(st["by_source"], {"hankyung": 1})
+        # 직접 수집(BNK 등) 단독 레코드도 씽크풀보다 위다
+        tp2 = _tp_rec(id="thinkpool:7")
+        bnk = _up_rec(id="bnk:1", source="bnk", target=None)
+        out, _ = norm.absorb_thinkpool([tp2, bnk])
+        self.assertEqual(out, [bnk])
+        self.assertLess(norm.SOURCE_PRIORITY["hankyung"], norm.SOURCE_PRIORITY["thinkpool"])
+
+    def test_dedupe_keeps_higher_and_hankyung(self):
+        # 같은 (종목, 날짜, 증권사)에서 제목이 같으면 위쪽 소스를 남긴다
+        tp = _tp_rec()
+        kb = _up_rec(id="kb:1", source="kb", target=None)
+        out, _ = norm.dedupe_records([tp, kb])
+        self.assertEqual([r["id"] for r in out], ["kb:1"])
+        self.assertEqual(kb["target"], 100000)
+        # 제목이 다른 한경 건은 씽크풀 단독 건에 먹히지 않는다
+        tp2 = _tp_rec(title="완전히 다른 씽크풀 제목")
+        hk = _up_rec(id="hankyung:2", source="hankyung", title="한경이 고친 제목 표기")
+        out, _ = norm.dedupe_records([tp2, hk])
+        self.assertEqual(sorted(r["id"] for r in out), ["hankyung:2", "thinkpool:1"])
+
+
+class TestThinkpoolCollect(unittest.TestCase):
+    NOW = datetime.datetime(2026, 11, 18, 12, 0, tzinfo=KST_TZ)
+
+    def test_due(self):
+        import thinkpool
+        self.assertTrue(thinkpool.thinkpool_due(None, self.NOW))
+        self.assertFalse(thinkpool.thinkpool_due("2026-11-18T10:00:00+09:00", self.NOW,
+                                                 tried_at="2026-11-18T10:00:00+09:00"))
+        self.assertTrue(thinkpool.thinkpool_due("2026-11-18T09:00:00+09:00", self.NOW,
+                                                tried_at="2026-11-18T09:00:00+09:00"))
+        # 실패 후 1시간
+        self.assertFalse(thinkpool.thinkpool_due("2026-11-18T06:00:00+09:00", self.NOW,
+                                                 tried_at="2026-11-18T11:30:00+09:00"))
+        self.assertTrue(thinkpool.thinkpool_due("2026-11-18T06:00:00+09:00", self.NOW,
+                                                tried_at="2026-11-18T11:00:00+09:00"))
+        self.assertEqual(thinkpool.backfill_days(None), 30)
+        self.assertEqual(thinkpool.backfill_days(500), 60)
+        self.assertEqual(thinkpool.backfill_days(0), 1)
+        self.assertGreaterEqual(thinkpool.THINKPOOL_GAP, 2.0)
+        self.assertEqual(thinkpool.THINKPOOL_TIMEOUT, (5, 15))
+        self.assertEqual(thinkpool.THINKPOOL_RETRIES, 1)
+
+    def _pages(self, pages):
+        calls = []
+
+        def fetch(session, url, params=None, referer=None, timeout=None, retries=None, diag=None):
+            calls.append((params["pno"], timeout, retries))
+            return pages.get(params["pno"])
+        return fetch, calls
+
+    def test_first_page_failure_stops(self):
+        import thinkpool
+        calls = []
+
+        def fail(session, url, params=None, referer=None, timeout=None, retries=None, diag=None):
+            calls.append(params["pno"])
+            diag["error"] = "HTTP 403"
+            return None
+
+        diag, sleeps = {}, []
+        out = thinkpool.collect_thinkpool(None, fail, log=lambda m: None, stop_id=1, diag=diag,
+                                          sleep=sleeps.append)
+        self.assertEqual(out[:3], (None, None, None))
+        self.assertEqual((calls, diag["error"], sleeps), ([1], "HTTP 403", []))
+        diag = {}
+        empty = lambda *a, **k: {"list": []}  # noqa: E731
+        self.assertIsNone(thinkpool.collect_thinkpool(None, empty, log=lambda m: None,
+                                                      diag=diag)[0])
+        self.assertEqual(diag["error"], "empty list")
+        diag = {}
+        html = lambda *a, **k: {"message": "blocked"}  # noqa: E731
+        self.assertIsNone(thinkpool.collect_thinkpool(None, html, log=lambda m: None,
+                                                      diag=diag)[0])
+        self.assertEqual(diag["error"], "unexpected JSON (no list)")
+
+    def test_normal_stops_at_seen(self):
+        import thinkpool
+        pages = {1: _tp_payload([_tp_row(30, "11/18"), _tp_row(29, "11/18")]),
+                 2: _tp_payload([_tp_row(28, "11/18"), _tp_row(27, "11/17")]),
+                 3: _tp_payload([_tp_row(26, "11/17")])}
+        fetch, calls = self._pages(pages)
+        sleeps = []
+        rows, newest, max_id, n = thinkpool.collect_thinkpool(
+            None, fetch, log=lambda m: None, stop_id=27, sleep=sleeps.append)
+        self.assertEqual([c[0] for c in calls], [1, 2])  # 27 이 보인 2페이지에서 멈춤
+        self.assertEqual(calls[0][1:], (thinkpool.THINKPOOL_TIMEOUT, thinkpool.THINKPOOL_RETRIES))
+        self.assertEqual((newest, max_id, n), ("2026-11-18", 30, 2))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(sleeps, [thinkpool.THINKPOOL_GAP])
+        # 본 기록이 없으면 1페이지만
+        fetch, calls = self._pages(pages)
+        thinkpool.collect_thinkpool(None, fetch, log=lambda m: None, sleep=lambda s: None)
+        self.assertEqual([c[0] for c in calls], [1])
+
+    def test_backfill_until(self):
+        import thinkpool
+        pages = {1: _tp_payload([_tp_row(30, "11/18"), _tp_row(29, "11/17")]),
+                 2: _tp_payload([_tp_row(28, "11/16"), _tp_row(27, "11/14")]),
+                 3: _tp_payload([_tp_row(26, "11/13")])}
+        fetch, calls = self._pages(pages)
+        rows, _, _, n = thinkpool.collect_thinkpool(None, fetch, log=lambda m: None,
+                                                    until="2026-11-15", sleep=lambda s: None)
+        self.assertEqual([c[0] for c in calls], [1, 2])
+        self.assertEqual([r["id"] for r in rows],
+                         ["thinkpool:30", "thinkpool:29", "thinkpool:28"])  # 11/14 는 버림
+        # 둘째 페이지 실패: 받은 것만
+        fetch, calls = self._pages({1: pages[1]})
+        rows, _, _, _ = thinkpool.collect_thinkpool(None, fetch, log=lambda m: None,
+                                                    until="2026-11-01", sleep=lambda s: None)
+        self.assertEqual(len(rows), 2)
+
+
+class TestWiseOptIn(unittest.TestCase):
+    def test_flags(self):
+        import collect
+        for argv, want in (([], False), (["--wise"], True), (["--wise-backfill"], True),
+                           (["--wise", "--no-wise"], False), (["--no-wise"], False)):
+            args = collect.parse_args(argv)
+            self.assertEqual(collect.resolve_wise_flags(args), want, argv)
+            self.assertEqual(args.no_wise, not want)
+            if not want:
+                self.assertFalse(args.wise_backfill)
+        args = collect.parse_args(["--thinkpool-backfill"])
+        self.assertEqual(args.thinkpool_backfill, 30)
+        self.assertEqual(collect.parse_args(["--thinkpool-backfill", "45"]).thinkpool_backfill, 45)
+        self.assertIsNone(collect.parse_args([]).thinkpool_backfill)
+        self.assertTrue(collect.parse_args(["--no-thinkpool"]).no_thinkpool)
+
+    def test_status_without_wise(self):
+        import collect
+        self.assertNotIn("wise", collect.KNOWN_SOURCES)
+        self.assertIn("thinkpool", collect.KNOWN_SOURCES)
+        dead = {"fetched_at": None, "fetched_last_date": None, "tried_at": "x", "error": "HTTP 410"}
+        tp = {"fetched_at": "t", "fetched_last_date": "2026-11-18", "fetched_last_id": 569000}
+        seen = collect.status_seen(dead, False, {"thinkpool": tp, "hankyung": {}}, {})
+        self.assertNotIn("wise", seen)
+        st = collect.build_source_status([], set(), seen)
+        self.assertNotIn("wise", st)
+        self.assertEqual((st["thinkpool"]["last_date"], st["thinkpool"]["fetched_last_id"]),
+                         ("2026-11-18", 569000))
+        # --wise 로 켰거나 받은 기록이 있으면 남는다. 보관된 와이즈 건이 있어도 남는다.
+        self.assertIn("wise", collect.status_seen(dead, True, {}, {}))
+        self.assertIn("wise", collect.status_seen(dict(dead, fetched_at="t"), False, {}, {}))
+        st = collect.build_source_status([{"id": "wise:1", "source": "wise", "date": "2026-11-16"}],
+                                         set(), seen)
+        self.assertEqual(st["wise"]["total"], 1)
+
+    def test_check_sources(self):
+        from check_sources import alert_lines, LIMITS
+        monday = datetime.date(2026, 11, 16)
+        # 데이터 없는 와이즈는 점검하지 않는다
+        status = {"naver": {"last_date": "2026-11-13"},
+                  "wise": {"last_date": None, "fetched_last_date": None, "error": "HTTP 410"}}
+        self.assertEqual(stale_sources(status, monday), [])
+        # 씽크풀은 보조: 2영업일 넘게 멈춰도 경고만
+        status = {"naver": {"last_date": "2026-11-13"},
+                  "thinkpool": {"last_date": "2026-11-11", "fetched_last_date": "2026-11-11"}}
+        bad = stale_sources(status, monday)
+        self.assertEqual([b["source"] for b in bad], ["thinkpool"])
+        self.assertEqual(LIMITS["thinkpool"], 2)
+        lines, failed = alert_lines(bad, status)
+        self.assertFalse(failed)
+        self.assertTrue(lines[0].startswith("::warning::"))
 
 
 if __name__ == "__main__":

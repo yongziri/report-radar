@@ -26,7 +26,13 @@ v1은 `data/reports.json` 한 파일(전체 레코드 배열, 요약·현재가 
 - `months`는 최신 달이 먼저. `v`는 `data/reports/YYYY-MM.json` 내용의 sha1 앞 10자, `sv`는 `data/summaries/YYYY-MM.json`의 것.
 - 앱은 `?v=` 쿼리로 붙여 브라우저 캐시를 쓴다. 값이 같으면 다시 받지 않는다.
 - `perf_v`, `industry_months`는 해당 파일이 생긴 뒤부터 기록한다(없으면 앱은 그 기능을 숨긴다).
-- `source_status`의 소스 키: `naver`, `hankyung`, `kb`, `nh`, `kis`, `wise`. 각 `{last_date, new_run, total}`.
+- `source_status`의 소스 키: `naver`, `hankyung`, `kb`, `nh`, `kis`, `thinkpool`. 각 `{last_date, new_run, total}`.
+  `wise`는 2026-11-17 엔드포인트가 닫혀(HTTP 410) `--wise`로만 켜며, 보관된 와이즈 건이 있거나 수집 기록
+  (`fetched_at`·`fetched_last_date`)이 있거나 그 실행에서 켰을 때만 들어간다.
+  `thinkpool`에는 `fetched_at`·`fetched_last_date`·`tried_at`·`error`(와이즈와 같은 뜻)와 `fetched_last_id`
+  (지금까지 본 가장 큰 씽크풀 `rcpNo`. 평소 실행은 이 번호 이하의 행이 나오면 페이지 넘기기를 멈춘다)가 붙는다.
+  씽크풀 건은 다른 소스와 겹치면 흡수돼 사라지므로 `thinkpool.last_date`도 `fetched_last_date`를 반영한다.
+  성공 후 3시간, 실패 후 1시간(`tried_at` 기준) 안에는 다시 받지 않는다. `check_sources.py`에서 보조 소스(경고만), 2영업일.
   `wise`에는 추가로 `fetched_at`(마지막으로 와이즈 목록을 받은 시각, ISO)과 `fetched_last_date`(응답에서 본
   가장 최근 작성일)가 붙는다. 와이즈 건은 상위 소스와 겹치면 흡수돼 사라지므로 `wise.last_date`는
   보관 중인 와이즈 단독 건의 최신일과 `fetched_last_date` 중 늦은 쪽이다.
@@ -44,7 +50,13 @@ v1은 `data/reports.json` 한 파일(전체 레코드 배열, 요약·현재가 
 ### `data/reports/YYYY-MM.json`
 그 달(`date` 기준) 리포트 레코드 배열, 날짜 내림차순.
 필드: `id, source, date, code, name, industry, sector, title, broker, analyst, rating_raw, rating, target, prev_target, target_change, naver_prev_target, price_at_write, pdf, url, views`
-- `source`: `naver`, `kb`, `nh`, `kis`, `im`, `bnk`, `sangsangin`, `wise`(와이즈리포트), `hankyung`. 중복이면 이 순서(naver > kb·nh·kis·im·bnk·sangsangin > wise > hankyung)로 위쪽을 남긴다.
+- `source`: `naver`, `kb`, `nh`, `kis`, `im`, `bnk`, `sangsangin`, `wise`(와이즈리포트, 2026-11-17 종료·opt-in), `hankyung`, `thinkpool`(씽크풀). 중복이면 이 순서(naver > kb·nh·kis·im·bnk·sangsangin > wise > hankyung > thinkpool)로 위쪽을 남긴다.
+  - `thinkpool` 레코드: id `thinkpool:<rcpNo>`. `pdf`·`url`·`analyst`·`views`·`price_at_write`·`naver_prev_target`은
+    `null`(응답에 PDF·애널리스트·공개 리포트 주소가 없다). 작성일은 연도 없는 `MM/DD`를 응답의 `todayDate` 기준
+    미래가 아닌 가장 최근 날짜로 읽는다. 증권사 옛 사명은 현재 사명으로 바꿔 저장한다(하나금융투자→하나증권 등).
+    다른 소스에 같은 리포트(종목·증권사, 작성일 ±3일, 제목 유사)가 있으면 지워지고 그 레코드의 빈 `target`·
+    `rating_raw`·`summary`만 채운다. 그래서 단독으로 남는 `thinkpool` 레코드는 다른 소스에 없는 리포트뿐이고,
+    나중에 상위 소스 건이 들어오면 그때 흡수된다.
   - `im`·`bnk`·`sangsangin`(증권사 직접 수집 2차): `pdf`는 증권사 사이트의 공개 PDF, `url`도 같은 PDF
     (못 받았으면 목록 페이지). `views`·`price_at_write`·`naver_prev_target`은 `null`. 단독 레코드로 남는 것은
     네이버·와이즈·한경에 같은 리포트가 없을 때뿐이다(아래 `direct`).

@@ -56,7 +56,8 @@ report-radar/
 │  ├─ brokers.py                 # 증권사 직접 수집 (KB·NH·한투 네트워크 호출)
 │  ├─ direct.py                  # 증권사 직접 수집 2차 (iM·BNK·상상인, 원문 PDF 링크용)
 │  ├─ pdftext.py                 # 리포트 PDF 1쪽 텍스트 추출 (pypdf)
-│  ├─ wise.py                    # 와이즈리포트 수집 (전 증권사 종목 리포트 목록)
+│  ├─ thinkpool.py               # 씽크풀 수집 (전 증권사 종목 리포트 목록, 보조)
+│  ├─ wise.py                    # 와이즈리포트 수집 (2026-11-17 종료, --wise 로만 켬)
 │  ├─ industry.py                # 네이버 산업·시황 리포트 수집
 │  ├─ perf.py                    # 일봉으로 발간 후 성과 계산 (perf.json)
 │  ├─ sectors.py                 # 업종 분류 수집 + 대분류 매핑표
@@ -99,7 +100,8 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 | [iM증권 리서치(모바일)](https://www.imfnsec.com/mobile/invest/invest02.jsp?bid=R_E08&isSmartHi=N) | iM증권 리포트 원문 PDF (`source: "im"`) | 목록은 `POST /_json/source.jsp`(`tr_cd=db/board/TWBBACL/board_list`, `bid=R_E08`). 제목 `[종목/의견] 제목`. 새 건마다 첨부 조회(`tr_cd=db/research/twbbacl_attach`, 행의 `bid`)로 PDF 경로를 받고 파일명 끝 6자리가 종목코드. 목표가는 PDF 1쪽 |
 | [BNK투자증권 기업분석](https://www.bnkfn.co.kr/research/analysingCompany.jspx) | BNK투자증권 리포트 원문 PDF (`source: "bnk"`) | HTML 목록(한 쪽 10건, `?bbsId=analysingCompany&cmd=list&curPage=N`), 제목 `[종목/의견] 제목`. 종목코드가 없어 이름으로 맞춘다(유니버스 → 보관 레코드 → PDF 1쪽 `종목 (코드)`). PDF는 `/uploads/…`, 목표가는 PDF 1쪽 |
 | [상상인증권 기업리포트](https://www.sangsanginib.com/research/enterpriseReport/enterpriseReportView) | 상상인증권 리포트 원문 PDF (`source: "sangsangin"`) | 목록 `POST /notice/getNoticeList`(폼 바디, `cmsCd=CM0079`)에 종목코드가 있다. 새 건마다 상세 `POST /notice/getNoticeDetail` 본문 `[BUY / 340,000]`에서 의견·목표가, 첨부에서 PDF(`/_upload/attFile/…`) |
-| 와이즈리포트 (`comp.wisereport.co.kr/company/ajax/c1080001_data.aspx?cmp_cd=&perPage=500&curPage=N`) | 전 증권사 종목 리포트 목록 (`source: "wise"`): 빠진 리포트 추가, 기존 리포트의 빈 애널리스트·목표가·의견·요약 보강 | 로그인 없음, 응답은 JSON(content-type은 text/html). 작성일 `ANL_DT`(`26/11/13`), 의견·목표가·애널리스트·요약 3줄. 회사 IR 자료(`해당기업`)는 버린다. PDF는 로그인 뷰어라 `pdf`는 `null`, `url`은 종목별 리포트 목록 페이지. **3시간에 한 번 1페이지(500건)**만 받는다(`meta.json` `source_status.wise.fetched_at`). 비공식 내부 AJAX라 언제든 막힐 수 있다 |
+| 와이즈리포트 (`comp.wisereport.co.kr/company/ajax/c1080001_data.aspx?cmp_cd=&perPage=500&curPage=N`) | 전 증권사 종목 리포트 목록 (`source: "wise"`): 빠진 리포트 추가, 기존 리포트의 빈 애널리스트·목표가·의견·요약 보강 | 로그인 없음, 응답은 JSON(content-type은 text/html). 작성일 `ANL_DT`(`26/11/13`), 의견·목표가·애널리스트·요약 3줄. 회사 IR 자료(`해당기업`)는 버린다. PDF는 로그인 뷰어라 `pdf`는 `null`, `url`은 종목별 리포트 목록 페이지. **3시간에 한 번 1페이지(500건)**만 받는다(`meta.json` `source_status.wise.fetched_at`). 비공식 내부 AJAX라 언제든 막힐 수 있다. **2026-11-17 엔드포인트가 닫혀(HTTP 410) 기본으로는 부르지 않는다**(`--wise`로만 켬) |
+| 씽크풀 (`api.thinkpool.com/analysis/report/allReport?pno=N`) | 전 증권사 종목 리포트 목록 (`source: "thinkpool"`): 빠진 리포트 추가, 기존 리포트의 빈 목표가·의견·요약 보강 | 로그인 없음, JSON. 한 페이지 20건, 최신순. 행은 `rcpNo`·`date`(`11/18`, **연도 없음** → 응답의 `todayDate` 기준 미래가 아닌 가장 최근 날짜)·`stockCode`·`stockName`·`subject`·`opinion`·`targetPrice`·`compName`·`cont`(요약). **PDF·애널리스트·공개 리포트 주소가 없어** `pdf`·`url`·`analyst`는 `null`. 옛 사명(하나금융투자·이베스트·하이투자 등)은 현재 사명으로 맞춘다. **3시간에 한 번, 지난번에 본 행(`source_status.thinkpool.fetched_last_id`)에 닿을 때까지만**(최대 5페이지), 페이지 사이 2초, 타임아웃 5/15초 x 2회, 첫 페이지가 실패하면 바로 멈추고 1시간 뒤 재시도. 비공식 공개 API라 언제든 막힐 수 있다 |
 | 네이버 증권 리서치 API (`/api/research/industry`, `/api/research/market`) | 산업·시황 리포트 (`data/industry/`) | 종목분석과 같은 모양. 목록에 PDF가 없어 새 건마다 상세(`/{kind}/{researchId}`)를 한 번 받는다. 애널리스트는 없다. 처음엔 종목 리포트 보관 시작일까지 백필, 이후엔 아는 id가 나오면 멈춘다 |
 | 네이버 일봉 (`api.finance.naver.com/siseJson.naver`) | 발간 후 성과(`data/perf.json`), 발간일 종가 기준 목표가 범위 재판정 | 엄밀한 JSON이 아니라 정규식으로 행을 줍는다. 종목마다 한 번(가장 이른 발간일 14일 전 ~ 오늘), 스레드 4개. **하루 한 번**(16:00 KST 이후 첫 실행, 또는 파일이 없거나 20시간 넘게 지났을 때) |
 | 네이버 증권 업종 API (`m.stock.naver.com/api/stocks/industry`) | 종목의 업종(`industry`)·대분류(`sector`) | 업종 목록 1회 + 업종별 종목(`/{no}?page=N&pageSize=100`) 79회를 훑는다. **7일마다** 다시 받는다 |
@@ -114,7 +116,7 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 > `data/industry/`로 따로 모은다(종목 리포트와 섞지 않는다).
 
 이 세 곳은 네이버 리서치에 리포트를 거의 올리지 않아 각 사 사이트에서 직접 긁는다.
-소스 우선순위는 **네이버 > KB·NH·한투 > 와이즈 > 한경**이다. `(종목코드, 작성일, 증권사 정규화명)`으로
+소스 우선순위는 **네이버 > KB·NH·한투·iM·BNK·상상인 > 와이즈 > 한경 > 씽크풀**이다. `(종목코드, 작성일, 증권사 정규화명)`으로
 같은 리포트를 맞춰, 상위 소스 레코드가 있으면 하위 레코드를 새로 넣지 않고 상위 레코드의
 빈 칸(`analyst`·`target`·`rating_raw`·`summary`·`pdf`)만 채운다.
 와이즈는 제목 표기가 조금씩 달라(`[AI 실적속보] …` 머리말, `3Q26 Review:` 생략, 오탈자, 영문판)
@@ -122,6 +124,11 @@ python app/build.py     # app/parts/* + app/universe.json → index.html
 유사도 0.8 이상이면 같은 리포트로 보고 빈 칸(`analyst`·`target`·`rating_raw`·`summary`)만 채운다
 (`normalize.absorb_wise`). 한글 리포트의 영문판(제목에 한글이 없음)은 같은 날, 또는 ±3일 안에서
 목표가가 같으면 번역본으로 본다.
+
+씽크풀은 애널리스트·PDF가 없어 가장 낮은 레코드다. 같은 규칙(종목·증권사, ±3일, 제목 유사)으로
+다른 소스에 같은 리포트가 있으면 씽크풀 건은 지우고 그 레코드의 빈 `target`·`rating_raw`·`summary`만
+채운다(`normalize.absorb_thinkpool`). 씽크풀 단독 레코드도 나중에 네이버·증권사·한경 건이 들어오면
+같은 방식으로 흡수된다(증권사·한경 병합은 씽크풀 건을 상위 레코드로 삼지 않는다).
 
 증권사 직접 수집 2차(iM·BNK·상상인, `scraper/direct.py`)는 와이즈에 없는 **원문 PDF 링크**와
 증권사가 직접 밝힌 의견·목표가를 얻으려는 것이다. 우선순위는 KB·NH·한투와 같지만, 같은 리포트
@@ -172,9 +179,14 @@ python scraper/collect.py --migrate-only
 # 저장된 한투 리포트 전부의 상세를 다시 받아 목표가·의견을 다시 읽기 (추출 규칙 수정 후 1회)
 python scraper/collect.py --refetch-kis
 
-# 와이즈리포트를 보관 시작일까지 백필 (처음 1회, 페이지 사이 1.5초) / 와이즈 끄기
+# 씽크풀 최근 30일 백필 (DAYS 생략 시 30, 최대 60일, 페이지 사이 2초, 처음 1회만) / 씽크풀 끄기
+# (v2 첫 실행의 자동 백필에는 넣지 않는다)
+python scraper/collect.py --thinkpool-backfill 30
+python scraper/collect.py --no-thinkpool
+
+# 와이즈리포트(2026-11-17 종료, 기본 꺼짐)를 켜서 시도 / 보관 시작일까지 백필(--wise 포함)
+python scraper/collect.py --wise
 python scraper/collect.py --wise-backfill
-python scraper/collect.py --no-wise
 
 # 증권사 직접 수집 2차(iM·BNK·상상인)를 보관 시작일까지 백필 (PDF 상한 없음, 처음 1회) / 끄기
 # (--no-brokers 는 KB·NH·한투와 함께 이것도 끈다)
@@ -206,7 +218,8 @@ python scraper/test_parsers.py
 네트워크 없이 픽스처 문자열만으로 돈다. 목록·상세·한경·KB·NH·한투·업종 파서,
 본문에서 의견·목표가를 캐는 추출기, 투자의견 정규화, 괴리율, 목표가 변동 판정,
 업종 79개가 모두 대분류에 매핑되는지, 소스 정지 판정(`stale_sources`)이
-영업일 경계에서 맞는지, 와이즈 파서와 흡수(빈 칸 채우기)·산업·시황 파서·일봉(siseJson) 파서·
+영업일 경계에서 맞는지, 와이즈 파서와 흡수(빈 칸 채우기)·씽크풀 파서(연도 추정, 증권사명 매핑)와
+흡수·수집 간격·산업·시황 파서·일봉(siseJson) 파서·
 성과 계산(목표가 도달일, 발간일 종가 대체)·발간일 종가 기준 목표가 범위 재판정을 검증한다.
 
 ### 화면 빌드

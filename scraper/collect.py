@@ -2,7 +2,8 @@
 
 네이버 증권 리서치 API(종목분석)를 1차 소스로 리포트를 모으고,
 네이버에 잘 올라오지 않는 KB증권·NH투자증권·한국투자증권은 각 사 사이트에서 직접 긁는다.
-와이즈리포트(전 증권사 목록, 3시간에 한 번)로 빠진 리포트를 더하고 애널리스트 등 빈 칸을 채운다.
+씽크풀(전 증권사 목록, 3시간에 한 번)로 빠진 리포트를 더하고 목표가·의견 등 빈 칸을 채운다.
+와이즈리포트는 2026-11-17 닫혀 --wise 로만 켠다.
 현재가는 네이버 실시간 시세로, 애널리스트명은 한경 컨센서스로 보강한다.
 결과는 형식 v2(docs/DATA-FORMAT-v2.md)로 저장한다: data/reports/YYYY-MM.json(월별 리포트,
 최근 730일), data/summaries/YYYY-MM.json(요약), data/prices.json(현재가), data/meta.json,
@@ -15,7 +16,8 @@ v1 data/reports.json 이 남아 있으면 처음 실행 때 읽어서 v2로 옮�
     python scraper/collect.py --from 2026-08-01 --to 2026-08-31
     python scraper/collect.py --dry-run --no-hankyung --no-brokers
     python scraper/collect.py --migrate-only     # 네트워크 없이 v1→v2 이전·정규화만
-    python scraper/collect.py --wise-backfill    # 와이즈리포트를 보관 시작일까지 한 번 백필
+    python scraper/collect.py --thinkpool-backfill 30   # 씽크풀 최근 30일 백필 (최대 60일)
+    python scraper/collect.py --wise              # 와이즈리포트(2026-11-17 종료)를 켜서 시도
     python scraper/collect.py --perf             # 성과(perf.json)를 지금 강제로 다시 계산
     python scraper/collect.py --data-dir D:/tmp/data   # 다른 data 디렉터리에 읽고 쓰기
 """
@@ -46,6 +48,7 @@ import normalize as norm  # noqa: E402
 import perf as perf_mod  # noqa: E402
 import sectors as sector_mod  # noqa: E402
 import store  # noqa: E402
+import thinkpool as tp_mod  # noqa: E402
 import wise as wise_mod  # noqa: E402
 from parsers import (  # noqa: E402
     apply_target_changes,
@@ -55,6 +58,7 @@ from parsers import (  # noqa: E402
     parse_naver_api_detail,
     parse_naver_api_list,
     parse_price_payload,
+    thinkpool_rcp_no,
     WISE_SKIP_CODES,
 )
 
@@ -83,8 +87,10 @@ def set_data_dir(path):
     SECTORS_PATH = os.path.join(DATA_DIR, "sectors.json")
 
 # meta.json 의 source_status 에 항상 넣어 두는 소스. 한 소스가 통째로 사라져도
-# 항목이 남아 있어야 정지를 알아챌 수 있다.
-KNOWN_SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise") + direct_mod.DIRECT_SOURCES
+# 항목이 남아 있어야 정지를 알아챌 수 있다. 와이즈(2026-11-17 종료, --wise 로만 켬)는
+# 보관 건이나 수집 기록이 있을 때만 들어간다(retired_status_sources).
+KNOWN_SOURCES = (("naver", "hankyung", "kb", "nh", "kis", "thinkpool")
+                 + direct_mod.DIRECT_SOURCES)
 
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -483,14 +489,33 @@ def parse_args(argv=None):
                    help="저장된 한투 리포트 전부의 상세를 다시 받아 의견·목표가를 다시 읽는다")
     p.add_argument("--data-dir", default=None,
                    help="읽고 쓸 data 디렉터리 (기본: 저장소의 data/)")
-    p.add_argument("--no-wise", action="store_true", help="와이즈리포트 수집 생략")
+    p.add_argument("--wise", action="store_true",
+                   help="와이즈리포트 수집을 켠다 (2026-11-17 엔드포인트 종료로 기본은 끔)")
+    p.add_argument("--no-wise", action="store_true", help="와이즈리포트 수집 생략 (기본값)")
     p.add_argument("--wise-backfill", action="store_true",
-                   help="와이즈리포트를 보관 중인 가장 이른 날짜까지 페이지를 넘겨 백필")
+                   help="와이즈리포트를 보관 중인 가장 이른 날짜까지 페이지를 넘겨 백필 (--wise 포함)")
+    p.add_argument("--no-thinkpool", action="store_true", help="씽크풀 수집 생략")
+    p.add_argument("--thinkpool-backfill", type=int, nargs="?", default=None,
+                   const=tp_mod.THINKPOOL_BACKFILL_DAYS, metavar="DAYS",
+                   help="씽크풀 최근 DAYS일(기본 %d, 최대 %d)을 페이지를 넘겨 백필"
+                        % (tp_mod.THINKPOOL_BACKFILL_DAYS, tp_mod.THINKPOOL_BACKFILL_MAX_DAYS))
     p.add_argument("--no-industry", action="store_true", help="산업·시황 리포트 수집 생략")
     p.add_argument("--perf", action="store_true",
                    help="성과(perf.json)를 시각과 관계없이 지금 다시 계산")
     p.add_argument("--no-perf", action="store_true", help="성과(perf.json) 계산 생략")
     return p.parse_args(argv)
+
+
+def resolve_wise_flags(args):
+    """와이즈는 2026-11-17 닫혔다(HTTP 410). --wise(또는 --wise-backfill)를 줄 때만 시도한다.
+
+    args.wise 를 최종 값으로 맞추고, 끈 경우 no_wise=True·wise_backfill=False 로 둔다.
+    """
+    args.wise = bool((args.wise or args.wise_backfill) and not args.no_wise)
+    if not args.wise:
+        args.no_wise = True
+        args.wise_backfill = False
+    return args.wise
 
 
 def resolve_range(args, today):
@@ -540,7 +565,18 @@ def build_source_status(records, before_ids, seen=None):
 
 
 # 실행을 넘어 이어지는 source_status 키 (build_source_status가 seen에서 옮긴다)
-STATUS_CARRY_KEYS = ("fetched_at", "fetched_last_date", "tried_at", "error")
+STATUS_CARRY_KEYS = ("fetched_at", "fetched_last_date", "fetched_last_id", "tried_at", "error")
+
+
+def status_seen(wise_info, wise_on, others, direct_info):
+    """build_source_status 에 넘길 seen. 와이즈(2026-11-17 종료)는 이번에 켰거나 받은 기록이
+    있을 때만 넣는다 — 데이터가 없는 와이즈가 앱에 '미수집'으로 남지 않게.
+    (보관된 와이즈 건이 있으면 build_source_status 가 레코드에서 항목을 만든다)"""
+    seen = dict(others)
+    seen.update(direct_info)
+    if wise_on or wise_info.get("fetched_at") or wise_info.get("fetched_last_date"):
+        seen["wise"] = wise_info
+    return seen
 
 
 def carry_status(old_st, keys):
@@ -585,8 +621,10 @@ def main(argv=None):
     if args.migrate_only:
         args.no_hankyung = args.no_brokers = args.no_price = True
         args.no_wise = args.no_industry = args.no_perf = True
+        args.no_thinkpool = True
     if args.no_brokers:
         args.no_direct = True
+    resolve_wise_flags(args)
 
     # v1 → v2 로 처음 옮기는 실행(data/reports/ 가 아직 없고 v1 reports.json 만 있음)에서는
     # 과거분 수집을 한 번 자동으로 돈다. 이 실행이 중간에 죽으면 아무것도 저장되지 않으므로
@@ -594,6 +632,7 @@ def main(argv=None):
     first_v2_run = (not os.path.isdir(os.path.join(DATA_DIR, "reports"))
                     and os.path.exists(os.path.join(DATA_DIR, "reports.json")))
     if first_v2_run and not args.migrate_only and not args.dry_run:
+        # 씽크풀 백필은 자동으로 돌리지 않는다(가볍게 쓰는 비공식 API). 와이즈는 --wise 일 때만.
         args.wise_backfill = not args.no_wise
         args.refetch_kis = not args.no_brokers
         args.direct_backfill = not args.no_direct
@@ -604,7 +643,8 @@ def main(argv=None):
            " [--migrate-only: 수집 없이 이전·정규화만]" if args.migrate_only else ""))
 
     if first_v2_run and not args.migrate_only and not args.dry_run:
-        log("v2 첫 실행 — 와이즈·직접 수집 과거분, 한투 상세 재수집, 성과 계산을 함께 돈다")
+        log("v2 첫 실행 — %s직접 수집 과거분, 한투 상세 재수집, 성과 계산을 함께 돈다"
+            % ("와이즈·" if args.wise else ""))
     if DATA_DIR != DEFAULT_DATA_DIR:
         log("data 디렉터리: %s" % DATA_DIR)
 
@@ -614,6 +654,8 @@ def main(argv=None):
     old_status = old_meta.get("source_status") or {}
     # tried_at·error(마지막 시도와 실패 사유)도 이어 간다. 해외 러너에서 막힌 소스를 공개 meta로 진단한다.
     wise_info = carry_status(old_status.get("wise"), ("fetched_at", "fetched_last_date"))
+    tp_info = carry_status(old_status.get("thinkpool"),
+                           ("fetched_at", "fetched_last_date", "fetched_last_id"))
     hk_info = {"fetched_last_date": (old_status.get("hankyung") or {}).get("fetched_last_date")}
     # 직접 수집 2차 건은 네이버·와이즈·한경에 붙으면 사라지므로 목록에서 본 최신일을 따로 남긴다.
     direct_info = {src: carry_status(old_status.get(src), ("fetched_last_date",))
@@ -698,8 +740,10 @@ def main(argv=None):
         note_detail_result([r for r in nh_rows + kis_rows if r["id"] not in known_ids])
 
         if broker_rows:
+            # 씽크풀 건에는 붙이지 않는다: 증권사 건이 단독으로 남고 씽크풀 건이 정규화에서 흡수된다.
             in_range = [r for r in records
-                        if date_from <= (r.get("date") or "") <= date_to]
+                        if date_from <= (r.get("date") or "") <= date_to
+                        and r.get("source") != "thinkpool"]
             bk_matched, bk_extras = merge_sources(in_range, broker_rows)
             bk_extras = [e for e in bk_extras if e["id"] not in merged]
             for extra in bk_extras:
@@ -800,6 +844,58 @@ def main(argv=None):
         log("와이즈리포트: 마지막 수집 %s — %d시간이 안 지나 건너뜀"
             % (wise_info["fetched_at"], wise_mod.WISE_INTERVAL_HOURS))
 
+    # 씽크풀. 가장 낮은 소스다(애널리스트·PDF 없음). 같은 리포트가 다른 소스에 있으면 정규화 패스
+    # (absorb_thinkpool)에서 빈 목표가·의견·요약만 채우고 사라진다. 평소엔 3시간에 한 번, 지난번에 본
+    # 행에 닿을 때까지만. 실패하면 tried_at 기준 1시간 뒤에 다시 시도한다.
+    tp_stats = None
+    if not args.no_thinkpool and (args.thinkpool_backfill or tp_mod.thinkpool_due(
+            tp_info["fetched_at"], now, tried_at=tp_info.get("tried_at"))):
+        until = None
+        stop_id = tp_info.get("fetched_last_id")
+        stored_ids = [n for n in (thinkpool_rcp_no(r.get("id")) for r in records) if n]
+        if stored_ids and (stop_id is None or max(stored_ids) > stop_id):
+            stop_id = max(stored_ids)
+        if args.thinkpool_backfill:
+            days = tp_mod.backfill_days(args.thinkpool_backfill)
+            until = (today - timedelta(days=days - 1)).isoformat()
+            log("씽크풀 백필 %d일 (%s까지, 페이지 사이 %.1f초)..." % (days, until, tp_mod.THINKPOOL_GAP))
+        tp_diag = {}
+        t_tp = time.time()
+        try:
+            tp_rows, tp_newest, tp_max_id, tp_pages = tp_mod.collect_thinkpool(
+                session, fetch_json, log, until=until, stop_id=stop_id, today=today, diag=tp_diag,
+                resolve=tp_mod.host_resolves)
+        except Exception as exc:
+            log("  ! 씽크풀 수집 실패 (무시하고 진행): %s" % exc)
+            tp_rows, tp_newest, tp_max_id, tp_pages = None, None, None, 0
+            tp_diag["error"] = direct_mod.error_reason(exc)
+        if tp_rows is None:
+            note_attempt(tp_info, now, tp_diag.get("error") or "unknown")
+            log("씽크풀: 받지 못했습니다 (%s, %.1f초) — %d시간 뒤 다시 시도"
+                % (tp_info["error"], time.time() - t_tp, tp_mod.THINKPOOL_RETRY_HOURS))
+        else:
+            note_attempt(tp_info, now)
+            tp_info["fetched_at"] = now.isoformat(timespec="seconds")
+            if tp_newest and (not tp_info["fetched_last_date"]
+                              or tp_newest > tp_info["fetched_last_date"]):
+                tp_info["fetched_last_date"] = tp_newest
+            if tp_max_id and (not tp_info.get("fetched_last_id")
+                              or tp_max_id > tp_info["fetched_last_id"]):
+                tp_info["fetched_last_id"] = tp_max_id
+            fresh = [r for r in tp_rows if r["id"] not in merged]
+            for rec in fresh:
+                merged[rec["id"]] = rec
+                records.append(rec)
+            tp_stats = {"rows": len(tp_rows), "fresh": len(fresh), "pages": tp_pages}
+            log("씽크풀 %d건, %d페이지, %.1f초 (보관 안 된 것 %d건, 다른 소스와 겹치는지는 정규화에서 판단)"
+                % (len(tp_rows), tp_pages, time.time() - t_tp, len(fresh)))
+    elif not args.no_thinkpool and tp_info.get("error"):
+        log("씽크풀: 마지막 시도 %s 실패(%s) — %d시간이 안 지나 건너뜀"
+            % (tp_info.get("tried_at"), tp_info["error"], tp_mod.THINKPOOL_RETRY_HOURS))
+    elif not args.no_thinkpool:
+        log("씽크풀: 마지막 수집 %s — %d시간이 안 지나 건너뜀"
+            % (tp_info["fetched_at"], tp_mod.THINKPOOL_INTERVAL_HOURS))
+
     # 한경 보강. 이번 수집 범위에 해당하는 레코드에만 애널리스트명을 채운다.
     if not args.no_hankyung:
         try:
@@ -811,7 +907,8 @@ def main(argv=None):
             log("한경 컨센서스 %d건" % len(hk_records))
             if hk_records:
                 in_range = [r for r in records
-                            if date_from <= (r.get("date") or "") <= date_to]
+                            if date_from <= (r.get("date") or "") <= date_to
+                            and r.get("source") != "thinkpool"]
                 hk_matched, hk_extras = merge_sources(in_range, hk_records)
                 hk_extras = [e for e in hk_extras if e["id"] not in merged]
                 for extra in hk_extras:
@@ -866,6 +963,16 @@ def main(argv=None):
     if wise_stats["absorbed"]:
         log("와이즈 흡수 %d건, 빈 칸을 채운 레코드 %d건 %s"
             % (wise_stats["absorbed"], wise_stats["filled_records"], wise_stats["filled"]))
+    # 2-2) 씽크풀 건 중 다른 소스에 이미 있는 리포트는 흡수(빈 목표가·의견·요약만 채움)
+    records, tp_abs = norm.absorb_thinkpool(records)
+    if tp_abs["absorbed"] or tp_stats:
+        tp_left = [r for r in records if r.get("source") == "thinkpool"]
+        log("씽크풀 흡수 %d건 %s, 빈 칸을 채운 레코드 %d건 %s | 씽크풀 단독 보관 %d건 "
+            "(이번 신규 %d건, 목표가 없음 %d건)"
+            % (tp_abs["absorbed"], tp_abs["by_source"], tp_abs["filled_records"],
+               tp_abs["filled"], len(tp_left),
+               sum(1 for r in tp_left if r.get("id") not in existing_ids),
+               sum(1 for r in tp_left if not r.get("target"))))
     # 3) 같은 (종목, 날짜, 증권사) 중복 병합
     records, dup_merged = norm.dedupe_records(records)
     if dup_merged:
@@ -992,9 +1099,8 @@ def main(argv=None):
         "latest_date": max(dates) if dates else None,
         "brokers": broker_names,
         # 소스가 조용히 멈춘 것을 scraper/check_sources.py 가 잡을 수 있게 남긴다.
-        "source_status": build_source_status(records, existing_ids,
-                                             dict({"wise": wise_info, "hankyung": hk_info},
-                                                  **direct_info)),
+        "source_status": build_source_status(records, existing_ids, status_seen(
+            wise_info, args.wise, {"thinkpool": tp_info, "hankyung": hk_info}, direct_info)),
     }
 
     rating_dist = {}

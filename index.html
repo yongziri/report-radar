@@ -5122,9 +5122,15 @@ function rpPeriodLabel(){
    소스별 최신 리포트 날짜를 적고, 영업일 기준으로 밀린 소스는 경고색으로 둔다.
    (실제 경보는 scraper/check_sources.py 가 Actions 에서 낸다) */
 /* meta.source_status 의 키를 전부 보인다. 아래 순서가 앞, 모르는 키는 뒤에 원래 이름으로 */
-const RP_SRC_ORDER = ["naver", "hankyung", "kb", "nh", "kis", "samsung", "im", "hmc", "wise"];
+const RP_SRC_ORDER = ["naver", "hankyung", "kb", "nh", "kis", "samsung", "im", "hmc", "thinkpool", "wise"];
 const RP_SRC_LABEL = { naver:"네이버", hankyung:"한경", kb:"KB", nh:"NH", kis:"한투", wise:"와이즈",
-                       samsung:"삼성", im:"iM", hmc:"현대차" };
+                       samsung:"삼성", im:"iM", hmc:"현대차", thinkpool:"씽크풀" };
+/* 원문 PDF 없이 목록만 주는 소스: 제목 옆에 작은 출처 꼬리표를 단다. 링크(url)는 있을 때만 */
+const RP_SRC_HINT = {
+  wise: "WiseReport 종목 리포트 목록 (원문 PDF 없음)",
+  thinkpool: "씽크풀 리포트 목록에서 수집 (원문 PDF 없음)"
+};
+function rpSrcHint(r){ return !r.pdf && RP_SRC_HINT[r.source] ? r.source : ""; }
 const RP_SRC_COMPACT = 5;    // 이보다 많으면 가장 오래된 것만 보이고 나머지는 툴팁·펼침으로
 const RP_SRC_STALE_BD = 2;   // 이만큼 영업일이 비면 경고색
 
@@ -5224,14 +5230,15 @@ function rpIsMobile(){ return !!(window.matchMedia && window.matchMedia("(max-wi
 function rpMoreBtn(total, lim){
   return '<button class="btn" id="rpMore">더 보기 (+' + fmt(RP_PAGE) + ") · 남은 " + fmt(total - lim) + "건</button>";
 }
-/* 리포트 제목: PDF 우선, 없으면 url(와이즈는 종목 리포트 목록 페이지 — 출처 표시), 둘 다 없으면 글자만 */
+/* 리포트 제목: PDF 우선, 없으면 url, 둘 다 없으면 글자만.
+   PDF 없는 목록 소스(와이즈·씽크풀)는 뒤에 출처 꼬리표(RP_SRC_LABEL)를 단다 */
 function rpTitleLink(r){
   var t = esc(r.title || ""), link = r.pdf || r.url || "";
-  if(!link) return '<span class="rtitle nolink">' + t + "</span>";
-  var wise = !r.pdf && r.source === "wise";
+  var hk = rpSrcHint(r);
+  var tag = hk ? ' <span class="rsrc" title="' + esc(RP_SRC_HINT[hk]) + '">' + esc(RP_SRC_LABEL[hk] || hk) + "</span>" : "";
+  if(!link) return '<span class="rtitle nolink">' + t + "</span>" + tag;
   return '<a class="rtitle" href="' + esc(link) + '" target="_blank" rel="noopener"' +
-         (wise ? ' title="WiseReport 종목 리포트 목록 (원문 PDF 없음)"' : (r.pdf ? "" : ' title="원문 페이지"')) + ">" + t + "</a>" +
-         (wise ? ' <span class="rsrc">와이즈</span>' : "");
+         (hk ? ' title="' + esc(RP_SRC_HINT[hk]) + '"' : (r.pdf ? "" : ' title="원문 페이지"')) + ">" + t + "</a>" + tag;
 }
 /* 카드 한 장. head: 첫 줄 오른쪽(목표가·괴리율 등) HTML */
 function rpCardHtml(r, head){
@@ -6852,7 +6859,7 @@ function mrRender(){
           esc(rpName(r.code, r.name)) + "</a>" +
           (link ? ' <a class="rnav" href="' + esc(link) + '" target="_blank" rel="noopener" title="' +
                   esc(r.title || "원문") + (r.pdf ? "" : " (원문 페이지)") + '">' +
-                  (!r.pdf && r.source === "wise" ? "와이즈↗" : "원문↗") + "</a>" : "") + "</td>" +
+                  (rpSrcHint(r) ? (RP_SRC_LABEL[r.source] || r.source) + "↗" : "원문↗") + "</a>" : "") + "</td>" +
         '<td class="l">' + esc(r.broker || "") + "</td>" +
         '<td class="c">' + rpBadgeOf(r) + "</td>" +
         "<td>" + rpTargetCell(r) + rpSuspectTag(r) + "</td>" +

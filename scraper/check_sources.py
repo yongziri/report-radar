@@ -29,13 +29,18 @@ META_PATH = os.path.join(ROOT, "data", "meta.json")
 # 소스별 허용 공백(영업일). 한경은 갱신이 하루 늦게 붙는 날이 있어 하루 더 준다.
 # 와이즈는 3시간에 한 번만 받지만 영업일 단위로는 다른 소스와 같은 기준을 둔다.
 # 직접 수집 2차(iM·BNK·상상인)는 발간이 드물어(BNK는 주 2~3건) 5영업일까지 둔다.
+# 씽크풀은 3시간에 한 번 받는 비공식 API라 와이즈와 같은 2영업일을 둔다.
 LIMITS = {"naver": 2, "hankyung": 3, "kb": 2, "nh": 2, "kis": 2, "wise": 2,
-          "im": 5, "bnk": 5, "sangsangin": 5}
-SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "wise", "im", "bnk", "sangsangin")
+          "im": 5, "bnk": 5, "sangsangin": 5, "thinkpool": 2}
+SOURCES = ("naver", "hankyung", "kb", "nh", "kis", "thinkpool", "wise",
+           "im", "bnk", "sangsangin")
 # 보조 소스: 멈춰도 잡을 실패시키지 않고 ::warning:: 만 남긴다.
 # 직접 수집은 기존 리포트에 PDF 를 붙이는 보강 용도라 없어도 본 기능이 돈다.
+# 씽크풀은 빈 칸을 채우고 빠진 리포트를 더하는 보조 소스다(언제든 막힐 수 있는 비공식 API).
 # (해외 러너에서 접속이 막히면 매 실행 실패 메일이 오는 것을 막는다)
-OPTIONAL = ("im", "bnk", "sangsangin")
+OPTIONAL = ("im", "bnk", "sangsangin", "thinkpool", "wise")
+# 닫힌 소스(와이즈, 2026-11-17 종료·--wise 로만 켬): 날짜를 한 번도 얻지 못했으면 점검하지 않는다.
+RETIRED = ("wise",)
 
 
 def parse_date(s):
@@ -74,6 +79,8 @@ def stale_sources(status, today):
         dates = [d for d in (parse_date(st.get("last_date")),
                              parse_date(st.get("fetched_last_date"))) if d]
         last = max(dates) if dates else None
+        if last is None and src in RETIRED:
+            continue
         if last is None:
             out.append({"source": src, "last_date": None, "limit": limit, "days": None})
             continue

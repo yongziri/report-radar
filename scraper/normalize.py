@@ -10,6 +10,7 @@
 - evaluate_target_range: 목표가가 기준가의 0.3~3.5배 밖이면 suspect (건당 한 번만 판정)
 - reparse_nh_targets: NH 요약에서 목표가를 다시 읽기 (v1 → v2 이전 때 한 번)
 - absorb_wise: 상위 소스에 이미 있는 와이즈 건을 지우고 빈 칸(애널리스트 등)만 채움
+- absorb_thinkpool: 다른 소스에 이미 있는 씽크풀 건을 지우고 빈 칸(목표가·의견·요약)만 채움
 - absorb_direct: 직접 수집 2차(iM·BNK·상상인) 건을 같은 리포트의 네이버·와이즈·한경 레코드에 붙임
 - reevaluate_target_range_with_closes: 발간일 종가로 목표가 범위 재판정 (성과 단계)
 """
@@ -23,11 +24,14 @@ from parsers import (
     name_is_broker,
     normalize_broker,
     normalize_rating,
+    thinkpool_broker,
 )
 
 # 소스 우선순위. 숫자가 작을수록 위다. 중복을 합칠 때 위쪽 레코드를 남긴다.
 SOURCE_PRIORITY = {"naver": 0, "kb": 1, "nh": 1, "kis": 1, "im": 1, "bnk": 1, "sangsangin": 1,
-                   "wise": 2, "hankyung": 3}
+                   "wise": 2, "hankyung": 3, "thinkpool": 4}
+# 씽크풀 레코드가 같은 리포트를 찾았을 때 남는 쪽의 빈 칸을 채우는 필드(애널리스트·PDF는 원래 없다).
+THINKPOOL_FILL_FIELDS = ("target", "rating_raw", "summary")
 # 증권사 사이트 직접 수집 2차(direct.py). 같은 리포트가 네이버·와이즈·한경에 있으면 그쪽에 붙는다.
 DIRECT_SOURCES = ("im", "bnk", "sangsangin")
 DIRECT_ATTACH_SOURCES = ("naver", "wise", "hankyung")
@@ -139,8 +143,10 @@ def dedupe_records(records):
                 home["members"].append(rec)
         # 제목이 안 맞는 한경 건: 한경 아닌 묶음 중 가장 비슷한 제목에 붙인다.
         for rec in pending_hk:
+            # 씽크풀 단독 묶음에는 붙이지 않는다(한경 건이 씽크풀 건에 먹혀 사라지지 않게).
             cands = [cl for cl in clusters
-                     if cl["keep"].get("source") != "hankyung" and not cl["hk_fuzzy"]
+                     if cl["keep"].get("source") not in ("hankyung", "thinkpool")
+                     and not cl["hk_fuzzy"]
                      and not any(m.get("source") == "hankyung" for m in cl["members"])]
             if cands:
                 tk = title_key(rec.get("title"))
@@ -382,6 +388,50 @@ def absorb_wise(records):
         stats["absorbed"] += 1
         any_fill = False
         for field in WISE_FILL_FIELDS:
+            if not keep.get(field) and rec.get(field):
+                keep[field] = rec[field]
+                stats["filled"][field] += 1
+                any_fill = True
+        if any_fill:
+            stats["filled_records"] += 1
+    return out, stats
+
+
+def absorb_thinkpool(records):
+    """씽크풀 레코드 중 위쪽 소스(씽크풀 아닌 모든 소스)에 이미 있는 리포트는 지우고 빈 칸만 채운다.
+
+    매칭은 와이즈 규칙(_wise_match: 같은 종목+증권사, 작성일 ±3일, 제목 유사)을 그대로 쓴다.
+    남는 쪽의 비어 있는 target·rating_raw·summary만 씽크풀 값으로 채우고 다른 값은 건드리지 않는다
+    (씽크풀에는 애널리스트·PDF가 없어 가장 낮은 레코드다). 증권사명은 먼저 현재 사명으로 맞춘다
+    (규칙이 바뀌어도 저장된 씽크풀 건에 다시 적용되게). 매 실행 전체에 돌려도 결과가 같다.
+
+    돌려주는 값: (남은 레코드, {"absorbed": n, "filled_records": n, "filled": {필드: n},
+    "by_source": {남는 쪽 소스: n}})
+    """
+    stats = {"absorbed": 0, "filled_records": 0,
+             "filled": {f: 0 for f in THINKPOOL_FILL_FIELDS}, "by_source": {}}
+    upper = {}
+    for rec in records:
+        if rec.get("source") == "thinkpool":
+            rec["broker"] = thinkpool_broker(rec.get("broker"))
+        else:
+            key = (rec.get("code"), normalize_broker(rec.get("broker")))
+            upper.setdefault(key, []).append(rec)
+    out = []
+    for rec in records:
+        if rec.get("source") != "thinkpool":
+            out.append(rec)
+            continue
+        cands = upper.get((rec.get("code"), normalize_broker(rec.get("broker"))))
+        keep = _wise_match(rec, cands) if cands else None
+        if keep is None:
+            out.append(rec)
+            continue
+        stats["absorbed"] += 1
+        src = keep.get("source")
+        stats["by_source"][src] = stats["by_source"].get(src, 0) + 1
+        any_fill = False
+        for field in THINKPOOL_FILL_FIELDS:
             if not keep.get(field) and rec.get(field):
                 keep[field] = rec[field]
                 stats["filled"][field] += 1
