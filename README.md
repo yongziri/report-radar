@@ -299,7 +299,7 @@ python -m http.server 3491
 - **`naver_prev_target`·`price_at_write`** — 네이버 상세가 주는 직전 목표가(`prevGoalPrice`)와
   작성일 종가(`priceAtWriteDate`). 우리가 이력으로 계산하는 `prev_target`과는 별개 필드이고,
   네이버 소스가 아닌 리포트에서는 `null`이다(중복 병합으로 네이버 값을 받은 경우 제외).
-- **`source`** — `naver`·`kb`·`nh`·`kis`·`hankyung`. `id`는 `소스:원본키` 꼴이다
+- **`source`** — `naver`·`kb`·`nh`·`kis`·`im`·`bnk`·`sangsangin`·`hankyung`·`thinkpool` (`wise`는 2026-11-17 종료). `id`는 `소스:원본키` 꼴이다
   (`naver:96032`, `kb:20260904133704237K`, `nh:000000000000147095`, `kis:159058`).
 - **`code`** — 종목코드. 2026년부터 영문자를 품는 신형 코드가 섞여 나온다
   (`0126Z0` 삼성에피스홀딩스, `00680K` 미래에셋증권2우B, `0167A0` SOL AI반도체TOP2플러스).
