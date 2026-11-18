@@ -13,7 +13,9 @@ Windows 작업 스케줄러가 평일 저녁에 이 스크립트를 부른다. �
 - BNK 목록 주소가 열려야 한다 (학교망 낮 시간에는 SSL 오류로 막힌다).
 push 가 거부되면(그사이 CI가 데이터를 올림) 방금 만든 데이터 커밋만 버리고 다음 실행에 맡긴다.
 
-기록: %LOCALAPPDATA%\report-radar\local_update.log (최근 400줄만 남긴다)
+기록: 저장소 폴더의 local_update.log (최근 400줄만 남긴다, git 추적 안 함)
+실행 환경: 저장소의 .venv (python -m venv .venv 후 pip install -r scraper/requirements.txt).
+사용자 폴더에 pip --user 로 깐 모듈은 작업 스케줄러에서 안 보일 수 있어 전용 환경을 쓴다.
 """
 
 import argparse
@@ -25,7 +27,9 @@ from datetime import datetime, timedelta, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KST = timezone(timedelta(hours=9))
-LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or ROOT, "report-radar")
+# 기록·잠금 파일은 저장소 폴더에 둔다(.gitignore 에 있음). 사용자 AppData 폴더는 패키지 앱(Claude
+# 데스크톱 등) 안에서 보면 앱 전용 가상 폴더라, 작업 스케줄러가 쓴 파일과 서로 안 보인다.
+LOG_DIR = ROOT
 LOG_PATH = os.path.join(LOG_DIR, "local_update.log")
 LOCK_PATH = os.path.join(LOG_DIR, "local_update.lock")
 LOG_KEEP_LINES = 400

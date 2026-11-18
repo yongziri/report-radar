@@ -6,3 +6,5 @@ data/*.tmp
 .DS_Store
 .claude/
 app/__pycache__/
+.venv/
+local_update.lock
