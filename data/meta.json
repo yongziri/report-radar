@@ -1,5 +1,5 @@
 {
-"updated_at": "2026-11-18T14:19:25+09:00",
+"updated_at": "2026-11-18T17:14:10+09:00",
 "count": 7020,
 "latest_date": "2026-11-18",
 "brokers": [
@@ -65,7 +65,7 @@
 },
 "thinkpool": {
 "last_date": "2026-11-18",
-"new_run": 4,
+"new_run": 0,
 "total": 1206,
 "fetched_at": "2026-11-18T14:19:25+09:00",
 "fetched_last_date": "2026-11-18",
@@ -77,14 +77,14 @@
 "new_run": 0,
 "total": 9,
 "fetched_last_date": "2026-11-17",
-"tried_at": "2026-11-18T14:19:25+09:00"
+"tried_at": "2026-11-18T17:14:10+09:00"
 },
 "bnk": {
 "last_date": "2026-11-17",
 "new_run": 0,
 "total": 131,
 "fetched_last_date": "2026-11-17",
-"tried_at": "2026-11-18T14:19:25+09:00",
+"tried_at": "2026-11-18T17:14:10+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -92,7 +92,7 @@
 "new_run": 0,
 "total": 120,
 "fetched_last_date": "2026-11-17",
-"tried_at": "2026-11-18T14:19:25+09:00"
+"tried_at": "2026-11-18T17:14:10+09:00"
 }
 },
 "data_version": 2,
@@ -100,13 +100,13 @@
 {
 "month": "2026-11",
 "count": 2340,
-"v": "690137d83c",
+"v": "f3f4380d53",
 "sv": "ad7a87785e"
 },
 {
 "month": "2026-10",
 "count": 1837,
-"v": "1926db971e",
+"v": "7df4b3b32c",
 "sv": "48e7d682cd"
 },
 {
@@ -118,18 +118,18 @@
 {
 "month": "2026-08",
 "count": 1514,
-"v": "5ecf1db1f5",
+"v": "51a8552426",
 "sv": "81767a83fa"
 },
 {
 "month": "2026-07",
 "count": 692,
-"v": "d206e1a87a",
+"v": "be04010c53",
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "9b998b5e24",
-"perf_v": "1871f649bc",
+"prices_v": "a988aa00ac",
+"perf_v": "b97ed8844c",
 "industry_months": [
 {
 "month": "2026-11",
