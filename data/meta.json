@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-11-19T14:15:09+09:00",
-"count": 7097,
+"updated_at": "2026-11-19T17:24:50+09:00",
+"count": 7099,
 "latest_date": "2026-11-19",
 "brokers": [
 "BNK투자증권",
@@ -49,14 +49,14 @@
 "fetched_last_date": "2026-11-19"
 },
 "kb": {
-"last_date": "2026-11-18",
-"new_run": 0,
-"total": 502
+"last_date": "2026-11-19",
+"new_run": 1,
+"total": 503
 },
 "nh": {
 "last_date": "2026-11-19",
-"new_run": 0,
-"total": 374
+"new_run": 1,
+"total": 375
 },
 "kis": {
 "last_date": "2026-11-19",
@@ -70,21 +70,22 @@
 "fetched_at": "2026-11-19T11:54:13+09:00",
 "fetched_last_date": "2026-11-19",
 "fetched_last_id": 569115,
-"tried_at": "2026-11-19T11:54:13+09:00"
+"tried_at": "2026-11-19T17:24:50+09:00",
+"error": "ConnectTimeout"
 },
 "im": {
 "last_date": "2026-11-19",
 "new_run": 0,
 "total": 9,
 "fetched_last_date": "2026-11-19",
-"tried_at": "2026-11-19T14:15:09+09:00"
+"tried_at": "2026-11-19T17:24:50+09:00"
 },
 "bnk": {
 "last_date": "2026-11-17",
 "new_run": 0,
 "total": 131,
 "fetched_last_date": "2026-11-17",
-"tried_at": "2026-11-19T14:15:09+09:00",
+"tried_at": "2026-11-19T17:24:50+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -92,16 +93,16 @@
 "new_run": 0,
 "total": 120,
 "fetched_last_date": "2026-11-17",
-"tried_at": "2026-11-19T14:15:09+09:00"
+"tried_at": "2026-11-19T17:24:50+09:00"
 }
 },
 "data_version": 2,
 "months": [
 {
 "month": "2026-11",
-"count": 2417,
-"v": "645aa545df",
-"sv": "0661e62a8c"
+"count": 2419,
+"v": "c717d9c59b",
+"sv": "a7b4915ee4"
 },
 {
 "month": "2026-10",
@@ -124,12 +125,12 @@
 {
 "month": "2026-07",
 "count": 692,
-"v": "0348fcacac",
+"v": "fd0e2cc9f7",
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "8ab28a8fed",
-"perf_v": "ef08f830af",
+"prices_v": "90de3e3872",
+"perf_v": "16826b49c1",
 "industry_months": [
 {
 "month": "2026-11",
