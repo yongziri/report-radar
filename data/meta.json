@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-11-20T11:47:24+09:00",
-"count": 7136,
+"updated_at": "2026-11-20T14:01:53+09:00",
+"count": 7194,
 "latest_date": "2026-11-20",
 "brokers": [
 "BNK투자증권",
@@ -39,12 +39,12 @@
 "source_status": {
 "naver": {
 "last_date": "2026-11-20",
-"new_run": 21,
+"new_run": 0,
 "total": 3873
 },
 "hankyung": {
 "last_date": "2026-11-20",
-"new_run": 3,
+"new_run": 0,
 "total": 539,
 "fetched_last_date": "2026-11-20"
 },
@@ -55,37 +55,36 @@
 },
 "nh": {
 "last_date": "2026-11-20",
-"new_run": 1,
+"new_run": 0,
 "total": 376
 },
 "kis": {
 "last_date": "2026-11-20",
-"new_run": 4,
+"new_run": 0,
 "total": 325
 },
 "thinkpool": {
-"last_date": "2026-11-19",
-"new_run": 0,
-"total": 1251,
-"fetched_at": "2026-11-20T02:58:40+09:00",
-"fetched_last_date": "2026-11-19",
-"fetched_last_id": 569115,
-"tried_at": "2026-11-20T11:47:24+09:00",
-"error": "ConnectTimeout"
+"last_date": "2026-11-20",
+"new_run": 58,
+"total": 1309,
+"fetched_at": "2026-11-20T14:01:53+09:00",
+"fetched_last_date": "2026-11-20",
+"fetched_last_id": 569201,
+"tried_at": "2026-11-20T14:01:53+09:00"
 },
 "im": {
 "last_date": "2026-11-20",
-"new_run": 5,
+"new_run": 0,
 "total": 14,
 "fetched_last_date": "2026-11-20",
-"tried_at": "2026-11-20T11:47:24+09:00"
+"tried_at": "2026-11-20T14:01:53+09:00"
 },
 "bnk": {
 "last_date": "2026-11-19",
 "new_run": 0,
 "total": 134,
 "fetched_last_date": "2026-11-19",
-"tried_at": "2026-11-20T11:47:24+09:00",
+"tried_at": "2026-11-20T14:01:53+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -93,16 +92,16 @@
 "new_run": 0,
 "total": 121,
 "fetched_last_date": "2026-11-19",
-"tried_at": "2026-11-20T11:47:24+09:00"
+"tried_at": "2026-11-20T14:01:53+09:00"
 }
 },
 "data_version": 2,
 "months": [
 {
 "month": "2026-11",
-"count": 2456,
-"v": "7048567813",
-"sv": "19210d6aa9"
+"count": 2514,
+"v": "cba0db64fb",
+"sv": "f67bc358ca"
 },
 {
 "month": "2026-10",
@@ -129,13 +128,13 @@
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "2ed722f8ed",
-"perf_v": "16826b49c1",
+"prices_v": "99d39ba50b",
+"perf_v": "9deff8c9a9",
 "industry_months": [
 {
 "month": "2026-11",
-"count": 610,
-"v": "9c3afec0fc"
+"count": 612,
+"v": "864b108224"
 },
 {
 "month": "2026-10",
