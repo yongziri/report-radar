@@ -1289,6 +1289,8 @@ footer{border-top:1px solid var(--line);padding:9px 0 20px;color:var(--tx3);font
 <div id="toasts"></div>
 <script>
 "use strict";
+const IS_APP = false;
+const APP_BASE = "";
 /* =========================================================================
    주식 대시보드 (Finviz 스타일, 국내 전용) — 코어
    데이터: 네이버 금융(JSONP, 코스피·코스닥 전용) / 구글뉴스·DART(rss2json 또는 프록시)
@@ -1630,21 +1632,25 @@ const JSONP = (function(){
     var name = "__jsonp_cb_" + (++seq) + "_" + (Date.now() % 100000);
     var script = document.createElement("script");
     var timer = null, finished = false;
-    function cleanup(){
+    function drop(){ try{ delete window[name]; }catch(e){ window[name] = undefined; } }
+    function cleanup(late){
       if(timer) clearTimeout(timer);
-      try{ delete window[name]; }catch(e){ window[name] = undefined; }
+      /* 제한 시간을 넘긴 뒤 늦게 도착한 응답이 지워진 콜백을 불러 ReferenceError 를 내지 않게,
+         타임아웃 때는 아무 일도 안 하는 콜백을 1분 동안 남겨 둔다 */
+      if(late){ window[name] = drop; setTimeout(drop, 60000); }
+      else drop();
       if(script.parentNode) script.parentNode.removeChild(script);
     }
-    function finish(err, data){
+    function finish(err, data, late){
       if(finished) return;
-      finished = true; cleanup(); done();
+      finished = true; cleanup(late); done();
       if(err) job.reject(err); else job.resolve(data);
     }
     window[name] = function(data){ finish(null, data); };
     script.src = job.url + (job.url.indexOf("?") < 0 ? "?" : "&") + "_callback=" + name;
     script.charset = "EUC-KR";
     script.onerror = function(){ finish(new Error("JSONP 요청 실패")); };
-    timer = setTimeout(function(){ finish(new Error("JSONP 타임아웃")); }, TIMEOUT);
+    timer = setTimeout(function(){ finish(new Error("JSONP 타임아웃"), null, true); }, TIMEOUT);
     document.head.appendChild(script);
   }
   return function(url){
@@ -3247,8 +3253,9 @@ function drawChart(){
   ctx.textAlign = "center";
   var ticks = Math.max(2, Math.min(9, Math.floor(plotW/90)));
   for(var t=0;t<=ticks;t++){
-    var idx = Math.min(n-1, Math.round(t*(n-1)/ticks));
-    ctx.fillText(fmtDate(bars[idx].d), X(idx), H-5);
+    var idx = Math.min(n-1, Math.round(t*(n-1)/ticks)), lbl = fmtDate(bars[idx].d), lx = X(idx);
+    if(IS_APP){ var hw = ctx.measureText(lbl).width/2 + 2; lx = Math.max(hw, Math.min(W - hw, lx)); }   // 앱: 화면 폭 꽉 찬 차트에서 양 끝 날짜가 잘리지 않게
+    ctx.fillText(lbl, lx, H-5);
   }
 
   if(AN.hover >= 0 && AN.hover < n){
@@ -4623,7 +4630,7 @@ function rpQuoteCodes(){
 /* noStore: meta.json·v1 reports.json 처럼 주소가 같은 채 내용이 바뀌는 파일에만 쓴다.
    ?v= 가 붙은 파일은 브라우저·서비스 워커 캐시를 그대로 쓴다. */
 function rpFetchJson(path, noStore){
-  return fetch(path, noStore ? { cache:"no-store" } : undefined).then(function(r){
+  return fetch(APP_BASE + path, noStore ? { cache:"no-store" } : undefined).then(function(r){   // APP_BASE: 앱 버전(m/)은 "../"
     if(!r.ok) throw new Error(path + " " + r.status);
     return r.json();
   });

@@ -1,0 +1,149 @@
+/* 종목 화면 — 모든 규칙은 #m-stock 아래로 한정한다 */
+#m-stock{--mst-bleed:calc(-1 * (var(--m-gut) + var(--m-sal)));--mst-bleedr:calc(-1 * (var(--m-gut) + var(--m-sar)))}
+#m-stock .m-num,#m-stock .mst-stats,#m-stock .tgtsum,#m-stock #anRepCons{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* PC 패널 틀 걷어내기: 내용은 카드·구역으로 */
+#m-stock #tab-anal>.panel:first-child{background:none;border:0;margin:0}
+#m-stock #tab-anal>.panel:first-child>.ptitle,#m-stock #anEmpty{display:none}
+#m-stock #anBody .tbw{display:none}
+
+/* ---------- 시작 상태 ---------- */
+#m-stock .mst-sbox{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;padding:0 16px;margin:4px 0 6px;
+  border:1px solid var(--line2);border-radius:26px;background:var(--panel);color:var(--tx3);font-size:16px;text-align:left}
+#m-stock .mst-sbox svg{width:22px;height:22px;flex:none;color:var(--tx2)}
+#m-stock .mst-sbox:active{background:var(--panel2)}
+#m-stock .mst-recent button{min-height:40px}
+#m-stock #mStStart .m-row-v{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+#m-stock #mStStart .m-row-v b{color:var(--tx);font-size:var(--m-fs);font-weight:600}
+#m-stock .mst-chg{font-size:var(--m-fs3)}
+
+/* ---------- 종목 머리 ---------- */
+#m-stock .mst-head{padding:4px 2px 12px}
+#m-stock .mst-h1{display:flex;align-items:flex-start;gap:2px}
+#m-stock .mst-nm{flex:1;min-width:0;padding-top:2px}
+#m-stock .mst-name{font-size:21px;font-weight:700;letter-spacing:-.4px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#m-stock .mst-sub{margin-top:2px;font-size:var(--m-fs3);color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#m-stock .mst-ib{flex:none;width:var(--m-tap);height:var(--m-tap);display:flex;align-items:center;justify-content:center;
+  border:0;border-radius:50%;background:none;color:var(--tx2);padding:0}
+#m-stock .mst-ib:active{background:var(--panel2)}
+#m-stock .mst-ib svg{width:23px;height:23px}
+#m-stock .mst-star.on{color:#F5B83D}
+#m-stock .mst-h2{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-top:6px}
+#m-stock .mst-px{font-size:30px;font-weight:700;letter-spacing:-.8px;line-height:1.1}
+#m-stock .mst-px.flat{color:var(--tx)}
+#m-stock .mst-chip{min-height:28px;padding:0 10px;border-radius:14px;font-size:14px}
+
+/* ---------- 차트 (화면 폭 꽉) ---------- */
+#m-stock .mst-chart{margin:0 var(--mst-bleedr) 4px var(--mst-bleed);background:var(--panel);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0 4px}
+#m-stock .mst-ctrl{display:flex;gap:8px;padding:0 var(--m-gut) 8px}
+#m-stock .mst-ctrl .seg{flex:4 1 0;min-width:0;border-radius:8px;flex-wrap:nowrap}
+#m-stock .mst-ctrl #segTf{flex:3 1 0}
+#m-stock .mst-ctrl .seg button{flex:1;min-width:0;min-height:var(--m-tap);padding:0 2px;font-size:14px;color:var(--tx2)}
+#m-stock .mst-ctrl .seg button.act{color:#fff}
+#m-stock .mst-leg{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:6px;padding:0 var(--m-gut) 8px}
+#m-stock .mst-leg::-webkit-scrollbar{display:none}
+#m-stock .mst-leg button{flex:none;min-height:40px;padding:0 12px;border-radius:20px;font-size:13px;font-weight:600;
+  display:flex;align-items:center;gap:6px;opacity:.55}
+#m-stock .mst-leg button.on{opacity:1;border-color:currentColor}
+#m-stock .mst-leg button .dot{width:10px;height:3px;border-radius:2px}
+/* 값 읽기 줄: 차트 위에 고정 높이 (손가락 아래 툴팁 대신) */
+#m-stock .mst-read{height:50px;margin:0 var(--m-gut) 4px;padding:6px 10px;border-radius:8px;background:var(--panel2);
+  font-size:13px;line-height:1.45;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+#m-stock .mst-read.idle{background:none;padding:0 2px}
+#m-stock .mst-read .hint{font-size:var(--m-fs3);color:var(--tx3);line-height:1.4}
+#m-stock .mst-read .r1,#m-stock .mst-read .r2{display:flex;align-items:baseline;gap:10px;white-space:nowrap;min-width:0}
+#m-stock .mst-read .r1 .c{margin-left:auto}
+#m-stock .mst-read .r2{color:var(--tx2);font-size:var(--m-fs3);justify-content:space-between}
+#m-stock .mst-read .r2 i{font-style:normal}
+#m-stock .mst-read.dot{cursor:pointer}
+#m-stock .mst-read.dot .r1 .c{white-space:nowrap}
+#m-stock .mst-read .br{overflow:hidden;text-overflow:ellipsis;min-width:0}
+#m-stock .mst-read .rbadge{flex:none}
+#m-stock .mst-read .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#m-stock .mst-read .more{flex:none;color:var(--link)}
+#m-stock .chw{padding:0}
+#m-stock #chart{height:clamp(270px, 84vw, 440px);cursor:default;touch-action:pan-y;-webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none}
+#m-stock #tip{display:none !important}
+/* 차트 아래: 목표가 점 범례만 (숫자 요약은 리포트 구역의 컨센서스 카드 하나) */
+#m-stock #anTgtSum{margin:2px var(--m-gut) 4px;padding:0;border:0;background:none;font-size:var(--m-fs3)}
+#m-stock #anTgtSum .tg{flex-wrap:wrap;gap:4px 12px;font-size:var(--m-fs3)}
+
+/* ---------- 지표 2열 ---------- */
+#m-stock .mst-stats{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden;margin-bottom:4px}
+#m-stock .mst-st{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-height:44px;padding:11px 12px;
+  background:var(--panel);font-size:14px}
+#m-stock .mst-st .k{color:var(--tx3);font-size:var(--m-fs2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#m-stock .mst-st .v{text-align:right;font-weight:600;white-space:nowrap}
+#m-stock .mst-st .v.hot{color:var(--up)}
+#m-stock .mst-st .v.cold{color:var(--down)}
+
+/* ---------- 리포트 ---------- */
+#m-stock #anRepPanel{background:none;border:0;margin:0}
+#m-stock #anRepPanel>.ptitle{border:0;padding:16px 4px 6px;font-size:var(--m-fs3);color:var(--tx3);display:flex;flex-wrap:wrap;gap:2px 6px;
+  height:auto;line-height:1.4}
+#m-stock #anRepPanel>.ptitle .sp{display:none}
+#m-stock #anRepPanel>.ptitle .sub{font-weight:400}
+#m-stock #anRepPanel>.tbw{display:none}
+/* 컨센서스: 이 화면은 #mStCons 하나만 (PC 의 3개월 단순 평균 #anRepCons 와 차트 요약 숫자 줄은 숨긴다) */
+#m-stock #anRepCons,#m-stock #anTgtSum .tb{display:none !important}
+#m-stock .mst-cons{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);padding:12px 14px;margin:0 0 10px}
+#m-stock .mst-cons-k{font-size:var(--m-fs2);font-weight:700;color:var(--tx2)}
+#m-stock .mst-cons-k span{font-weight:400;color:var(--tx3)}
+#m-stock .mst-cons-v{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:24px;font-weight:700;letter-spacing:-.4px;line-height:1.25}
+#m-stock .mst-cons-v small{font-size:15px;font-weight:600;margin-left:1px;color:var(--tx2)}
+#m-stock .mst-cons-s{margin-top:2px;font-size:var(--m-fs3);color:var(--tx3)}
+#m-stock .mst-cons-none{margin-top:6px;font-size:var(--m-fs2);color:var(--tx3)}
+#m-stock .mst-cons-g{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+#m-stock .mst-cons-g div{min-width:0}
+#m-stock .mst-cons-g .k{display:block;font-size:var(--m-fs3);color:var(--tx3)}
+#m-stock .mst-cons-g b{display:block;font-size:15px;font-weight:600;white-space:nowrap}
+#m-stock .mst-rep{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden}
+#m-stock .mst-rep:empty{display:none}
+#m-stock .mst-rc{padding:12px 12px 11px;font-size:14px}
+#m-stock .mst-rc .l1 .nm{display:flex;align-items:center;gap:4px;overflow:visible}
+#m-stock .mst-rc .l1 .v{font-size:15px}
+#m-stock .mst-rc .l2{margin-top:5px;font-size:15px;line-height:1.45}
+#m-stock .mst-rc .l3{margin-top:4px;font-size:var(--m-fs3)}
+#m-stock .mst-rc .sum{font-size:13px}
+#m-stock .mst-more{display:block;width:100%;min-height:var(--m-tap);border:0;border-top:1px solid var(--line);background:var(--panel);
+  color:var(--link);font-size:14px;font-weight:600}
+#m-stock .mst-more:active{background:var(--panel2)}
+
+/* ---------- 뉴스 · 공시 ---------- */
+#m-stock #anFeeds{display:block !important;margin-top:16px}
+#m-stock #anFeeds[style*="none"]{display:none !important}
+#m-stock #anFeeds .panel{margin:0 0 12px;overflow:hidden}
+#m-stock #anFeeds .ptitle{font-size:14px;color:var(--tx);padding:10px 8px 10px 12px;min-height:var(--m-tap);display:flex;align-items:center;gap:6px}
+#m-stock #anFeeds .ptitle .sub{font-weight:400;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#m-stock #anFeeds .ptitle .sp{margin-left:auto;flex:none}
+#m-stock #anFeeds .ptitle .btn{min-height:40px;min-width:44px}
+#m-stock .newsbox,#m-stock .dcbox{max-height:none;overflow:visible;padding:0 12px}
+#m-stock .newsbox li,#m-stock .dcbox li{padding:0 0 10px !important;line-height:1.45}
+#m-stock .newsbox li a,#m-stock .dcbox li a{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  font-size:15px;color:var(--tx);font-weight:500;padding-top:10px}
+#m-stock .dcbox li div{font-size:var(--m-fs3) !important;margin-top:2px}
+#m-stock .newsbox:not(.mst-open) li:nth-child(n+6),#m-stock .dcbox:not(.mst-open) li:nth-child(n+6){display:none}
+#m-stock .newsbox>div,#m-stock .dcbox>div{padding:10px 0}
+#m-stock .dcbox li:last-child,#m-stock .newsbox li:last-child{border-bottom:0 !important}
+#m-stock .newsbox:not(.mst-open) li:nth-child(5),#m-stock .dcbox:not(.mst-open) li:nth-child(5){border-bottom:0 !important}
+#m-stock .dcbox .note,#m-stock .newsbox .note{border:0;background:none;padding:0;margin-top:4px !important}
+#m-stock .mst-st.fill{background:var(--panel)}
+
+/* ---------- 기업분석 ---------- */
+#m-stock #tab-cmp>.panel{background:none;border:0;margin:0}
+#m-stock #tab-cmp>.panel>.ptitle{display:none}
+#m-stock #cmpBody>.pbody{border:0 !important;padding:8px 4px 8px;font-size:var(--m-fs3) !important;line-height:1.5}
+#m-stock #mStCmpList .m-h:first-child{margin-top:4px}
+#m-stock #mStCmpList .m-row-v{color:var(--link)}
+#m-stock .mst-cseg{background:none;border:0;border-radius:0;overflow-x:auto;flex-wrap:nowrap}
+#m-stock .mst-cseg button{min-height:40px;font-size:14px}
+#m-stock #mStCmpMode{margin:2px 0 10px}
+#m-stock #mStCmpMode button{font-size:13px}
+#m-stock .cmpwrap{border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden}
+#m-stock .cmpwrap:not(.mst-fit){overflow-x:auto;-webkit-overflow-scrolling:touch}
+#m-stock #cmpFrame{min-height:0;height:2600px !important;transform-origin:0 0}
+#m-stock .cmpwrap.mst-fit #cmpFrame{position:absolute;left:0;top:0}
+#m-stock .cmpload{z-index:2}

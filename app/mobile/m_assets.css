@@ -1,0 +1,156 @@
+/* 내 자산 화면 — 화면 규칙은 #m-assets 아래, 시트 규칙은 .mas-sheet 아래로 한정한다 */
+
+/* PC 표·패널은 옮겨 두기만 하고 숨긴다 (공유 코드가 계속 쓴다) */
+#m-assets #mAsWl>.panel,#m-assets #mAsAcct>#tab-acct,#m-assets #mAsAcct>.panel{display:none}
+
+/* ---------- 공통 ---------- */
+#m-assets .mas-view{font-variant-numeric:tabular-nums}
+#m-assets .mas-chips{margin:0 calc(-1 * var(--m-gut)) 2px;padding:2px var(--m-gut) 8px;scroll-padding:0 var(--m-gut)}
+#m-assets .mas-chips button{min-height:var(--m-tap);display:flex;align-items:center;gap:5px}
+#m-assets .mas-chips .n{font-size:12px;font-weight:600;opacity:.65}
+#m-assets .mas-chips .mas-chip-add{width:var(--m-tap);padding:0;justify-content:center;border-style:dashed;color:var(--tx2)}
+#m-assets .mas-chip-add svg{width:20px;height:20px}
+#m-assets .mas-tbtn,.mas-sheet .mas-tbtn{flex:none;min-height:var(--m-tap);padding:0 12px;border:0;border-radius:8px;background:none;
+  color:var(--link);font-size:14px;font-weight:700;white-space:nowrap}
+#m-assets .mas-tbtn:active,.mas-sheet .mas-tbtn:active{background:var(--panel2)}
+#m-assets .mas-tbtn.pri{background:var(--link);color:#fff}
+#m-assets .mas-nm{display:block;font-size:var(--m-fs);font-weight:700;line-height:1.3;color:var(--tx);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-assets .mas-sub{display:block;margin-top:2px;font-size:var(--m-fs3);line-height:1.3;color:var(--tx3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-assets .mas-stale{color:var(--down)}
+#m-assets .mas-px{font-size:var(--m-fs);font-weight:700;line-height:1.3;color:var(--tx);white-space:nowrap}
+#m-assets .mas-px.loading,#m-assets .mas-px i{font-size:var(--m-fs3);font-weight:400;font-style:normal;color:var(--tx3)}
+#m-assets .mas-chg{font-size:var(--m-fs3);line-height:1.3;margin-top:2px;white-space:nowrap}
+#m-assets .mas-addbtn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:48px;margin:0 0 10px;
+  border:1px dashed var(--line2);border-radius:var(--m-r);background:none;color:var(--link);font-size:var(--m-fs);font-weight:700}
+#m-assets .mas-addbtn:active{background:var(--panel2)}
+#m-assets .mas-addbtn svg{width:18px;height:18px}
+#m-assets .mas-hint{font-size:var(--m-fs3);color:var(--tx3);margin:0 4px 10px;line-height:1.5}
+
+/* 비어 있음 */
+#m-assets .mas-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px 18px 22px;text-align:center}
+#m-assets .mas-empty b{font-size:var(--m-fs);color:var(--tx)}
+#m-assets .mas-empty span{font-size:var(--m-fs2);color:var(--tx3);line-height:1.55}
+#m-assets .mas-empty .m-btn{margin-top:10px;min-width:160px}
+#m-assets .mas-empty-ic{width:48px;height:48px;border-radius:50%;background:var(--panel2);color:var(--link);
+  display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+#m-assets .mas-empty-ic svg{width:24px;height:24px}
+
+/* 버튼 (화면·시트 공용) */
+
+/* ---------- 관심종목 ---------- */
+#m-assets .mas-sum{font-size:var(--m-fs2);color:var(--tx2);margin:2px 4px 2px;line-height:1.4}
+#m-assets .mas-tools{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+#m-assets .mas-tools.edit{justify-content:flex-start;margin-top:2px}
+#m-assets .mas-tools.edit .pri{margin-left:auto}
+#m-assets .mas-sort{display:flex;flex:1;min-width:0;gap:2px}
+#m-assets .mas-sort button{min-height:var(--m-tap);padding:0 9px;border:0;background:none;color:var(--tx3);font-size:13px;font-weight:600;
+  white-space:nowrap;position:relative}
+#m-assets .mas-sort button.act{color:var(--tx);font-weight:700}
+#m-assets .mas-sort button.act::after{content:"";position:absolute;left:9px;right:9px;bottom:9px;height:2px;border-radius:1px;background:var(--link)}
+#m-assets .mas-tools>[data-edit]{margin-left:auto;color:var(--tx2)}
+
+#m-assets .mas-wrow{display:flex;align-items:center;gap:8px;min-height:60px;padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+#m-assets .mas-wrow:last-child{border-bottom:0}
+#m-assets .mas-wrow[role=button]:active{background:var(--panel2)}
+#m-assets .mas-wl{flex:1;min-width:0}
+#m-assets .mas-spk{flex:none;width:56px;height:26px}
+#m-assets .mas-wr{flex:none;min-width:64px;text-align:right}
+#m-assets .mas-pct{width:72px}
+#m-assets .editing .mas-wrow{cursor:default}
+#m-assets .mas-del{flex:none;width:var(--m-tap);height:var(--m-tap);margin-right:-6px;border:0;border-radius:50%;background:none;
+  display:flex;align-items:center;justify-content:center;color:var(--down-bg)}
+#m-assets .mas-del svg{width:26px;height:26px;padding:3px;border-radius:50%;background:var(--down-bg);color:#fff}
+#m-assets .mas-del:active{background:var(--panel2)}
+@media (max-width:374px){
+  #m-assets .mas-spk{display:none}
+  #m-assets .mas-pct{width:68px}
+}
+
+/* ---------- 계좌 ---------- */
+#m-assets .mas-sumcard{padding:16px 16px 14px}
+#m-assets .mas-sk{font-size:var(--m-fs2);color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-assets .mas-sv{font-size:28px;font-weight:800;letter-spacing:-.5px;line-height:1.25;margin-top:4px;color:var(--tx);overflow-wrap:anywhere}
+#m-assets .mas-sv small{font-size:17px;font-weight:700;margin-left:2px}
+#m-assets .mas-spl{font-size:var(--m-fs);font-weight:700;margin-top:2px}
+#m-assets .mas-sgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+#m-assets .mas-sgrid div{min-width:0}
+#m-assets .mas-sgrid span{display:block;font-size:var(--m-fs3);color:var(--tx3)}
+#m-assets .mas-sgrid b{display:block;font-size:14px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-assets .mas-snote{margin-top:10px;font-size:var(--m-fs3);color:var(--tx3)}
+#m-assets .mas-hrow{display:flex;align-items:center;justify-content:space-between;margin:12px 0 4px}
+#m-assets .mas-hrow .m-h{margin:0 4px}
+#m-assets .mas-hrow .mas-tbtn{color:var(--tx2);margin-right:-6px}
+#m-assets .mas-hrow-i{display:flex;align-items:center;gap:8px;width:100%;min-height:64px;padding:10px 6px 10px 14px;border:0;
+  border-bottom:1px solid var(--line);background:none;color:var(--tx);text-align:left;font:inherit}
+#m-assets .mas-hrow-i:last-child{border-bottom:0}
+#m-assets .mas-hrow-i:active{background:var(--panel2)}
+#m-assets .mas-hl{flex:1;min-width:0}
+#m-assets .mas-hr{flex:none;max-width:56%;text-align:right;display:flex;flex-direction:column;align-items:flex-end}
+#m-assets .mas-memo{display:block;margin-top:3px;font-size:var(--m-fs3);color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-assets .mas-hrow-i .m-chev{flex:none;width:18px;height:18px;margin-left:-2px;color:var(--tx3)}
+#m-assets .mas-tools-ft{margin:8px 0 6px}
+#m-assets .mas-links{display:flex;flex-wrap:wrap;gap:4px 6px}
+#m-assets .mas-links button{min-height:var(--m-tap);padding:0 12px;border:1px solid var(--line);border-radius:22px;background:var(--panel);
+  color:var(--tx2);font-size:13px;font-weight:600}
+#m-assets .mas-links button:active{background:var(--panel2)}
+#m-assets .mas-tools-ft p{font-size:var(--m-fs3);color:var(--tx3);margin:8px 4px 0;line-height:1.5}
+
+/* ---------- 시트 (추가·수정·상세·관리) ---------- */
+.mas-sheet .mas-form{padding-top:2px}
+.mas-sheet .mas-fld{margin:0 0 12px;min-width:0}
+.mas-sheet .mas-fld>label{display:block;font-size:var(--m-fs2);font-weight:700;color:var(--tx2);margin:0 0 6px}
+.mas-sheet .mas-fld label small{font-weight:400;color:var(--tx3)}
+.mas-sheet .mas-fld input[type=text],.mas-sheet .mas-fld select{width:100%;min-height:50px;padding:10px 12px;border-radius:var(--m-r);
+  font-size:16px;border:1px solid var(--line2);background:var(--panel2);color:var(--tx)}
+.mas-sheet .mas-fld input:focus,.mas-sheet .mas-fld select:focus{outline:none;border-color:var(--link);box-shadow:0 0 0 2px rgba(80,140,255,.25)}
+.mas-sheet .mas-fld.bad input,.mas-sheet .mas-fld.bad select{border-color:var(--down-bg)}
+.mas-sheet .mas-unit{position:relative}
+.mas-sheet .mas-unit input[type=text]{padding-right:34px;text-align:right;font-variant-numeric:tabular-nums}
+.mas-sheet .mas-unit span{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--tx3);font-size:14px;pointer-events:none}
+.mas-sheet .mas-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:10px}
+.mas-sheet .mas-err{font-size:var(--m-fs3);color:var(--down-bg);margin-top:5px;line-height:1.4}
+.mas-sheet .mas-err:empty{display:none}
+.mas-sheet .mas-calc{font-size:var(--m-fs2);color:var(--tx2);margin:-4px 2px 12px;min-height:1.4em;line-height:1.5}
+.mas-sheet .mas-calc b{color:var(--tx)}
+.mas-sheet .mas-picked{display:flex;align-items:center;gap:8px;min-height:50px;padding:4px 4px 4px 12px;border:1px solid var(--line2);
+  border-radius:var(--m-r);background:var(--panel2)}
+.mas-sheet .mas-pk{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--m-fs)}
+.mas-sheet .mas-pk span{color:var(--tx3);font-size:var(--m-fs3);margin-left:4px}
+.mas-sheet .m-srch .sug.open{border-top:1px solid var(--line)}
+.mas-sheet .mas-acts{display:flex;gap:8px;margin:14px 0 4px}
+.mas-sheet .mas-acts .m-btn{flex:1;min-height:48px}
+.mas-sheet .mas-acts.m-actbar{margin:16px -16px -16px}
+.mas-sheet .mas-acts.col{flex-direction:column}
+.mas-sheet .mas-hint{font-size:var(--m-fs3);color:var(--tx3);margin:6px 2px 0}
+.mas-sheet .m-h{margin:18px 2px 6px}
+.mas-sheet .mas-confirm p{font-size:var(--m-fs);line-height:1.6;margin:6px 2px 4px;color:var(--tx)}
+.mas-sheet .mas-confirm small{color:var(--tx3);font-size:var(--m-fs2)}
+.mas-sheet .mas-to{font-size:var(--m-fs2);color:var(--tx3);margin:0 2px 8px}
+.mas-sheet .mas-to b{color:var(--tx)}
+.mas-sheet .mas-qrow{min-height:56px}
+.mas-sheet .mas-qrow:disabled{opacity:1}
+.mas-sheet .mas-qrow:disabled .m-row-t{color:var(--tx3)}
+.mas-sheet .mas-qadd{flex:none;width:36px;height:36px;border-radius:50%;background:var(--panel2);color:var(--link);
+  display:flex;align-items:center;justify-content:center}
+.mas-sheet .mas-qadd svg{width:20px;height:20px}
+.mas-sheet .mas-qadd.on{width:auto;background:none;color:var(--tx3);font-size:var(--m-fs3)}
+.mas-sheet .mas-quick .m-h{margin-top:14px}
+/* 상세 */
+.mas-sheet .mas-dhead{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:2px 2px 12px;border-bottom:1px solid var(--line)}
+.mas-sheet .mas-dhead>div{min-width:0}
+.mas-sheet .mas-dhead b{display:block;font-size:18px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mas-sheet .mas-dhead span{display:block;font-size:var(--m-fs3);color:var(--tx3);margin-top:2px}
+.mas-sheet .mas-dpx{text-align:right;flex:none}
+.mas-sheet .mas-dpx b{font-size:17px}
+.mas-sheet .mas-dpx span{font-size:var(--m-fs2)}
+.mas-sheet .mas-dpx .up{color:var(--up)}.mas-sheet .mas-dpx .down{color:var(--down)}
+.mas-sheet .mas-dl{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin:14px 2px 0}
+.mas-sheet .mas-dl div{min-width:0}
+.mas-sheet .mas-dl .wide{grid-column:1 / -1}
+.mas-sheet .mas-dl dt{font-size:var(--m-fs3);color:var(--tx3)}
+.mas-sheet .mas-dl dd{margin:2px 0 0;font-size:var(--m-fs);font-weight:700;overflow-wrap:anywhere}
+.mas-sheet .mas-dl .wide dd{font-weight:400;font-size:var(--m-fs2)}
+/* 저장·취소 줄은 시트 아래에 붙여 둔다 (낮은 화면·화상 키보드에서도 보이게) */
+.mas-sheet .mas-calc:empty{display:none}

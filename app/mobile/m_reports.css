@@ -1,0 +1,266 @@
+/* 리포트 화면 — 모든 규칙은 #m-reports 아래(시트는 .mrp-sheet 아래)로 한정한다 */
+#m-reports{padding-top:0}
+
+/* ---------- 위 고정 영역: 하위 뷰 칩 · 기간/필터 · 걸린 필터 · 부분 적재 안내 ---------- */
+#m-reports .mrp-top{position:sticky;top:0;z-index:20;
+  margin:0 calc(-1 * (var(--m-gut) + var(--m-sar))) 10px calc(-1 * (var(--m-gut) + var(--m-sal)));
+  padding:2px calc(var(--m-gut) + var(--m-sar)) 8px calc(var(--m-gut) + var(--m-sal));
+  background:var(--bg);border-bottom:1px solid var(--line)}
+#m-reports .mrp-views,#m-reports .mrp-act{overflow-x:auto;scrollbar-width:none;overscroll-behavior-x:contain;
+  margin:0 calc(-1 * var(--m-gut));padding:0 var(--m-gut)}
+#m-reports .mrp-views::-webkit-scrollbar,#m-reports .mrp-act::-webkit-scrollbar{display:none}
+#m-reports #rpViewSeg{display:flex;flex-wrap:nowrap;gap:6px;width:max-content;background:none;border:0;border-radius:0;overflow:visible}
+
+/* 알약 모양 버튼: 누르는 영역은 44px, 보이는 알약은 ::before */
+#m-reports #rpViewSeg button,#m-reports .mrp-chip,#m-reports .mrp-sort button{position:relative;z-index:0;flex:none;
+  height:var(--m-tap);min-height:0;padding:0 14px;border:0;border-radius:0;background:none;color:var(--tx2);
+  font-size:14px;font-weight:600;white-space:nowrap}
+#m-reports #rpViewSeg button::before,#m-reports .mrp-chip::before,#m-reports .mrp-sort button::before{content:"";position:absolute;
+  z-index:-1;left:0;right:0;top:5px;bottom:5px;border-radius:17px;background:var(--panel2);border:1px solid var(--line)}
+#m-reports #rpViewSeg button.act{color:#fff;background:none}
+#m-reports #rpViewSeg button.act::before{background:var(--link);border-color:var(--link)}
+
+/* 둘째 줄: 뷰마다 하나 (기간 / 산업 기간 / 성적표 단위) + 필터 버튼 */
+#m-reports .mrp-r2{display:flex;align-items:center;gap:8px;margin-top:2px}
+#m-reports .mrp-r2l{flex:1;min-width:0}
+#m-reports #rpPeriod,#m-reports #indPeriod,#m-reports #scMode{display:none}
+#m-reports:not([data-v="industry"]):not([data-v="score"]) #rpPeriod,
+#m-reports[data-v="industry"] #indPeriod,#m-reports[data-v="score"] #scMode{display:flex}
+#m-reports .mrp-r2l .seg{flex-wrap:nowrap;width:100%;height:var(--m-tap);padding:0;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden}
+#m-reports .mrp-r2l .seg button{position:relative;z-index:0;flex:1 1 0;min-width:0;height:100%;min-height:0;padding:0 2px;
+  border:0;border-radius:0;background:none;color:var(--tx3);font-size:14px;font-weight:600;white-space:nowrap}
+#m-reports .mrp-r2l .seg button.act{background:none;color:var(--tx);font-weight:700}
+#m-reports .mrp-r2l .seg button.act::before{content:"";position:absolute;z-index:-1;inset:3px;border-radius:7px;
+  background:var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.28)}
+#m-reports .mrp-fbtn{flex:none;display:flex;align-items:center;gap:5px;height:var(--m-tap);padding:0 12px;
+  border:1px solid var(--line);border-radius:var(--m-r);background:var(--panel2);color:var(--tx);font-size:14px;font-weight:700}
+#m-reports .mrp-fbtn svg{width:18px;height:18px;flex:none}
+#m-reports .mrp-fbtn.on{border-color:var(--link);color:var(--link)}
+#m-reports .mrp-badge{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--link);color:#fff;
+  font-size:12px;line-height:20px;text-align:center;font-variant-numeric:tabular-nums}
+
+/* 걸린 필터 칩 (× 로 해제) */
+#m-reports .mrp-act{display:flex;gap:6px;margin-top:2px;margin-bottom:-4px}
+#m-reports .mrp-chip{display:flex;align-items:center;gap:4px;padding:0 10px 0 12px;font-size:13px;color:var(--tx)}
+#m-reports .mrp-chip::before{top:7px;bottom:7px;border-color:var(--link);background:transparent}
+#m-reports .mrp-chip span{max-width:150px;overflow:hidden;text-overflow:ellipsis}
+#m-reports .mrp-chip i{font-style:normal;font-size:16px;line-height:1;color:var(--tx3)}
+#m-reports .mrp-chip.mrp-clr{color:var(--tx3)}
+#m-reports .mrp-chip.mrp-clr::before{border-color:var(--line)}
+
+/* 부분 적재 안내: 한 줄 (위 고정 영역 안이라 목록을 내려도 보인다) */
+#m-reports .mrp-top .rpload{display:flex;align-items:center;gap:8px;margin:6px 0 0;padding:4px 4px 4px 10px;min-height:36px;
+  border-radius:8px;font-size:12px;line-height:1.4}
+#m-reports .mrp-top .rpload .mrp-ln{flex:1;min-width:0}
+#m-reports .mrp-top .rpload .spin{flex:none;margin-right:0}
+#m-reports .mrp-top .rpload .btn{flex:none;min-height:32px}
+
+/* ---------- 개요: 한 줄 요약 → 펼침 ---------- */
+#m-reports .mrp-ov{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);margin:0 0 10px}
+#m-reports[data-v="score"] .mrp-ov,#m-reports[data-v="industry"] .mrp-ov{display:none}
+#m-reports .mrp-ovb{display:flex;align-items:center;gap:6px;width:100%;min-height:48px;padding:7px 8px 7px 14px;
+  background:none;border:0;color:var(--tx2);font-size:13px;line-height:1.5;text-align:left}
+#m-reports .mrp-ovl{flex:1;min-width:0;display:flex;flex-wrap:wrap}
+#m-reports .mrp-ovs{white-space:nowrap}
+#m-reports .mrp-ovs:not(:last-child)::after{content:"·";margin:0 6px;color:var(--tx3)}
+#m-reports #rpFilterPanel{display:none}
+#m-reports .mrp-ovs b{font-weight:700;font-variant-numeric:tabular-nums}
+#m-reports .mrp-ovs b:not([class]){color:var(--tx)}
+#m-reports .mrp-acc{transition:transform .18s}
+#m-reports .mrp-ov.open .mrp-ovb .mrp-acc{transform:rotate(180deg)}
+#m-reports .mrp-ov:not(.open)>.pbody,#m-reports .mrp-ov:not(.open)>.ptitle{display:none}
+#m-reports .mrp-ov>.pbody{border-top:1px solid var(--line);padding:12px 14px 8px}
+#m-reports #rpStats{display:grid;align-items:start;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 8px}
+#m-reports #rpStats .ovi{min-width:0}
+#m-reports #rpStats .ovi .v{font-size:18px;font-variant-numeric:tabular-nums}
+#m-reports #rpStats .ovi .c{color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-reports #rpStats .ovi:first-child .c{white-space:normal}
+#m-reports .mrp-ov>.ptitle{display:block;height:auto;min-height:0;padding:4px 14px 12px;border:0;font-size:0;font-weight:400}
+#m-reports .mrp-ov>.ptitle>*{display:block;font-size:12px;line-height:1.6;color:var(--tx3)}
+#m-reports .mrp-ov>.ptitle .sp{margin:2px 0 0}
+#m-reports .mrp-ov>.ptitle .sub .src{margin-left:0;display:block;font-size:12px;white-space:normal}
+
+/* ---------- 목록 패널: 패널 틀을 걷고 카드만 ---------- */
+#m-reports #rpTablePanel,#m-reports #rpIndPanel,#m-reports #rpScorePanel,#m-reports #rpHeatPanel{background:none;border:0;margin:0}
+#m-reports .panel .rpvseg{display:none}
+#m-reports #rpTablePanel>.ptitle,#m-reports #rpIndPanel>.ptitle,#m-reports #rpScorePanel>.ptitle{display:flex;height:auto;min-height:0;
+  padding:0 2px 6px;border:0;font-size:0}
+#m-reports #rpTablePanel>.ptitle>*,#m-reports #rpIndPanel>.ptitle>*,#m-reports #rpScorePanel>.ptitle>*{font-size:12px}
+#m-reports #rpTablePanel>.ptitle .sp{margin:0}
+#m-reports #rpTableTitle{display:none}
+#m-reports #rpCount2,#m-reports #indCount,#m-reports #scSub{color:var(--tx3);font-size:12px;font-variant-numeric:tabular-nums}
+#m-reports #rpIndPanel>.pbody{display:none}
+#m-reports #rpIndPanel .rpload{margin:0 0 8px;font-size:12px}
+#m-reports .empty{padding:36px 12px;font-size:14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r)}
+#m-reports .empty .btn{min-height:36px;margin-top:6px}
+
+/* 카드 (리포트 · 목표가 변경 · 산업·시황) */
+#m-reports .rcards{gap:8px}
+#m-reports .rcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);padding:11px 12px 10px;font-size:14px}
+#m-reports .rcard.hs:active{background:var(--panel2)}
+#m-reports .rcard .l1{flex-wrap:wrap;align-items:center;gap:0 10px;min-height:40px;margin-top:-6px}
+#m-reports .rcard .l1 .nm{flex:1 0 auto;max-width:100%;display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;font-size:13px}
+#m-reports .rcard .l1 .tk{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:16px;font-weight:700;color:var(--tx);
+  line-height:40px;letter-spacing:-.2px;min-width:44px}
+#m-reports .rcard .l1 .v{flex:0 0 auto;margin-left:auto;white-space:nowrap;text-align:right;font-size:14px;line-height:1.35;
+  font-variant-numeric:tabular-nums}
+#m-reports .rcard .l1 .v .tgt{font-size:11px}
+#m-reports .rcard .l2{margin-top:-2px;font-size:14px;line-height:1.45;color:var(--tx);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#m-reports .rcard .l2 .rtitle{color:var(--tx)}
+#m-reports .rcard .l3{margin-top:6px;display:flex;align-items:center;flex-wrap:wrap;gap:2px 0;font-size:12px;line-height:1.4;color:var(--tx3)}
+#m-reports .rcard .l3 .dot{font-style:normal;margin:0 5px;color:var(--line2)}
+#m-reports .rcard .l3 .br{color:var(--tx2);font-weight:600}
+#m-reports .rcard .l3 .tags{display:inline-flex;gap:4px;margin-right:6px}
+#m-reports .rcard .l3 .tags>span{margin-left:0;font-size:11px;padding:1px 5px}
+#m-reports .rcard .l3 .end{margin-left:auto;display:flex;align-items:center;gap:6px;padding-left:8px}
+#m-reports .rcard .l3 .rsrc{font-size:12px;color:var(--tx3)}
+#m-reports .mrp-pdf{display:inline-flex;align-items:center;min-height:40px;padding:0 9px;border:1px solid var(--line2);border-radius:6px;
+  font-size:12px;font-weight:700;color:var(--tx2);text-decoration:none}
+#m-reports .rcard .l3 .tg{margin-left:0;display:inline-flex;align-items:center;gap:2px;min-height:36px;padding:0 2px 0 6px;
+  color:var(--link);font-weight:600}
+#m-reports .rcard .l3 .tg svg{width:14px;height:14px}
+#m-reports .rcard .sum{margin-top:8px;padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.7;color:var(--tx2)}
+#m-reports .rcard .sum .btn{min-height:32px}
+#m-reports #indCards .rcard .l1 .nm{font-size:13px;color:var(--tx2)}
+#m-reports #indCards .ikind{font-size:12px;padding:1px 6px;border-radius:4px}
+#m-reports #indCards .rcard .l1 .v{font-size:12px;color:var(--tx3)}
+#m-reports #indCards .rcard .l3{display:block}
+#m-reports .rpdf{padding:2px 7px;font-size:12px;border-radius:4px;vertical-align:1px}
+#m-reports .rcmore{padding:4px 0 8px;background:none}
+/* PC "더 보기"(#rpMore·#indMore)도 공용 .m-morebtn 과 같은 모양 */
+#m-reports #rpMore,#m-reports #indMore{display:flex;align-items:center;justify-content:center;width:100%;min-height:var(--m-tap);
+  border:1px solid var(--line);border-radius:var(--m-r);background:var(--panel);color:var(--tx2);font-size:14px;font-weight:600}
+#m-reports .mrp-more{margin-top:8px}
+
+/* 목표가 변경 요약 */
+#m-reports .rchgsum{margin:0 0 8px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);font-size:13px}
+#m-reports .rchgsum .cnt{gap:4px 14px;margin-bottom:8px}
+#m-reports .rchgsum .cnt .flat{font-size:12px;color:var(--tx3)}
+#m-reports .rchgsum .tops{gap:8px}
+#m-reports .rchgsum .tops .k{font-size:12px}
+#m-reports .rchgsum .ti{font-size:13px;line-height:1.9}
+#m-reports .rchgsum .ti .tk{color:var(--tx);font-weight:600;display:inline-block;padding:10px 0;margin:-10px 0}
+
+/* ---------- 종목별 · 업종별 · 성적표 (폰 행) ---------- */
+#m-reports #rpTablePanel .tbw{display:none}
+#m-reports .mrp-alt{display:none}
+#m-reports[data-v="stocks"] #mrpAlt,#m-reports[data-v="sectors"] #mrpAlt,#m-reports[data-v="score"] #mrpScore{display:block}
+#m-reports .mrp-list{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden}
+#m-reports .mrp-st,#m-reports .mrp-sec-h,#m-reports .mrp-sec-i{display:flex;align-items:center;gap:10px;width:100%;min-height:60px;
+  padding:8px 6px 8px 14px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--tx);text-align:left;font-size:14px}
+#m-reports .mrp-st:last-child,#m-reports .mrp-sec-i:last-child{border-bottom:0}
+#m-reports .mrp-st:active,#m-reports .mrp-sec-h:active,#m-reports .mrp-sec-i:active,#m-reports .mrp-sc:active{background:var(--panel2)}
+#m-reports .mrp-st-l{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start}
+#m-reports .mrp-st-l .tk,#m-reports .mrp-st-l .nm{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:15px;font-weight:700;color:var(--tx);line-height:1.45}
+#m-reports .mrp-st-l .tk{padding:9px 0;margin:-9px 0;min-width:44px}
+#m-reports .mrp-sub{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:12px;line-height:1.5;color:var(--tx3);font-weight:400;font-variant-numeric:tabular-nums}
+#m-reports .mrp-sub b{color:var(--tx2);font-weight:700}
+#m-reports .mrp-sub.in{display:inline}
+#m-reports .mrp-st-r{flex:none;display:flex;flex-direction:column;align-items:flex-end;font-size:14px;line-height:1.45}
+#m-reports .mrp-st-r .tv{font-weight:600}
+#m-reports .mrp-st-r .gv{font-size:13px;font-weight:700}
+#m-reports .mrp-st-r .k{font-size:12px;color:var(--tx3)}
+#m-reports .m-chev{flex:none;width:18px;height:18px;color:var(--tx3)}
+#m-reports .mrp-foot{margin:8px 4px 4px;font-size:12px;line-height:1.5;color:var(--tx3)}
+
+#m-reports .mrp-sort{display:flex;align-items:center;gap:4px;margin:-6px 0 4px}
+#m-reports .mrp-sortl{flex:1;min-width:0;display:flex;overflow-x:auto;scrollbar-width:none}
+#m-reports .mrp-sortl::-webkit-scrollbar{display:none}
+#m-reports .mrp-sort button{padding:0 11px;font-size:13px;color:var(--tx3)}
+#m-reports .mrp-sort button::before{background:transparent;border-color:transparent}
+#m-reports .mrp-sort button.act{color:var(--tx);font-weight:700}
+#m-reports .mrp-sort button.act::before{background:var(--panel2);border-color:var(--line)}
+#m-reports .mrp-info{flex:none;width:var(--m-tap);height:var(--m-tap);border:0;background:none;color:var(--tx2);font-size:18px}
+
+#m-reports .mrp-secs{display:flex;flex-direction:column;gap:8px}
+#m-reports .mrp-sec{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden}
+#m-reports .mrp-sec-h{border-bottom:0}
+#m-reports .mrp-sec.open .mrp-sec-h .mrp-acc{transform:rotate(180deg)}
+#m-reports .mrp-sec-b{border-top:1px solid var(--line);background:var(--panel2)}
+#m-reports .mrp-sec-i{min-height:54px}
+#m-reports .mrp-sec-i .nm{font-size:14px;font-weight:600}
+#m-reports .mrp-sec-i.all .nm{color:var(--link)}
+
+#m-reports #rpScorePanel .tbw,#m-reports #scCtl,#m-reports #scCap{display:none}
+#m-reports .mrp-sc{padding:11px 10px 12px 14px;border-bottom:1px solid var(--line)}
+#m-reports .mrp-sc:last-child{border-bottom:0}
+#m-reports .mrp-sc-h{display:flex;align-items:center;gap:8px}
+#m-reports .mrp-sc-h .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:700}
+#m-reports .mrp-sc-h .nm .mrp-sub{margin-left:6px}
+#m-reports .mrp-sc-h>.mrp-sub{flex:none}
+#m-reports .mrp-sc.open .mrp-acc{transform:rotate(180deg)}
+#m-reports .mrp-sc-g{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+#m-reports .mrp-sc-g>div{display:flex;flex-direction:column;min-width:0}
+#m-reports .mrp-sc-g .k{font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-reports .mrp-sc-g b{font-size:16px;line-height:1.4}
+#m-reports .mrp-sc-g .s{font-size:12px;color:var(--tx3)}
+#m-reports .mrp-sc-x{margin-top:10px;padding-top:6px;border-top:1px dashed var(--line)}
+#m-reports .mrp-sc-x .kv{display:flex;align-items:center;justify-content:space-between;min-height:32px;font-size:13px;color:var(--tx2)}
+#m-reports .mrp-sc-x .kv b{color:var(--tx)}
+#m-reports .mrp-scgo{margin-top:8px}
+
+/* ---------- 히트맵 ---------- */
+#m-reports #rpHeatPanel>.ptitle{display:flex;flex-wrap:wrap;gap:6px 10px;height:auto;padding:0 2px 8px;border:0;font-size:0}
+#m-reports #rpHeatPanel>.ptitle>.sub{font-size:12px;color:var(--tx3);width:100%}
+#m-reports #rpHeatPanel>.ptitle .sp{width:100%;margin:0;display:flex;align-items:center;gap:10px;flex-wrap:nowrap}
+#m-reports #rpHeatSeg{flex:none;height:44px;padding:0;border-radius:var(--m-r);background:var(--panel2);border:1px solid var(--line);overflow:hidden}
+#m-reports #rpHeatSeg button{position:relative;z-index:0;min-height:0;height:100%;padding:0 14px;font-size:13px;font-weight:600;
+  background:none;color:var(--tx3);border-radius:0}
+#m-reports #rpHeatSeg button.act{color:var(--tx);font-weight:700;background:none}
+#m-reports #rpHeatSeg button.act::before{content:"";position:absolute;z-index:-1;inset:3px;border-radius:7px;background:var(--panel);
+  box-shadow:0 1px 3px rgba(0,0,0,.28)}
+#m-reports #rpHeatPanel .tlegend{flex:1;min-width:0;justify-content:flex-end;flex-wrap:wrap;font-size:12px;font-variant-numeric:tabular-nums}
+#m-reports #rpHeatPanel .tlegend i{width:13px;height:10px}
+#m-reports #rpTmap{height:min(128vw, 640px);border-radius:var(--m-r)}
+#m-reports #rpTmap .tile{cursor:pointer}
+#m-reports #rpTmap .tile .tn{font-size:12px !important;text-overflow:clip;padding:0 1px;letter-spacing:-.3px}
+#m-reports #rpTmap .tile .tp{font-size:11px !important;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:clip}
+#m-reports #rpTmap .tsec>.sl{font-size:11px}
+#m-reports #rpTmap .tile.mrp-t0 .tn,#m-reports #rpTmap .tile.mrp-t0 .tp,#m-reports #rpTmap .tile.mrp-t1 .tp{display:none}
+
+/* ---------- 시트 (리포트 필터 · 산업·시황 필터 · 성적표 조건 · 히트맵 종목 · 성적표 기준) ---------- */
+.mrp-sheet .mrp-fs>.pbody{padding:0}
+.mrp-sheet .mrp-fs .row{display:flex;flex-direction:column;align-items:stretch;gap:18px;padding-top:4px}
+.mrp-sheet .mrp-fs .rfl{flex:none !important;min-width:0 !important;width:100%;gap:8px;font-size:13px;color:var(--tx2)}
+.mrp-sheet .mrp-fs .rfl>.k{font-size:13px;font-weight:700;color:var(--tx2);text-transform:none;letter-spacing:0}
+.mrp-sheet .mrp-fs .chips{gap:8px;width:100%}
+.mrp-sheet .mrp-fs .chip{min-height:40px;padding:0 16px;border-radius:20px;font-size:14px}
+.mrp-sheet .mrp-fs select{width:100%;min-height:46px;border-radius:8px}
+.mrp-sheet .mrp-fs .seg{width:100%;height:44px;border-radius:var(--m-r);flex-wrap:nowrap}
+.mrp-sheet .mrp-fs .seg button{flex:1;min-height:0;font-size:14px}
+.mrp-sheet .mrp-fs input[type=text],.mrp-sheet .mrp-fs input[type=number]{width:100%;min-height:46px;border-radius:8px}
+.mrp-sheet .mrp-fs .srch{max-width:none;min-width:0;width:100%}
+.mrp-sheet .mrp-fs .sug,.mrp-sheet .mrp-fs .sug.acx{position:static;width:auto;max-width:none;max-height:none;margin-top:6px;
+  box-shadow:none;border-radius:8px}
+.mrp-sheet .mrp-fs .sug div{min-height:46px;font-size:15px;padding:8px 10px}
+.mrp-sheet .mrp-fs .sug .sec{min-height:0;padding:6px 10px 4px;font-size:12px}
+.mrp-sheet .mrp-fs .sug .ind,.mrp-sheet .mrp-fs .sug .n,.mrp-sheet .mrp-fs .sug .cd{font-size:12px}
+.mrp-sheet .mrp-fs .sug .nohit{font-size:13px}
+.mrp-sheet .mrp-fs .selbar{margin:6px 0 0;gap:6px}
+.mrp-sheet .mrp-fs .selchip{min-height:36px;padding:0 0 0 12px;border-radius:18px;font-size:14px}
+.mrp-sheet .mrp-fs .selchip .c{font-size:12px}
+.mrp-sheet .mrp-fs .selchip .x{width:40px;height:36px;font-size:18px}
+.mrp-sheet .mrp-fs .dd{width:100%}
+.mrp-sheet .mrp-fs .dd>summary{display:flex;align-items:center;min-height:46px;padding:0 14px;border-radius:8px;font-size:15px}
+.mrp-sheet .mrp-fs .dd-panel{position:static;width:auto;max-height:none;margin-top:6px;padding:8px;box-shadow:none;border-radius:8px}
+.mrp-sheet .mrp-fs .dd-actions{position:static;padding-bottom:6px}
+.mrp-sheet .mrp-fs .dd-actions .btn{min-height:40px;font-size:14px}
+.mrp-sheet .mrp-fs #rpBrokerList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 6px}
+.mrp-sheet .mrp-fs .dd-panel label{min-height:44px;padding:0 4px;font-size:14px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.mrp-sheet .mrp-fs .dd-panel input{width:20px;height:20px;flex:none}
+.mrp-sheet .mrp-fs #scMin{width:100%}
+.mrp-sheet .mrp-hs-h{padding:2px 0 12px}
+.mrp-sheet .mrp-hs-h b{display:block;font-size:20px;line-height:1.35}
+.mrp-sheet .mrp-sub{font-size:12px;color:var(--tx3)}
+.mrp-sheet .mrp-hs-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mrp-sheet .mrp-hs .kv{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--panel2);border-radius:8px}
+.mrp-sheet .mrp-hs .kv>span{font-size:12px;color:var(--tx3)}
+.mrp-sheet .mrp-hs .kv>b{font-size:16px;font-variant-numeric:tabular-nums}
+.mrp-sheet .mrp-info-b{font-size:14px;line-height:1.7;color:var(--tx2);padding-bottom:16px}
+.mrp-sheet .mrp-info-b b{color:var(--tx)}
+.mrp-sheet .mrp-info-b ul{margin:10px 0 0;padding-left:18px}
+.mrp-sheet .mrp-info-b li{margin-bottom:6px}

@@ -339,21 +339,25 @@ const JSONP = (function(){
     var name = "__jsonp_cb_" + (++seq) + "_" + (Date.now() % 100000);
     var script = document.createElement("script");
     var timer = null, finished = false;
-    function cleanup(){
+    function drop(){ try{ delete window[name]; }catch(e){ window[name] = undefined; } }
+    function cleanup(late){
       if(timer) clearTimeout(timer);
-      try{ delete window[name]; }catch(e){ window[name] = undefined; }
+      /* 제한 시간을 넘긴 뒤 늦게 도착한 응답이 지워진 콜백을 불러 ReferenceError 를 내지 않게,
+         타임아웃 때는 아무 일도 안 하는 콜백을 1분 동안 남겨 둔다 */
+      if(late){ window[name] = drop; setTimeout(drop, 60000); }
+      else drop();
       if(script.parentNode) script.parentNode.removeChild(script);
     }
-    function finish(err, data){
+    function finish(err, data, late){
       if(finished) return;
-      finished = true; cleanup(); done();
+      finished = true; cleanup(late); done();
       if(err) job.reject(err); else job.resolve(data);
     }
     window[name] = function(data){ finish(null, data); };
     script.src = job.url + (job.url.indexOf("?") < 0 ? "?" : "&") + "_callback=" + name;
     script.charset = "EUC-KR";
     script.onerror = function(){ finish(new Error("JSONP 요청 실패")); };
-    timer = setTimeout(function(){ finish(new Error("JSONP 타임아웃")); }, TIMEOUT);
+    timer = setTimeout(function(){ finish(new Error("JSONP 타임아웃"), null, true); }, TIMEOUT);
     document.head.appendChild(script);
   }
   return function(url){

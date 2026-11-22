@@ -11,6 +11,9 @@
   fonts.css   — 우리다움체(base64). index.html 이 fonts.css?v=<해시> 로 참조해 브라우저가 캐시한다.
   sw.js       — 서비스 워커. app/sw.src.js 에 빌드 ID·폰트 주소를 찍어 만든다.
                 빌드 ID 가 바뀌면 sw.js 바이트가 바뀌어 새 배포 시 이전 캐시가 교체된다.
+  m/index.html, m/sw.js, m/manifest.webmanifest
+              — 앱 버전(폰 전용). PC 의 CSS·본문·JS 를 그대로 싣고 app/mobile/* 를 얹는다.
+                설계: docs/MOBILE-APP-SPEC.md. 자원(data/·icons/·fonts.css)은 루트 것을 ../ 로 쓴다.
 """
 import hashlib
 import json
@@ -23,6 +26,8 @@ OUT = os.path.join(ROOT, "index.html")
 FONTS_OUT = os.path.join(ROOT, "fonts.css")
 SW_SRC = os.path.join(HERE, "sw.src.js")
 SW_OUT = os.path.join(ROOT, "sw.js")
+MOBILE_DIR = os.path.join(HERE, "mobile")
+APP_DIR = os.path.join(ROOT, "m")
 
 PARTS = [
     ("01_head.html", None),        # <!doctype> ~ </style></head>
@@ -38,6 +43,15 @@ PARTS = [
     ("07_init.js", "js"),
 ]
 TAIL = "</script>\n</body>\n</html>\n"
+
+# 앱 버전: 화면 모듈 (m_core.js 다음에 이 순서로 붙고, 끝에 mBoot() 가 붙는다)
+M_SCREENS = ["home", "reports", "stock", "assets", "more"]
+# 서비스 워커 프리캐시 (sw.src.js 의 __PRECACHE__ 자리에 들어간다). PC 목록은 기존 그대로.
+SW_PRECACHE_PC = ["./index.html", "./__FONTS_HREF__", "./manifest.webmanifest",
+                  "./icons/icon-192.png", "./icons/icon-512.png", "./icons/mark-64.png"]
+SW_PRECACHE_APP = ["./index.html", "../__FONTS_HREF__", "./manifest.webmanifest",
+                   "../icons/icon-192.png", "../icons/icon-512.png", "../icons/icon-maskable-512.png",
+                   "../icons/mark-64.png", "../icons/mark-128.png"]
 
 # 대분류 -> 네이버 세부 업종
 BROAD = [
@@ -85,19 +99,92 @@ def pack(rows, industries):
     return ";".join(out)
 
 
-def assemble():
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def js_parts(is_app):
+    """<script> + 공유 JS. 빌드가 IS_APP·APP_BASE 를 맨 앞에 넣는다 (PC false/"", 앱 true/"../")."""
     buf = []
     for fname, kind in PARTS:
-        path = os.path.join(PARTS_DIR, fname)
-        with open(path, encoding="utf-8") as f:
-            txt = f.read()
-        if kind == "js" and fname == "03_core.js":
+        if kind != "js":
+            continue
+        txt = read(os.path.join(PARTS_DIR, fname))
+        if fname == "03_core.js":
             buf.append('<script>\n"use strict";\n')
+            buf.append("const IS_APP = %s;\nconst APP_BASE = %s;\n"
+                       % ("true" if is_app else "false", '"../"' if is_app else '""'))
         buf.append(txt)
         if not txt.endswith("\n"):
             buf.append("\n")
+    return buf
+
+
+def assemble():
+    buf = []
+    for fname, kind in PARTS:
+        if kind is None:
+            buf.append(read(os.path.join(PARTS_DIR, fname)))
+    buf.extend(js_parts(False))
     buf.append(TAIL)
     return "".join(buf)
+
+
+def assemble_app():
+    """앱 버전 m/index.html.
+    머리: app/mobile/m_head.html — PC <style> 본문이 __DESKTOP_CSS__, 화면별 m_*.css 가 __SCREEN_CSS__ 자리에
+    본문: <body class="mapp"> + m_shell.html + 02_body.html (맨 앞 <body> 제거, icons/ → ../icons/)
+    스크립트: 공유 JS(03~11, 07) + m_core.js + 화면 모듈 + mBoot()"""
+    head_pc = read(os.path.join(PARTS_DIR, "01_head.html"))
+    i, j = head_pc.index("<style>") + len("<style>"), head_pc.rindex("</style>")
+    desktop_css = head_pc[i:j].strip("\n") + "\n"
+    screen_css = []
+    for name in M_SCREENS:
+        css = read(os.path.join(MOBILE_DIR, "m_%s.css" % name))
+        screen_css.append("/* ---- m_%s.css ---- */\n%s%s" % (name, css, "" if css.endswith("\n") else "\n"))
+    head = read(os.path.join(MOBILE_DIR, "m_head.html"))
+    for token, val in (("__DESKTOP_CSS__", desktop_css), ("__SCREEN_CSS__", "".join(screen_css))):
+        assert token in head, "placeholder %s not found in m_head.html" % token
+        head = head.replace(token, val)
+
+    body = read(os.path.join(PARTS_DIR, "02_body.html"))
+    assert body.startswith("<body>"), "02_body.html 은 <body> 로 시작해야 한다"
+    body = body[len("<body>"):].lstrip("\n")
+    # 루트 자원 경로는 빌드 때 바꾼다 (공유 파트는 그대로)
+    body = body.replace('src="icons/', 'src="../icons/').replace('srcset="icons/', 'srcset="../icons/')
+    body = body.replace(", icons/", ", ../icons/")
+    shell = read(os.path.join(MOBILE_DIR, "m_shell.html"))
+
+    buf = [head, '<body class="mapp">\n', shell, "\n", body]
+    buf.extend(js_parts(True))
+    for fname in ["m_core.js"] + ["m_%s.js" % n for n in M_SCREENS]:
+        txt = read(os.path.join(MOBILE_DIR, fname))
+        buf.append("/* ==== app/mobile/%s ==== */\n" % fname)
+        buf.append(txt)
+        if not txt.endswith("\n"):
+            buf.append("\n")
+    buf.append("mBoot();\n")
+    buf.append(TAIL)
+    return "".join(buf)
+
+
+def precache_js(lst):
+    return "[\n  " + ",\n  ".join('"%s"' % u for u in lst) + "\n]"
+
+
+def build_sw(sw_src, html, fonts_css, fonts_href, cache_prefix, precache, asset_base):
+    """서비스 워커: 빌드 ID 는 산출물 내용 해시 — 내용이 같으면 sw.js 도 바이트 단위로 같다"""
+    sw = sw_src
+    for token, val in (("__CACHE_PREFIX__", cache_prefix), ("__PRECACHE__", precache_js(precache)),
+                       ("__ASSET_BASE__", asset_base)):
+        assert token in sw, "placeholder %s not found in sw.src.js" % token
+        sw = sw.replace(token, val)
+    build_id = hashlib.sha256((html + fonts_css + sw).encode("utf-8")).hexdigest()[:12]
+    for token, val in (("__BUILD_ID__", build_id), ("__FONTS_HREF__", fonts_href)):
+        assert token in sw, "placeholder %s not found in sw.src.js" % token
+        sw = sw.replace(token, val)
+    return sw, build_id
 
 
 def main():
@@ -131,7 +218,6 @@ def main():
     fonts_hash = hashlib.sha256(fonts_css.encode("utf-8")).hexdigest()[:10]
     fonts_href = "fonts.css?v=" + fonts_hash
 
-    html = assemble()
     repl = {
         "__FONTS_HREF__": fonts_href,
         "__KR_KOSPI__": pack(kospi, industries),
@@ -141,20 +227,20 @@ def main():
         # INDUSTRIES 와 같은 순서의 대분류 idx — 리포트 탭이 record.industry 로 대분류를 찾는다
         "__IND_BROAD__": ";".join(str(IND2BROAD.get(n, FALLBACK)) for n in ind_names),
     }
-    for token, val in repl.items():
-        assert token in html, "placeholder %s not found" % token
-        html = html.replace(token, val)
 
+    def fill(page):
+        for token, val in repl.items():
+            assert token in page, "placeholder %s not found" % token
+            page = page.replace(token, val)
+        return page
+
+    sw_src = read(SW_SRC)
+
+    # ---- PC 버전 ----
+    html = fill(assemble())
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(html)
-
-    # 서비스 워커: 빌드 ID 는 산출물 내용 해시 — 내용이 같으면 sw.js 도 바이트 단위로 같다
-    with open(SW_SRC, encoding="utf-8") as f:
-        sw = f.read()
-    build_id = hashlib.sha256((html + fonts_css + sw).encode("utf-8")).hexdigest()[:12]
-    for token, val in (("__BUILD_ID__", build_id), ("__FONTS_HREF__", fonts_href)):
-        assert token in sw, "placeholder %s not found in sw.src.js" % token
-        sw = sw.replace(token, val)
+    sw, build_id = build_sw(sw_src, html, fonts_css, fonts_href, "gongdo-radar-", SW_PRECACHE_PC, "./")
     with open(SW_OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(sw)
 
@@ -162,6 +248,21 @@ def main():
     print("  fonts.css %d bytes (%s) / sw.js build %s" % (len(fonts_css), fonts_href, build_id))
     print("  KOSPI %d / KOSDAQ %d / 업종 %d / 대분류 %d / bytes %d"
           % (len(kospi), len(kosdaq), len(ind_names), len(BROAD_NAMES), len(html)))
+
+    # ---- 앱 버전 (m/) ----  폰트는 m_head.html 이 "../__FONTS_HREF__" 로 루트 fonts.css 를 가리킨다
+    os.makedirs(APP_DIR, exist_ok=True)
+    app_html = fill(assemble_app())
+    with open(os.path.join(APP_DIR, "index.html"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(app_html)
+    # 캐시 이름 접두어는 PC("gongdo-radar-")와 겹치면 안 된다 — PC 워커의 activate 가 접두어로 지운다
+    app_sw, app_build = build_sw(sw_src, app_html, fonts_css, fonts_href, "gongdo-app-", SW_PRECACHE_APP, "../")
+    with open(os.path.join(APP_DIR, "sw.js"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(app_sw)
+    man = json.loads(read(os.path.join(MOBILE_DIR, "m_manifest.json")))
+    with open(os.path.join(APP_DIR, "manifest.webmanifest"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(man, ensure_ascii=False, indent=2) + "\n")
+    print("wrote", os.path.normpath(os.path.join(APP_DIR, "index.html")))
+    print("  m/sw.js build %s / bytes %d" % (app_build, len(app_html)))
 
 
 if __name__ == "__main__":

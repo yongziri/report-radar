@@ -1,0 +1,179 @@
+/* 더보기 화면 — 규칙은 #m-more 아래(시트 내용은 .mm-sheet · #mScrCond · #mAlForm 아래)로 한정한다 */
+
+/* ---------- 공통 부품 (메뉴 · 하위 화면 · 시트) ---------- */
+/* 스위치(.m-sw)는 공용 — m_head.html */
+
+#m-more .mm-note,.mm-sheet .mm-note{margin:8px 4px 12px;font-size:var(--m-fs3);line-height:1.55;color:var(--tx3)}
+#m-more .mm-note b,.mm-sheet .mm-note b{color:var(--tx2)}
+.mm-sheet .mm-note.mm-big{font-size:14px;color:var(--tx2)}
+#m-more .mm-lb,.mm-sheet .mm-lb{display:block;margin:16px 2px 7px;font-size:13px;font-weight:700;color:var(--tx2)}
+#m-more .mm-lb:first-child,.mm-sheet .mm-lb:first-child{margin-top:4px}
+#m-more .mm-lbrow,.mm-sheet .mm-lbrow{display:flex;align-items:center;justify-content:space-between}
+#m-more .mm-gap,.mm-sheet .mm-gap{margin-top:26px}
+#m-more .mm-opt,.mm-sheet .mm-opt{font-weight:400;color:var(--tx3)}
+#m-more .mm-dim2,.mm-sheet .mm-dim2{color:var(--tx3)}
+#m-more .mm-dim,.mm-sheet .mm-dim{opacity:.5}
+#m-more .mm-deep,.mm-sheet .mm-deep{display:inline-block;margin-left:5px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:600;
+  color:var(--tx3);border:1px solid var(--line2);vertical-align:1px}
+#m-more .mm-row2,.mm-sheet .mm-row2{display:flex;gap:8px;margin:0 0 8px}
+#m-more .mm-row2 .btn,.mm-sheet .mm-row2 .btn{flex:1;min-height:44px;font-size:14px;border-radius:var(--m-r)}
+
+/* 시트 안 선택 목록 (갱신 주기 · 정렬) */
+.mm-sheet .msheet-bd{padding-bottom:16px}
+.mm-sheet .m-list{margin-bottom:6px}
+.mm-sheet .mm-pick .m-row{min-height:50px}
+.mm-sheet .mm-chk{flex:none;width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);position:relative}
+.mm-sheet .mm-chk.on{border-color:var(--link);background:var(--link)}
+.mm-sheet .mm-chk.on::after{content:"";position:absolute;left:6px;top:2px;width:6px;height:11px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.mm-sheet input[type=text]{width:100%;min-height:46px;font-size:16px;border-radius:var(--m-r);padding:8px 12px}
+.mm-sheet .mm-chipgrid{display:flex;flex-wrap:wrap;gap:8px}
+.mm-sheet .mm-chipgrid button{display:inline-flex;align-items:center;gap:4px;min-height:40px;padding:0 13px;border-radius:20px;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--tx2);font-size:14px;font-weight:600}
+.mm-sheet .mm-chipgrid button.act{background:var(--link);border-color:var(--link);color:#fff}
+.mm-sheet .mm-chipgrid button.act .mm-deep{color:#fff;border-color:rgba(255,255,255,.6)}
+.mm-sheet .mm-ord{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;
+  background:#fff;color:var(--link);font-size:11px;font-weight:800}
+
+/* ---------- 메뉴 ---------- */
+#m-more .m-more-menu{padding-bottom:6px}
+#m-more .m-more-menu .m-h:first-child{margin-top:4px}
+#m-more .m-more-menu .m-row{min-height:56px;gap:12px}
+#m-more .m-more-menu label.m-row{cursor:pointer}
+#m-more .m-more-menu .m-row-v{max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#m-more .m-more-menu .m-row-v.mm-live{color:var(--link);font-weight:700}
+#m-more .m-more-menu .mm-dim{opacity:.55}
+#m-more .mm-ic{flex:none;width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;background:#6B7280}
+#m-more .mm-ic svg{width:19px;height:19px}
+#m-more .mm-ic.t-blue{background:#3B7DDD}
+#m-more .mm-ic.t-amber{background:#E59A1E}
+#m-more .mm-ic.t-violet{background:#7A5AF0}
+#m-more .mm-ic.t-red{background:#E5484D}
+#m-more .mm-ic.t-green{background:#20A55A}
+#m-more .mm-ic.t-gray{background:#6B7280}
+#m-more .mm-seg{flex:none;display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px}
+#m-more .mm-seg button{min-height:40px;min-width:62px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--tx2);
+  font-size:14px;font-weight:700;white-space:nowrap}
+#m-more .mm-seg button .mm-ar{font-size:10px;margin-left:2px;vertical-align:1px}
+#m-more .mm-seg button[data-cc=kr] .mm-ar{color:#F04452}
+#m-more .mm-seg button[data-cc=global] .mm-ar{color:#22B35E}
+#m-more .mm-seg button.act{background:var(--panel);color:var(--tx);box-shadow:0 1px 3px rgba(0,0,0,.25)}
+#m-more .mm-ccrow .m-row-t{min-width:0}
+#m-more .mm-info .m-row{min-height:48px}
+#m-more .mm-info .m-row-v{max-width:62%;white-space:normal;text-align:right}
+#m-more #upd{display:inline;font-size:var(--m-fs2);color:var(--tx2)}
+#m-more .mm-foot{margin:6px 6px 8px;font-size:var(--m-fs3);line-height:1.55;color:var(--tx3)}
+
+/* ---------- 하위 화면 공통: PC 틀 걷어내기 ---------- */
+#m-more #tab-scr>.panel,#m-more #tab-alr{background:none;border:0;margin:0;padding:0}
+#m-more #tab-scr>.panel>.ptitle,#m-more #tab-scr>.panel>.pbody,#m-more #colpick,#m-more #scrSum,
+#m-more #scrTableWrap,#m-more #scrTmap,#m-more #scrChartWrap,#m-more #scrEmpty,
+#m-more #tab-alr>.panel{display:none !important}
+
+/* ---------- 스크리너 ---------- */
+#m-more #mScrTop{position:sticky;top:-10px;z-index:5;margin:-10px calc(-1 * var(--m-gut)) 8px;padding:10px var(--m-gut) 8px;
+  background:var(--bg);border-bottom:1px solid var(--line)}
+#m-more #mScrPre{margin:0 calc(-1 * var(--m-gut)) 2px;padding:2px var(--m-gut) 8px;scroll-padding:0 var(--m-gut)}
+#m-more #mScrPre button.mine{border-style:dashed}
+#m-more #mScrPre button.mine.act{border-style:solid}
+#m-more .mscr-bar{display:flex;align-items:center;gap:6px}
+#m-more .mscr-btn{flex:none;display:inline-flex;align-items:center;gap:5px;min-height:40px;padding:0 11px;border-radius:9px;
+  border:1px solid var(--line2);background:var(--panel);color:var(--tx);font-size:14px;font-weight:700;white-space:nowrap}
+#m-more .mscr-btn svg{width:17px;height:17px;color:var(--tx2)}
+#m-more .mscr-btn:active{background:var(--panel2)}
+#m-more .mscr-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 5px;border-radius:10px;
+  background:var(--link);color:#fff;font-size:12px;font-weight:800}
+#m-more .mscr-scan{margin-left:auto;flex:none}
+#m-more #scrScan{min-height:40px;padding:0 13px;font-size:14px;font-weight:700;border-radius:9px;white-space:nowrap}
+#m-more .mscr-stat{margin-top:8px}
+#m-more .mscr-sum{font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-more .mscr-sum b{color:var(--tx);font-size:15px}
+#m-more .mscr-prog .prog{height:3px;border:0;margin-top:6px;border-radius:2px}
+#m-more .mscr-prog #scrMsg{margin-top:4px !important;font-size:12px !important;line-height:1.4;color:var(--tx3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+#m-more .mscr-list{margin-bottom:10px}
+#m-more .mscr-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;row-gap:3px;width:100%;min-height:64px;
+  padding:9px 14px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--tx);text-align:left;font:inherit}
+#m-more .mscr-row:last-child{border-bottom:0}
+#m-more .mscr-row:active{background:var(--panel2)}
+#m-more .mscr-l{min-width:0;display:flex;flex-direction:column}
+#m-more .mscr-nm{font-size:15px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-more .mscr-sub{font-size:12px;color:var(--tx3);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-more .mscr-r{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px}
+#m-more .mscr-px{font-size:15px;font-weight:700;line-height:1.3}
+#m-more .mscr-pct{min-height:24px}
+#m-more .mscr-mt{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;color:var(--tx3);line-height:1.4}
+#m-more .mscr-m b{font-weight:600;color:var(--tx2)}
+#m-more .mscr-m b.up{color:var(--up)}
+#m-more .mscr-m b.down{color:var(--down)}
+#m-more .mscr-m b.hot{color:var(--hot)}
+#m-more .mscr-m b.cold{color:var(--cold)}
+#m-more .mscr-more{margin:0 0 8px}
+#m-more .mscr-list .m-empty .m-btn{margin-top:12px}
+
+/* 조건 시트 (PC 노드를 옮겨 온 것) */
+#mScrCond .seg{display:flex;border-radius:var(--m-r);padding:3px;gap:0}
+#mScrCond .seg button{flex:1;min-height:40px;font-size:14px;border-radius:7px;color:var(--tx2)}
+#mScrCond .seg button.act{color:#fff}
+#mScrCond .m-list{margin:10px 0 0}
+#mScrCond .m-row{min-height:54px}
+#mScrCond #scrReset{min-height:40px;padding:0 12px;font-size:13px;border-radius:8px}
+#mScrCond .fgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0 !important}
+#mScrCond .fcell{border-radius:var(--m-r);padding:7px 9px 9px;min-width:0}
+#mScrCond .fcell .fk{font-size:12px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mScrCond .fcell select{min-height:40px;font-size:15px;border-radius:7px}
+#mScrCond .fcell .fmm{display:flex;gap:5px;margin-top:6px}
+#mScrCond .fcell .fmm.hide{display:none}
+#mScrCond .fcell .fmm input{min-width:0;width:50%;min-height:40px;font-size:16px;padding:4px 7px}
+#mScrCond #savedScreens{width:100%;min-height:46px;font-size:16px;border-radius:var(--m-r);margin-bottom:8px}
+#mScrCond #scrCsv{flex:1}
+.mm-cond .msheet-bd{padding-bottom:16px}
+
+/* ---------- 알림 ---------- */
+#m-more #mAlSeg{margin-bottom:12px}
+#m-more .mm-notice{display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border-radius:var(--m-r);
+  background:var(--panel);border:1px solid var(--line);color:var(--tx2);font-size:13px}
+#m-more .mm-notice svg{flex:none;width:18px;height:18px;margin-top:1px;color:var(--link)}
+#m-more .mal-rule{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 0;border-bottom:1px solid var(--line)}
+#m-more .mal-rule:last-child{border-bottom:0}
+#m-more .mal-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:9px 6px 9px 14px;border:0;background:none;
+  color:var(--tx);text-align:left;font:inherit;min-height:64px;justify-content:center}
+#m-more .mal-main:active{background:var(--panel2)}
+#m-more .mal-nm{font-size:15px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-more .mal-st{display:inline-block;margin-left:7px;padding:0 6px;border-radius:5px;font-size:11px;font-weight:700;vertical-align:2px;
+  color:var(--link);background:color-mix(in srgb,var(--link) 16%,transparent)}
+#m-more .mal-rule.off .mal-st{color:var(--tx3);background:var(--panel2)}
+#m-more .mal-rule.off .mal-cond{color:var(--tx2)}
+#m-more .mal-cond{font-size:15px;font-weight:600;line-height:1.35}
+#m-more .mal-cur{font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-more .mal-swlb{flex:none;display:flex;align-items:center;justify-content:center;min-width:56px;min-height:var(--m-tap);cursor:pointer}
+#m-more .mal-del{flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;
+  background:none;color:var(--tx3);padding:0}
+#m-more .mal-del:active{background:var(--panel2);color:var(--down)}
+#m-more .mal-del svg{width:20px;height:20px}
+#m-more .mal-add{width:100%;margin:0 0 4px}
+#m-more #mAlPermBtn{flex:none}
+#m-more .mal-loghd{display:flex;align-items:center;justify-content:space-between;margin:0 4px 8px;font-size:13px;color:var(--tx3)}
+#m-more .mal-log{align-items:flex-start;min-height:56px}
+#m-more .mal-log .m-row-t{font-size:14px;line-height:1.45;word-break:keep-all;overflow-wrap:anywhere}
+
+/* 추가 시트 */
+#mAlForm .m-srch .sug{max-height:44vh;overflow-y:auto}
+#mAlForm .mal-pick{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;margin-top:8px;padding:10px 12px;border-radius:var(--m-r);
+  border:1px dashed var(--line2);font-size:14px}
+#mAlForm .mal-pick.on{border-style:solid;border-color:var(--link);background:color-mix(in srgb,var(--link) 8%,transparent)}
+#mAlForm .mal-pick b{font-size:15px}
+#mAlForm .mal-pq{margin-left:auto;font-size:13px;color:var(--tx2)}
+#mAlForm .mal-conds{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#mAlForm .mal-conds button{min-height:44px;border-radius:var(--m-r);border:1px solid var(--line2);background:var(--panel2);color:var(--tx2);
+  font-size:14px;font-weight:700}
+#mAlForm .mal-conds button.act{background:var(--link);border-color:var(--link);color:#fff}
+#mAlForm .mal-val{display:flex;align-items:center;gap:8px}
+#mAlForm .mal-val input{flex:1;min-width:0;width:auto;font-variant-numeric:tabular-nums;font-size:18px !important;font-weight:700}
+#mAlForm .mal-unit{flex:none;width:22px;font-size:15px;color:var(--tx2)}
+#mAlForm .mal-sign{flex:none;width:52px;min-height:46px;border-radius:var(--m-r);border:1px solid var(--line2);background:var(--panel2);
+  color:var(--tx);font-size:15px;font-weight:800}
+#mAlForm .mal-err{min-height:20px;margin:10px 2px 0;font-size:13px;font-weight:600;color:var(--down)}
+#mAlForm .mal-err:empty{min-height:0;margin:0}
+
+#m-more .m-btn.danger,.mm-sheet .m-btn.danger{width:100%}
