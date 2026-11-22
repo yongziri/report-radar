@@ -246,6 +246,19 @@ function mSegBar(items, onPick){
   };
   return el;
 }
+/* 화면 맨 위로 (탭 바 다시 누름). 부드러운 스크롤 하나만 쓰면 손가락을 뗀 뒤 관성 스크롤이 남아 있을 때
+   그 관성이 애니메이션을 끊고, 아주 긴 목록(리포트 수만 px)에서는 애니메이션이 길어 끊길 틈도 크다.
+   ① overflow 를 한 프레임 끊어 관성을 멈추고 ② 멀면 한 화면 위치로 바로 옮긴 뒤 부드럽게 ③ 끝나고도 남아 있으면 0 으로 */
+function mScrollTop(el){
+  if(!el) return;
+  el.style.overflowY = "hidden";
+  requestAnimationFrame(function(){
+    el.style.overflowY = "";
+    if(el.scrollTop > el.clientHeight * 2) el.scrollTop = el.clientHeight;
+    el.scrollTo({ top:0, behavior:"smooth" });
+    setTimeout(function(){ if(el.scrollTop > 0) el.scrollTop = 0; }, 700);
+  });
+}
 /* PC 패널 찾기: id 를 가진 요소에서 가장 가까운 .panel (또는 지정 선택자) */
 function mPanelOf(sel, up){ var el = $(sel); return el ? el.closest(up || ".panel") : null; }
 
@@ -296,6 +309,80 @@ function mOpenSearch(){
   setTimeout(function(){ var i = $("input", mSearchBox); if(i) i.focus(); }, 260);
 }
 
+/* ---------- 상태 줄 색 (theme-color) ----------
+   앱 바 색(--panel)과 같게. 테마·등락 색이 바뀔 때마다 applyTheme 감싸기에서 부른다 */
+const M_THEME_COLOR = { dark:"#353945", light:"#FFFFFF" };
+function mThemeColor(){
+  var m = document.querySelector('meta[name="theme-color"]');
+  if(m) m.setAttribute("content", M_THEME_COLOR[S.theme === "light" ? "light" : "dark"]);
+}
+
+/* ---------- 화상 키보드 ----------
+   viewport 의 interactive-widget=resizes-content 를 지키는 브라우저(안드로이드 크롬)는 레이아웃이 같이 줄어든다.
+   지키지 않는 브라우저(iOS 사파리 등)를 위해 가려진 높이를 --m-kb 로 넘겨 시트·모달을 키보드 위로 올린다.
+   시트 안 입력에 초점이 가면 그 칸이 보이게 스크롤한다 (아래 붙은 버튼 줄은 CSS sticky) */
+function mKeyboard(){
+  var vv = window.visualViewport, root = document.documentElement, kt = 0;
+  /* 초점 칸을 보이게 (sticky 동작 줄에 가리지 않게 — 입력의 scroll-margin-bottom 은 m_head.html) */
+  function reveal(delay){
+    clearTimeout(kt);
+    kt = setTimeout(function(){
+      var t = document.activeElement;
+      if(!t || !/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || !t.closest(".msheet, .mask")) return;
+      try{ t.scrollIntoView({ block:"nearest" }); }catch(x){}
+    }, delay);
+  }
+  if(vv){
+    var fit = function(){
+      var off = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+      root.style.setProperty("--m-kb", off + "px");
+      root.style.setProperty("--m-vvh", Math.round(vv.height) + "px");
+    };
+    vv.addEventListener("resize", function(){ fit(); reveal(60); });
+    vv.addEventListener("scroll", fit);
+    fit();
+  }
+  window.addEventListener("resize", function(){ reveal(60); });      // 키보드가 레이아웃을 줄이는 브라우저
+  document.addEventListener("focusin", function(){ reveal(320); });
+}
+
+/* ---------- 오프라인 · 마지막 시세 ----------
+   시세는 저장되지 않는 전역(QUOTES)이라, 성공한 갱신마다 추적 종목 시세와 지수를 저장해 둔다.
+   오프라인으로 열리면 그 값을 "갱신 실패"(ok:false) 로 되살리고, 앱 바에 오프라인 표시를 켠다 */
+const M_QSNAP = "gongdo-m-quotes";
+let mLastIdx = null;
+function mQuoteSave(){
+  try{
+    var q = {};
+    trackedItems().forEach(function(t){
+      var k = keyOf(t.mk, t.code), v = QUOTES[k];
+      if(v && v.ok !== false && v.price > 0) q[k] = v;
+    });
+    if(!Object.keys(q).length) return;
+    localStorage.setItem(M_QSNAP, JSON.stringify({ at:Date.now(), q:q, idx:mLastIdx }));
+  }catch(e){}
+}
+function mQuoteRestore(){
+  try{
+    var o = JSON.parse(localStorage.getItem(M_QSNAP) || "null");
+    if(!o || !o.q) return false;
+    Object.keys(o.q).forEach(function(k){
+      if(!QUOTES[k]) QUOTES[k] = Object.assign({}, o.q[k], { ok:false });
+    });
+    if(o.idx) renderIndex(o.idx);
+    var t = new Date(o.at);
+    $("#upd").textContent = "오프라인 · " + (t.getMonth() + 1) + "/" + t.getDate() + " " +
+      ("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2) + " 시세";
+    return true;
+  }catch(e){ return false; }
+}
+function mOnline(){
+  var off = navigator.onLine === false;
+  $("#mOffline").classList.toggle("m-off", !off);
+  document.body.classList.toggle("m-offline", off);
+  if(M.started) try{ renderMarket(); }catch(e){}            // 홈 시장 카드의 시각 줄
+}
+
 /* ---------- 부팅 ---------- */
 /* 스크립트 평가 중(07 init 보다 먼저) 호출된다: 본문은 이미 파싱되어 있으므로 패널을 옮길 수 있다 */
 function mBoot(){
@@ -339,6 +426,19 @@ function mBoot(){
     return r;
   };
 
+  /* 4-1) 상태 줄 색 · 마지막 시세 저장 (지수는 renderIndex 인자, 시세는 refreshAll 이 끝난 뒤) */
+  var themeNow = applyTheme;
+  applyTheme = function(){ var r = themeNow.apply(this, arguments); mThemeColor(); return r; };
+  var idxNow = renderIndex;
+  renderIndex = function(idx){ if(idx && idx.KOSPI) mLastIdx = idx; return idxNow.apply(this, arguments); };
+  var refreshNow = refreshAll;
+  refreshAll = function(){
+    return refreshNow.apply(this, arguments).then(function(v){ if(!failStreak) mQuoteSave(); return v; });
+  };
+  mKeyboard();
+  window.addEventListener("online", function(){ mOnline(); mRefresh(); });
+  window.addEventListener("offline", mOnline);
+
   /* 5) 셸 이벤트 */
   $("#mTabs").addEventListener("click", function(e){
     var b = e.target.closest("button[data-screen]"); if(!b) return;
@@ -346,10 +446,13 @@ function mBoot(){
     if(name === M.cur){
       var def = M.screens[name];
       if(def.reselect && def.reselect() === true) return;
-      mRoot(name).scrollTo({ top:0, behavior:"smooth" });
+      mScrollTop(mRoot(name));
       return;
     }
-    mGo(name, M.last[name] || {});
+    var last = M.last[name] || {};
+    /* 더보기 하위 화면(스크리너·알림)으로 돌아갈 때는 메뉴 항목을 밑에 깔아 둔다 → 뒤로 = 메뉴 */
+    if(name === "more" && last.sub){ mGo("more", {}); mGo("more", Object.assign({}, last, { from:"menu" }), { push:true }); return; }
+    mGo(name, last);
   });
   $("#mBack").onclick = mBack;
   $("#mSearchBtn").onclick = mOpenSearch;
@@ -367,6 +470,11 @@ function mStart(){
   var want = (location.hash || "").replace(/^#/, "");
   history.replaceState({ m:1, screen:"home", params:{}, depth:0 }, "", "#home");
   M.depth = 0;
+  mThemeColor();
+  mOnline();
+  if(navigator.onLine === false && mQuoteRestore()){
+    try{ renderWatchlist(); renderPortfolio(); renderAccounts(); }catch(e){ console.warn(e); }
+  }
   mApply("home", {});
   if(want && want !== "home" && M.screens[want]) mGo(want, {});
 }

@@ -1,23 +1,7 @@
 /* 더보기 화면 — 규칙은 #m-more 아래(시트 내용은 .mm-sheet · #mScrCond · #mAlForm 아래)로 한정한다 */
 
 /* ---------- 공통 부품 (메뉴 · 하위 화면 · 시트) ---------- */
-#m-more .mm-sw,.mm-sheet .mm-sw{-webkit-appearance:none;appearance:none;flex:none;position:relative;width:50px;height:30px;margin:0;
-  border-radius:15px;background:var(--line2);border:0;cursor:pointer;transition:background .18s;padding:0}
-#m-more .mm-sw::before,.mm-sheet .mm-sw::before{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
-  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .18s}
-#m-more .mm-sw:checked,.mm-sheet .mm-sw:checked{background:var(--link)}
-#m-more .mm-sw:checked::before,.mm-sheet .mm-sw:checked::before{transform:translateX(20px)}
-#m-more .mm-sw:disabled,.mm-sheet .mm-sw:disabled{opacity:.4}
-#m-more .mm-sw:focus-visible,.mm-sheet .mm-sw:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-
-#m-more .mm-btn,.mm-sheet .mm-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;
-  border-radius:var(--m-r);border:1px solid var(--line2);background:var(--panel2);color:var(--tx);font-size:15px;font-weight:700}
-#m-more .mm-btn.pri,.mm-sheet .mm-btn.pri{background:var(--link);border-color:var(--link);color:#fff}
-#m-more .mm-btn.danger,.mm-sheet .mm-btn.danger{color:var(--down);border-color:var(--line2);width:100%}
-#m-more .mm-btn.sm,.mm-sheet .mm-btn.sm{min-height:36px;padding:0 12px;font-size:13px;border-radius:8px}
-#m-more .mm-btn:disabled,.mm-sheet .mm-btn:disabled{opacity:.45}
-#m-more .mm-btn:active,.mm-sheet .mm-btn:active{filter:brightness(1.15)}
-#m-more .mm-btn svg,.mm-sheet .mm-btn svg{width:18px;height:18px}
+/* 스위치(.m-sw)는 공용 — m_head.html */
 
 #m-more .mm-note,.mm-sheet .mm-note{margin:8px 4px 12px;font-size:var(--m-fs3);line-height:1.55;color:var(--tx3)}
 #m-more .mm-note b,.mm-sheet .mm-note b{color:var(--tx2)}
@@ -35,7 +19,7 @@
 #m-more .mm-row2 .btn,.mm-sheet .mm-row2 .btn{flex:1;min-height:44px;font-size:14px;border-radius:var(--m-r)}
 
 /* 시트 안 선택 목록 (갱신 주기 · 정렬) */
-.mm-sheet .msheet-bd{padding-bottom:calc(16px + var(--m-sab))}
+.mm-sheet .msheet-bd{padding-bottom:16px}
 .mm-sheet .m-list{margin-bottom:6px}
 .mm-sheet .mm-pick .m-row{min-height:50px}
 .mm-sheet .mm-chk{flex:none;width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);position:relative}
@@ -67,7 +51,7 @@
 #m-more .mm-ic.t-green{background:#20A55A}
 #m-more .mm-ic.t-gray{background:#6B7280}
 #m-more .mm-seg{flex:none;display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px}
-#m-more .mm-seg button{min-height:38px;min-width:62px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--tx2);
+#m-more .mm-seg button{min-height:40px;min-width:62px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--tx2);
   font-size:14px;font-weight:700;white-space:nowrap}
 #m-more .mm-seg button .mm-ar{font-size:10px;margin-left:2px;vertical-align:1px}
 #m-more .mm-seg button[data-cc=kr] .mm-ar{color:#F04452}
@@ -117,18 +101,15 @@
 #m-more .mscr-sub{font-size:12px;color:var(--tx3);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #m-more .mscr-r{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px}
 #m-more .mscr-px{font-size:15px;font-weight:700;line-height:1.3}
-#m-more .mscr-pct{min-width:64px;padding:1px 6px;border-radius:5px;text-align:right;font-size:13px;font-weight:700;line-height:1.45}
-#m-more .mscr-pct.up{background:color-mix(in srgb,var(--up-bg) 18%,transparent)}
-#m-more .mscr-pct.down{background:color-mix(in srgb,var(--down-bg) 18%,transparent)}
-#m-more .mscr-pct.flat{background:var(--panel2)}
+#m-more .mscr-pct{min-height:24px}
 #m-more .mscr-mt{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;color:var(--tx3);line-height:1.4}
 #m-more .mscr-m b{font-weight:600;color:var(--tx2)}
 #m-more .mscr-m b.up{color:var(--up)}
 #m-more .mscr-m b.down{color:var(--down)}
 #m-more .mscr-m b.hot{color:var(--hot)}
 #m-more .mscr-m b.cold{color:var(--cold)}
-#m-more .mscr-more{display:flex;width:100%;margin:0 0 8px;font-size:14px;color:var(--tx2)}
-#m-more .mscr-list .m-empty .mm-btn{margin-top:12px}
+#m-more .mscr-more{margin:0 0 8px}
+#m-more .mscr-list .m-empty .m-btn{margin-top:12px}
 
 /* 조건 시트 (PC 노드를 옮겨 온 것) */
 #mScrCond .seg{display:flex;border-radius:var(--m-r);padding:3px;gap:0}
@@ -136,7 +117,7 @@
 #mScrCond .seg button.act{color:#fff}
 #mScrCond .m-list{margin:10px 0 0}
 #mScrCond .m-row{min-height:54px}
-#mScrCond #scrReset{min-height:34px;padding:0 12px;font-size:13px;border-radius:8px}
+#mScrCond #scrReset{min-height:40px;padding:0 12px;font-size:13px;border-radius:8px}
 #mScrCond .fgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0 !important}
 #mScrCond .fcell{border-radius:var(--m-r);padding:7px 9px 9px;min-width:0}
 #mScrCond .fcell .fk{font-size:12px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -146,9 +127,6 @@
 #mScrCond .fcell .fmm input{min-width:0;width:50%;min-height:40px;font-size:16px;padding:4px 7px}
 #mScrCond #savedScreens{width:100%;min-height:46px;font-size:16px;border-radius:var(--m-r);margin-bottom:8px}
 #mScrCond #scrCsv{flex:1}
-#mScrCond .mscr-done-wrap{position:sticky;bottom:-16px;margin:14px -16px -16px;padding:10px 16px calc(12px + var(--m-sab));
-  background:var(--panel);border-top:1px solid var(--line)}
-#mScrCond .mscr-done{width:100%;min-height:48px}
 .mm-cond .msheet-bd{padding-bottom:16px}
 
 /* ---------- 알림 ---------- */
@@ -168,6 +146,7 @@
 #m-more .mal-rule.off .mal-cond{color:var(--tx2)}
 #m-more .mal-cond{font-size:15px;font-weight:600;line-height:1.35}
 #m-more .mal-cur{font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#m-more .mal-swlb{flex:none;display:flex;align-items:center;justify-content:center;min-width:56px;min-height:var(--m-tap);cursor:pointer}
 #m-more .mal-del{flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;
   background:none;color:var(--tx3);padding:0}
 #m-more .mal-del:active{background:var(--panel2);color:var(--down)}
@@ -196,4 +175,5 @@
   color:var(--tx);font-size:15px;font-weight:800}
 #mAlForm .mal-err{min-height:20px;margin:10px 2px 0;font-size:13px;font-weight:600;color:var(--down)}
 #mAlForm .mal-err:empty{min-height:0;margin:0}
-#mAlForm .mal-save{width:100%;margin-top:14px;min-height:48px}
+
+#m-more .m-btn.danger,.mm-sheet .m-btn.danger{width:100%}

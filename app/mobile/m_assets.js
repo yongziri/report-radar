@@ -33,14 +33,18 @@ function mAsAsk(ans, fn){
   try{ fn(); }finally{ window.prompt = p; window.confirm = c; }
 }
 /* 공유 렌더 직후 한 번만 다시 그린다 (같은 틱의 여러 호출을 묶음) */
+/* 화면이 숨어 있으면 그리지 않고 표시만 해 둔다 — show() 가 그린다 (시세 갱신마다 숨은 화면의 캔버스·DOM 작업을 막는다) */
 function mAsQueue(){
+  if(M.cur !== "assets"){ MAS.dirty = true; return; }
   if(MAS.queued) return;
   MAS.queued = true;
   Promise.resolve().then(function(){ MAS.queued = false; mAsRender(); });
 }
+/* 지금 보이는 패널만 그린다 (세그먼트를 바꾸면 show() 가 다시 부른다) */
 function mAsRender(){
-  try{ mAsRenderWl(); }catch(e){ console.error("[m] assets wl", e); }
-  try{ mAsRenderAc(); }catch(e){ console.error("[m] assets acct", e); }
+  MAS.dirty = false;
+  if($("#mAsAcct").classList.contains("m-off")){ try{ mAsRenderWl(); }catch(e){ console.error("[m] assets wl", e); } }
+  else{ try{ mAsRenderAc(); }catch(e){ console.error("[m] assets acct", e); } }
 }
 function mAsNumTxt(v){ return fmt(v, v % 1 ? Math.min(4, String(v).split(".")[1].length) : 0); }
 function mAsParse(s){
@@ -58,28 +62,9 @@ function mAsSwap(sh, title, content){
   if(typeof content === "string") sh.body.innerHTML = content; else sh.body.appendChild(content);
   sh.body.scrollTop = 0;
 }
-/* 화상 키보드: 레이아웃 뷰포트가 줄지 않는 브라우저에서도 시트가 키보드 위에 오게 */
-function mAsKeyboard(sh){
-  var vv = window.visualViewport;
-  if(!vv) return function(){};
-  function fit(){
-    var off = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
-    sh.el.style.bottom = off ? off + "px" : "";
-    sh.el.style.maxHeight = off ? Math.round(vv.height * 0.94) + "px" : "";
-  }
-  vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
-  sh.el.addEventListener("focusin", function(e){
-    if(!/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
-    setTimeout(function(){ try{ e.target.scrollIntoView({ block:"nearest" }); }catch(x){} }, 320);
-  });
-  return function(){ vv.removeEventListener("resize", fit); vv.removeEventListener("scroll", fit); };
-}
+/* 입력이 있는 시트. 화상 키보드 대응(키보드 위로 올리기·초점 칸 보이기)은 m_core 의 mKeyboard 가 모든 시트에 한다 */
 function mAsFormSheet(opts){
-  var off = null;
-  var sh = mSheet({ id:opts.id, title:opts.title, content:opts.content, cls:"mas-sheet",
-                    onClose:function(){ if(off) off(); if(opts.onClose) opts.onClose(); } });
-  off = mAsKeyboard(sh);
-  return sh;
+  return mSheet({ id:opts.id, title:opts.title, content:opts.content, cls:"mas-sheet", onClose:opts.onClose });
 }
 /* 이름 입력 시트 (그룹·계좌 추가/이름변경) */
 function mAsNameSheet(title, label, val, onSave){
@@ -88,8 +73,8 @@ function mAsNameSheet(title, label, val, onSave){
   box.innerHTML = '<div class="mas-fld"><label for="mAsName">' + esc(label) + '</label>' +
     '<input type="text" id="mAsName" maxlength="30" autocomplete="off" enterkeyhint="done"></div>' +
     '<div class="mas-err" role="alert"></div>' +
-    '<div class="mas-acts"><button type="button" class="mas-btn" data-x>취소</button>' +
-    '<button type="button" class="mas-btn pri" data-ok>저장</button></div>';
+    '<div class="mas-acts m-actbar"><button type="button" class="m-btn" data-x>취소</button>' +
+    '<button type="button" class="m-btn pri" data-ok>저장</button></div>';
   var inp = $("input", box), err = $(".mas-err", box);
   inp.value = val || "";
   var sh = mAsFormSheet({ title:title, content:box });
@@ -107,8 +92,8 @@ function mAsNameSheet(title, label, val, onSave){
 /* 확인 단계 (같은 시트 안에서) */
 function mAsConfirmHtml(msg, okLabel){
   return '<div class="mas-confirm"><p>' + msg + '</p><div class="mas-acts">' +
-    '<button type="button" class="mas-btn" data-cx>취소</button>' +
-    '<button type="button" class="mas-btn danger" data-cok>' + esc(okLabel) + '</button></div></div>';
+    '<button type="button" class="m-btn" data-cx>취소</button>' +
+    '<button type="button" class="m-btn danger" data-cok>' + esc(okLabel) + '</button></div></div>';
 }
 
 /* =============================== 관심종목 =============================== */
@@ -156,7 +141,7 @@ function mAsRenderWl(){
     h += '<div class="m-card mas-empty"><div class="mas-empty-ic">' + MAS_PLUS + '</div>' +
       '<b>“' + esc(groups[act] ? groups[act].name : "") + '” 그룹에 종목이 없습니다</b>' +
       '<span>종목을 추가하면 현재가와 등락을 한눈에 볼 수 있어요.</span>' +
-      '<button class="mas-btn pri" data-add>종목 추가</button></div>';
+      '<button class="m-btn pri" data-add>종목 추가</button></div>';
   }else{
     h += '<div class="m-list mas-wlist' + (MAS.edit ? " editing" : "") + '">' + mAsWlItems().map(function(o){
       var w = o.w, q = o.q, u = UNI_BY_KEY[keyOf(w.mk, w.code)];
@@ -172,7 +157,7 @@ function mAsRenderWl(){
         right = '<canvas class="mas-spk" width="112" height="52" aria-hidden="true"></canvas>' +
           '<div class="mas-wr"><div class="mas-px m-num">' + fmtPrice(q.price, w.mk) + '</div>' +
           '<div class="mas-chg m-num ' + dirCls(q.chg) + '">' + fmtSigned(q.chg) + '</div></div>' +
-          '<span class="mas-pct m-num ' + (q.pct > 0 ? "u" : (q.pct < 0 ? "d" : "f")) + '">' + fmtPct(q.pct) + '</span>';
+          '<span class="m-pill mas-pct m-num ' + dirCls(q.pct) + '">' + fmtPct(q.pct) + '</span>';
       }
       return '<div class="mas-wrow"' + (MAS.edit ? "" : ' role="button" tabindex="0"') + ' data-code="' + esc(w.code) + '">' +
         '<div class="mas-wl"><div class="mas-nm">' + esc(name) + '</div>' +
@@ -341,7 +326,7 @@ function mAsRenderAc(){
     h += '<div class="m-card mas-empty"><div class="mas-empty-ic">' + MAS_PLUS + '</div>' +
       '<b>' + (MAS.all ? "보유 종목이 없습니다" : "“" + esc(cur.name) + "”에 보유 종목이 없습니다") + '</b>' +
       '<span>종목·수량·평균단가를 기록하면 평가금액과 손익을 계산해 드려요.<br>증권사 잔고 CSV를 가져올 수도 있습니다.</span>' +
-      '<button class="mas-btn pri" data-hadd>보유 종목 추가</button></div>';
+      '<button class="m-btn pri" data-hadd>보유 종목 추가</button></div>';
   }else{
     h += '<div class="m-list mas-hlist">' + rows.map(function(r, i){
       var it = r.it, c = mAsCalc(it);
@@ -397,12 +382,12 @@ function mAsAcctSheet(){
   box.innerHTML = '<div class="mas-fld"><label for="mAsAcName">계좌 이름</label>' +
     '<input type="text" id="mAsAcName" maxlength="30" autocomplete="off" enterkeyhint="done"></div>' +
     '<div class="mas-err" role="alert"></div>' +
-    '<div class="mas-acts"><button type="button" class="mas-btn pri" data-ren>이름 저장</button></div>' +
+    '<div class="mas-acts"><button type="button" class="m-btn pri" data-ren>이름 저장</button></div>' +
     '<div class="m-h">순서 (' + (i + 1) + ' / ' + l.length + ')</div>' +
-    '<div class="mas-acts"><button type="button" class="mas-btn" data-mv="-1"' + (i <= 0 ? " disabled" : "") + '>앞으로</button>' +
-    '<button type="button" class="mas-btn" data-mv="1"' + (i >= l.length - 1 ? " disabled" : "") + '>뒤로</button></div>' +
+    '<div class="mas-acts"><button type="button" class="m-btn" data-mv="-1"' + (i <= 0 ? " disabled" : "") + '>앞으로</button>' +
+    '<button type="button" class="m-btn" data-mv="1"' + (i >= l.length - 1 ? " disabled" : "") + '>뒤로</button></div>' +
     '<div class="m-h">삭제</div>' +
-    '<div class="mas-acts"><button type="button" class="mas-btn danger" data-rm' + (l.length <= 1 ? " disabled" : "") + '>계좌 삭제</button></div>' +
+    '<div class="mas-acts"><button type="button" class="m-btn danger" data-rm' + (l.length <= 1 ? " disabled" : "") + '>계좌 삭제</button></div>' +
     (l.length <= 1 ? '<div class="mas-hint">마지막 계좌는 삭제할 수 없습니다.</div>' : "");
   var inp = $("input", box); inp.value = a.name;
   var sh = mAsFormSheet({ title:"계좌 관리", content:box });
@@ -433,13 +418,13 @@ function mAsHoldSheet(r){
     dl("평가손익", c.pl !== null ? fmtSigned(Math.round(c.pl)) + "원" : "-", dirCls(c.pl)) + dl("수익률", fmtPct(c.pct), dirCls(c.pct)) +
     (r.merged ? dl("계좌", esc(it.accts.join(", "))) : "") +
     (!r.merged && it.memo ? '<div class="wide"><dt>메모</dt><dd>' + esc(it.memo) + '</dd></div>' : "") + '</dl>' +
-    '<div class="mas-acts"><button type="button" class="mas-btn" data-view>종목 보기</button>';
+    '<div class="mas-acts"><button type="button" class="m-btn" data-view>종목 보기</button>';
   if(r.merged){
     h += '</div><div class="m-h">계좌별 수정</div><div class="mas-acts col">' + it.acctIds.map(function(id, k){
-      return '<button type="button" class="mas-btn" data-edacc="' + esc(id) + '">' + esc(it.accts[k]) + '에서 수정</button>';
+      return '<button type="button" class="m-btn" data-edacc="' + esc(id) + '">' + esc(it.accts[k]) + '에서 수정</button>';
     }).join("") + '</div>';
   }else{
-    h += '<button type="button" class="mas-btn" data-ed>수정</button><button type="button" class="mas-btn danger" data-rmh>삭제</button></div>';
+    h += '<button type="button" class="m-btn" data-ed>수정</button><button type="button" class="m-btn danger" data-rmh>삭제</button></div>';
   }
   var sh = mAsFormSheet({ title:"보유 종목", content:h });
   sh.body.onclick = function(e){
@@ -488,7 +473,7 @@ function mAsHoldForm(ed, sh){
       '</div>' +
       '<div class="mas-calc m-num"></div>' +
       '<div class="mas-fld"><label for="mAsHMemo">메모 <small>(선택)</small></label><input type="text" id="mAsHMemo" maxlength="60" autocomplete="off" enterkeyhint="done"></div>' +
-      '<div class="mas-acts"><button type="button" class="mas-btn" data-fx>취소</button><button type="button" class="mas-btn pri" data-fok>저장</button></div>';
+      '<div class="mas-acts m-actbar"><button type="button" class="m-btn" data-fx>취소</button><button type="button" class="m-btn pri" data-fok>저장</button></div>';
     $("[data-repick]", f).onclick = function(){ MAS.fPick = null; mAsFormSync(); setTimeout(function(){ $("#mAsHSrchIn").focus(); }, 30); };
     ["#mAsHQty", "#mAsHAvg"].forEach(function(s){ $(s, f).addEventListener("input", function(){ mAsFormErr(); mAsFormCalc(); }); });
     $("#mAsHAcct", f).onchange = function(){ mAsFormErr(); };
@@ -624,9 +609,11 @@ mScreen("assets", {
     renderWatchlist = function(){ var v = rw.apply(this, arguments); mAsQueue(); return v; };
     renderAccounts = function(){ var v = ra.apply(this, arguments); mAsQueue(); return v; };
   },
-  show: function(p){
+  show: function(p, prev){
     var seg = p.seg === "acct" || p.seg === "wl" ? p.seg : mAsGet("seg", "wl");
     if(seg !== "acct") seg = "wl";
+    var root = mRoot("assets"), segChanged = MAS.seg && MAS.seg !== seg;
+    MAS.seg = seg;
     mAsSet("seg", seg);
     this.seg.mSet(seg);
     $("#mAsWl").classList.toggle("m-off", seg !== "wl");
@@ -634,10 +621,19 @@ mScreen("assets", {
     if(seg === "acct"){ mDesk("acct"); mAsRenderAc(); }
     else{
       mDesk("wl");
-      renderWatchlist(); loadSparklines();
+      mAsRenderWl(); MAS.dirty = false;
+      loadSparklines();
     }
+    /* 다른 화면에서 돌아오면 떠날 때 스크롤 위치로 (숨긴 화면은 스크롤 위치를 잃는다) */
+    if(prev && prev !== "assets" && MAS.y && !segChanged){
+      var y = MAS.y; root.scrollTop = y;
+      requestAnimationFrame(function(){ if(M.cur === "assets" && !root.scrollTop) root.scrollTop = y; });
+    }else if(segChanged) root.scrollTop = 0;
   },
-  hide: function(){ if(MAS.edit){ MAS.edit = false; mAsQueue(); } },
+  hide: function(){
+    MAS.y = mRoot("assets").scrollTop;
+    if(MAS.edit){ MAS.edit = false; MAS.dirty = true; }
+  },
   refresh: function(){ mAsQueue(); return Promise.resolve(); },
   reselect: function(){
     if(MAS.edit){ MAS.edit = false; mAsRenderWl(); return true; }

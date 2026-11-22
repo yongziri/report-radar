@@ -426,8 +426,9 @@ function drawChart(){
   ctx.textAlign = "center";
   var ticks = Math.max(2, Math.min(9, Math.floor(plotW/90)));
   for(var t=0;t<=ticks;t++){
-    var idx = Math.min(n-1, Math.round(t*(n-1)/ticks));
-    ctx.fillText(fmtDate(bars[idx].d), X(idx), H-5);
+    var idx = Math.min(n-1, Math.round(t*(n-1)/ticks)), lbl = fmtDate(bars[idx].d), lx = X(idx);
+    if(IS_APP){ var hw = ctx.measureText(lbl).width/2 + 2; lx = Math.max(hw, Math.min(W - hw, lx)); }   // 앱: 화면 폭 꽉 찬 차트에서 양 끝 날짜가 잘리지 않게
+    ctx.fillText(lbl, lx, H-5);
   }
 
   if(AN.hover >= 0 && AN.hover < n){

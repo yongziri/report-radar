@@ -94,7 +94,7 @@ function mStRenderHead(){
         '1.1-6.1L3.2 9.6l6.1-.8z"/></svg></button>') +
     '</div>' +
     '<div class="mst-h2 m-num"><span class="mst-px ' + dc + '">' + (price === null ? "-" : fmtPrice(price, it.mk)) + '</span>' +
-      (chg === null ? "" : '<span class="mst-chip ' + dc + '">' + (chg > 0 ? "▲" : (chg < 0 ? "▼" : "")) + " " +
+      (chg === null ? "" : '<span class="m-updn mst-chip ' + dc + '">' + (chg > 0 ? "▲" : (chg < 0 ? "▼" : "")) + " " +
         (idx ? Math.abs(chg).toFixed(2) : fmt(Math.abs(Math.round(chg)))) + " · " + fmtPct(pct) + '</span>') +
     '</div>';
 }
@@ -114,11 +114,43 @@ function mStRenderStats(){
   box.innerHTML = out.join("");
 }
 
+/* ---------- 컨센서스 (이 화면에서 쓰는 단 하나의 정의) ----------
+   차트 계단선과 같은 방법(05 tgtRecords·tgtConsAt): 최근 TGT_WIN(90)일 안의 증권사별 최신 목표가 평균.
+   PC 의 두 요약(#anTgtSum 숫자 줄 = 같은 방법, #anRepCons = 3개월 단순 평균)은 CSS 로 숨기고 이 카드 하나만 보인다 */
+function mStConsData(code){
+  var src = tgtRecords(code); if(!src) return null;
+  var latest = {};
+  src.recs.forEach(function(x){ latest[x.b] = x; });
+  var floor = tgtShiftYmd(todayStr(), -TGT_WIN), recs = [];
+  for(var b in latest){ if(latest[b].d >= floor) recs.push(latest[b].r); }
+  if(!recs.length) return { k:0 };
+  var tg = recs.map(function(r){ return r.target; });
+  var buy = recs.filter(function(r){ return r.rating === "BUY"; }).length;
+  return { k:recs.length, avg:tg.reduce(function(s, v){ return s + v; }, 0) / tg.length,
+           hi:Math.max.apply(null, tg), lo:Math.min.apply(null, tg), buyR:Math.round(buy / recs.length * 100), buy:buy };
+}
+function mStConsHtml(it){
+  var c = mStConsData(it.code);
+  if(!c) return "";
+  var head = '<div class="mst-cons-k">컨센서스 목표가 <span>(증권사별 최신, ' + TGT_WIN + '일)</span></div>';
+  if(!c.k) return '<div class="mst-cons">' + head + '<div class="mst-cons-none">최근 ' + TGT_WIN + '일 안에 목표주가를 낸 증권사가 없습니다.</div></div>';
+  var q = mStQuote(), price = (q && q.price > 0) ? q.price : (AN.bars.length ? AN.bars[AN.bars.length-1].c : null);
+  var gap = price ? (c.avg - price) / price * 100 : null;
+  var cell = function(k, v, cls){ return '<div><span class="k">' + k + '</span><b class="m-num ' + (cls || "") + '">' + v + '</b></div>'; };
+  return '<div class="mst-cons">' + head +
+    '<div class="mst-cons-v m-num">' + fmt(Math.round(c.avg)) + '<small>원</small>' +
+      (gap === null ? "" : '<span class="m-updn ' + dirCls(gap) + '">' + fmtPct(gap) + '</span>') + '</div>' +
+    '<div class="mst-cons-s">증권사 ' + c.k + '곳' + (price ? " · 현재가 " + fmt(price) + "원 대비" : "") + '</div>' +
+    '<div class="mst-cons-g">' + cell("최고", fmt(c.hi)) + cell("최저", fmt(c.lo)) +
+      cell("BUY 비율", c.buyR + "%", c.buyR >= 50 ? "up" : "") + '</div></div>';
+}
+
 /* ---------- 리포트 카드 ---------- */
 function mStRenderReports(){
-  var box = $("#mStRep"); if(!box) return;
+  var box = $("#mStRep"), cons = $("#mStCons"); if(!box) return;
   var it = AN.sel;
-  if(!it || isIdx(it) || typeof RP_READY === "undefined" || !RP_READY){ box.innerHTML = ""; return; }
+  if(!it || isIdx(it) || typeof RP_READY === "undefined" || !RP_READY){ box.innerHTML = ""; if(cons) cons.innerHTML = ""; return; }
+  if(cons) cons.innerHTML = mStConsHtml(it);
   var list = rpByCode[it.code] || [];
   if(!list.length){ box.innerHTML = ""; return; }
   var html = list.slice(0, 5).map(function(r){
@@ -319,6 +351,8 @@ function mStSync(){
   MST.seg.classList.toggle("m-off", !has || isIdx(AN.sel));
   if(!has){ mStRenderStart(); return; }
   mStRenderHead(); mStRenderStats();
+  var cb = $("#mStCons");                                     // 현재가 대비가 시세를 따라가게
+  if(cb && !isIdx(AN.sel) && typeof RP_READY !== "undefined" && RP_READY) cb.innerHTML = mStConsHtml(AN.sel);
   if(!MST.readPin && !(MST.drag && MST.drag.mode === "read") && AN.hover < 0) mStReadIdle();
 }
 
@@ -355,6 +389,8 @@ mScreen("stock", {
     body.appendChild($("#anStats").closest(".tbw"));       // PC 표는 숨겨 두고 내용만 읽는다
 
     /* 리포트: 컨센서스 + 카드 목록 */
+    var consBox = document.createElement("div"); consBox.id = "mStCons";
+    $("#anRepPanel").appendChild(consBox);
     var rep = document.createElement("div"); rep.id = "mStRep"; rep.className = "mst-rep";
     $("#anRepPanel").appendChild(rep);
     rep.addEventListener("click", function(e){
@@ -396,15 +432,18 @@ mScreen("stock", {
     window.addEventListener("resize", function(){ if(M.cur === "stock") mStCmpFit(); });
 
     /* 공유 렌더 감싸기 — 07 init 보다 먼저라 05 의 rpRenderAnal 감싸기(목표가 오버레이)가 이 바깥에 얹힌다 */
+    /* 종목 화면이 숨어 있으면 폰 렌더는 건너뛰고 표시만 (show() 가 다시 그린다) */
     var headNow = renderAnalysisHead;
     renderAnalysisHead = function(){
       var r = headNow.apply(this, arguments);
+      if(M.cur !== "stock"){ MST.dirty = true; return r; }
       try{ mStSync(); }catch(e){ console.error("[m] stock head", e); }
       return r;
     };
     var repNow = rpRenderAnal;
     rpRenderAnal = function(){
       var r = repNow.apply(this, arguments);
+      if(M.cur !== "stock"){ MST.dirty = true; return r; }
       try{ mStRenderReports(); }catch(e){ console.error("[m] stock rep", e); }
       return r;
     };
@@ -431,6 +470,8 @@ mScreen("stock", {
     mDesk(seg);
     mSetTitle(AN.sel ? AN.sel.name : "종목");
     mStSync();
+    MST.dirty = false;
+    try{ mStRenderReports(); }catch(e){ console.error("[m] stock rep", e); }
     if(seg === "cmp"){ mStRenderCmpList(); requestAnimationFrame(mStCmpFit); }
     else if(AN.sel) requestAnimationFrame(function(){ MST.lastW = $("#chart").clientWidth; drawChart(); });
   },

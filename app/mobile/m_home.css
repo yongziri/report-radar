@@ -31,14 +31,8 @@
 #m-home .mh-empty{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);padding:22px 16px;text-align:center}
 #m-home .mh-pad .mh-empty{border:0;padding:14px 4px 4px}
 #m-home .mh-empty p{margin:0;color:var(--tx3);font-size:var(--m-fs2);line-height:1.55;word-break:keep-all}
-#m-home .mh-btn{margin-top:12px;min-height:var(--m-tap);padding:0 18px;border-radius:22px;border:1px solid var(--link);
-  background:none;color:var(--link);font-size:14px;font-weight:700}
-#m-home .mh-btn:active{background:var(--panel2)}
-#m-home .mh-btn.wide{display:block;width:100%;margin-top:16px;background:var(--link);color:#fff;border-radius:10px}
-#m-home .mh-more{display:flex;align-items:center;justify-content:center;gap:4px;width:100%;min-height:var(--m-tap);margin:-4px 0 0;
-  border:1px solid var(--line);border-radius:var(--m-r);background:var(--panel);color:var(--tx2);font-size:14px;font-weight:600;text-decoration:none}
-#m-home .mh-more:active{background:var(--panel2)}
-#m-home .mh-more span{color:var(--tx3)}
+#m-home .mh-btn{margin-top:12px}
+#m-home .mh-more{margin-top:-4px}
 #m-home .mh-empty+.mh-more{margin-top:6px}
 #m-home .stalebadge{font-size:11px}
 
@@ -69,7 +63,6 @@
 #m-home .mh-rep{flex-direction:column;align-items:stretch;gap:4px;padding:10px 14px;min-height:60px}
 #m-home .mh-l1,#m-home .mh-l2{display:flex;align-items:center;gap:6px;min-width:0}
 #m-home .mh-l1 .nm{flex:0 1 auto;min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#m-home .mh-l1 .rbadge{flex:none;min-width:40px;font-size:11px;line-height:18px;padding:0 5px;border-radius:4px}
 #m-home .mh-l1 .mrdot{flex:none;font-size:10px;line-height:16px;padding:0 4px;margin-left:0}
 #m-home .mh-l1 .tg{flex:none;margin-left:auto;font-size:var(--m-fs);white-space:nowrap}
 #m-home .mh-l1 .tg b{font-weight:700}
@@ -92,12 +85,6 @@
 #m-home .mh-mv .nm{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #m-home .mh-mv .m-row-s{margin-top:1px}
 #m-home .mh-mv .pr{flex:none;font-size:var(--m-fs);font-weight:600;text-align:right}
-#m-home .mh-chip{flex:none;width:74px;padding:5px 0;border-radius:6px;text-align:center;font-size:var(--m-fs2);font-weight:700;color:#fff;
-  background:var(--panel2)}
-#m-home .mh-chip.up{background:var(--up-bg)}
-#m-home .mh-chip.down{background:var(--down-bg)}
-#m-home .mh-chip.flat{color:var(--tx2)}
-
 /* ---------- 5. 업종 등락 ---------- */
 #m-home .mh-secrow{gap:10px}
 #m-home .mh-secrow .nm{display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -120,10 +107,9 @@
 #m-home .mh-dcbar{display:flex;align-items:center;gap:8px;margin:0 0 6px;min-width:0}
 #m-home #dcTypes{flex:1;min-width:0;flex-wrap:nowrap;margin:0;padding:2px 18px 6px 0;
   -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 22px),transparent)}
-#m-home #dcTypes button{flex:none;min-height:36px;padding:0 13px;border-radius:18px;font-size:13px;white-space:nowrap}
-#m-home .mh-mine{flex:none;display:flex;align-items:center;gap:6px;min-height:var(--m-tap);padding:0 2px 4px 4px;
-  font-size:13px;color:var(--tx2);white-space:nowrap}
-#m-home .mh-mine input{width:18px;height:18px;margin:0}
+#m-home #dcTypes button{flex:none;min-height:40px;padding:0 13px;border-radius:20px;font-size:13px;white-space:nowrap}
+#m-home .mh-mine{flex:none;display:flex;align-items:center;gap:8px;min-height:var(--m-tap);padding:0 2px 4px 4px;
+  font-size:13px;color:var(--tx2);white-space:nowrap;cursor:pointer}
 
 /* ---------- 7. 접는 구역 ---------- */
 #m-home .mh-foldhd{display:flex;align-items:center;gap:8px;width:100%;min-height:52px;padding:0 12px 0 14px;
@@ -141,9 +127,9 @@
 #m-home .mh-tmapp>.ptitle{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:4px 12px 10px;font-size:12px;color:var(--tx3);font-weight:400}
 #m-home .mh-tmapp>.ptitle>.sub{font-size:12px}
 #m-home .mh-tmapp>.ptitle .sp{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
-#m-home .mh-tmapp #segTmap button{min-height:36px;padding:0 14px}
+#m-home .mh-tmapp #segTmap button{min-height:40px;padding:0 14px}
 #m-home .mh-tmapp .tlegend{order:3;flex:1 1 100%;justify-content:center}
-#m-home .mh-tmapp #tmapReload{min-height:36px;margin-left:auto}
+#m-home .mh-tmapp #tmapReload{min-height:40px;min-width:44px;margin-left:auto}
 #m-home .mh-tmapp .tmap{height:min(132vw, 600px);border-radius:0 0 var(--m-r) var(--m-r)}
 #m-home .mh-tmapp .tsec>.sl{font-size:10px}
 #m-home .mh-tmapp .tile:hover{outline:0}
@@ -162,5 +148,3 @@
 .msheet.mh-sheet .mh-kv{display:flex;justify-content:space-between;gap:12px;min-height:40px;align-items:center;
   border-top:1px solid var(--line);font-size:14px}
 .msheet.mh-sheet .mh-kv span:first-child{color:var(--tx3)}
-.msheet.mh-sheet .mh-btn{min-height:var(--m-tap);border:0;font-size:15px;font-weight:700;width:100%;margin-top:16px;
-  background:var(--link);color:#fff;border-radius:10px}

@@ -3,10 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <!-- 앱 버전(폰 전용) — app/mobile/m_head.html. 설계: docs/MOBILE-APP-SPEC.md -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>공도 투자 연구소</title>
-<meta name="theme-color" content="#22262F">
+<meta name="theme-color" content="#353945">
 <meta name="color-scheme" content="dark light">
+<script>/* 저장된 테마·등락 색을 첫 그리기 전에 (흰 화면 깜빡임·상태 줄 색 어긋남 방지). 값은 PC 버전과 같은 stockHelper.v1 */
+(function(){ try{ var s = JSON.parse(localStorage.getItem("stockHelper.v1") || "null"); if(!s) return;
+  var d = document.documentElement; if(s.theme === "light"){ d.setAttribute("data-theme", "light");
+  document.querySelector('meta[name="theme-color"]').setAttribute("content", "#FFFFFF"); }
+  if(s.settings && s.settings.cc) d.setAttribute("data-cc", s.settings.cc); }catch(e){} })();</script>
 <script>/* PWA 매니페스트(m/manifest.webmanifest) — file:// 에서는 CORS 오류만 내므로 http(s)에서만 연결 */
 (function(){ if(location.protocol === "file:") return;
   var l = document.createElement("link"); l.rel = "manifest"; l.href = "manifest.webmanifest"; document.head.appendChild(l); })();</script>
@@ -56,6 +61,9 @@ body.mapp>header,body.mapp>main,body.mapp>footer{display:none}   /* PC 머리·�
 .mbar-btn svg{width:22px;height:22px}
 .mbar-btn.busy svg{animation:sp .8s linear infinite}
 .mbar .qstat{margin-right:2px}
+.mbar-off{flex:none;margin-right:2px;padding:3px 8px;border-radius:10px;border:1px solid var(--line2);background:var(--panel2);
+  color:var(--tx2);font-size:12px;font-weight:700;white-space:nowrap}
+body.m-offline .mbar .qstat{display:none}
 .mbar.has-back .mbar-mark{display:none}
 
 #mScreens{flex:1;position:relative;min-height:0}
@@ -84,8 +92,8 @@ body.mapp>header,body.mapp>main,body.mapp>footer{display:none}   /* PC 머리·�
 /* ---------- 바텀 시트 ---------- */
 .msheet-back{position:fixed;inset:0;z-index:250;background:rgba(0,0,0,.55);opacity:0;transition:opacity .2s}
 .msheet-back.open{opacity:1}
-.msheet{position:fixed;left:0;right:0;bottom:0;z-index:251;display:flex;flex-direction:column;
-  max-height:88vh;max-height:88dvh;background:var(--panel);border-top:1px solid var(--line2);
+.msheet{position:fixed;left:0;right:0;bottom:var(--m-kb, 0px);z-index:251;display:flex;flex-direction:column;
+  max-height:88vh;max-height:calc(var(--m-vvh, 100dvh) * .9);background:var(--panel);border-top:1px solid var(--line2);
   border-radius:16px 16px 0 0;padding:0 var(--m-sar) var(--m-sab) var(--m-sal);
   transform:translateY(100%);transition:transform .22s ease;box-shadow:0 -8px 28px rgba(0,0,0,.45)}
 .msheet.open{transform:none}
@@ -97,12 +105,12 @@ body.mapp>header,body.mapp>main,body.mapp>footer{display:none}   /* PC 머리·�
 /* ---------- 공용 클래스 (화면 모듈이 쓴다) ---------- */
 .m-off{display:none !important}
 .m-seg{display:flex;gap:0;margin:0 0 10px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--m-r);padding:3px}
-.m-seg button{flex:1;min-width:0;min-height:38px;border:0;border-radius:8px;background:none;color:var(--tx2);
+.m-seg button{flex:1;min-width:0;min-height:40px;border:0;border-radius:8px;background:none;color:var(--tx2);
   font-size:14px;font-weight:700;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .m-seg button.act{background:var(--link);color:#fff}
 .m-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0 8px;margin:0 0 4px}
 .m-chips::-webkit-scrollbar{display:none}
-.m-chips button{flex:none;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);background:var(--panel2);
+.m-chips button{flex:none;min-height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);
   color:var(--tx2);font-size:14px;font-weight:600;white-space:nowrap}
 .m-chips button.act{background:var(--link);border-color:var(--link);color:#fff}
 .m-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);margin:0 0 10px;overflow:hidden}
@@ -119,6 +127,50 @@ a.m-row:hover{text-decoration:none;color:var(--tx)}
 .m-row .m-chev{flex:none;color:var(--tx3);width:18px;height:18px}
 .m-empty{padding:28px 12px;text-align:center;color:var(--tx3);font-size:var(--m-fs2)}
 .m-num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* 스위치 (설정·알림·"내 종목만" 등 켜기/끄기) — <input type=checkbox class="m-sw" role="switch">, 누르는 영역은 감싼 label 행 */
+input.m-sw{-webkit-appearance:none;appearance:none;flex:none;position:relative;width:50px;height:30px;margin:0;padding:0;
+  border-radius:15px;background:var(--line2);border:0;cursor:pointer;transition:background .18s}
+input.m-sw::before{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .18s}
+input.m-sw:checked{background:var(--link)}
+input.m-sw:checked::before{transform:translateX(20px)}
+input.m-sw:disabled{opacity:.4}
+input.m-sw:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+
+/* 버튼: 기본(테두리) · .pri(주 동작) · .danger(삭제 — 등락 색과 무관한 빨강) · .sm(줄 안 작은 버튼) · .m-wide(꽉 찬 폭) */
+.m-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:var(--m-tap);padding:0 16px;
+  border:1px solid var(--line2);border-radius:var(--m-r);background:var(--panel2);color:var(--tx);font-size:var(--m-fs);font-weight:700;
+  text-decoration:none;white-space:nowrap}
+.m-btn:active{filter:brightness(.92)}
+.m-btn.pri{background:var(--link);border-color:var(--link);color:#fff}
+.m-btn.danger{background:none;border-color:#E5484D;color:#E5484D}
+.m-btn.sm{min-height:40px;padding:0 12px;font-size:var(--m-fs2);border-radius:8px}
+.m-btn:disabled{opacity:.45}
+.m-btn svg{width:18px;height:18px}
+.m-btn.m-wide{display:flex;width:100%}
+/* 시트 아래에 붙는 동작 줄 (키보드가 올라와도 보인다) */
+.m-actbar{position:sticky;bottom:-16px;z-index:2;display:flex;gap:8px;margin:16px -16px -16px;padding:12px 16px;
+  background:var(--panel);border-top:1px solid var(--line)}
+.m-actbar .m-btn{flex:1;min-height:48px}
+.m-actbar .m-btn.pri{flex:2}
+/* 목록 끝 "더 보기" · "전체 보기" */
+.m-morebtn{display:flex;align-items:center;justify-content:center;gap:4px;width:100%;min-height:var(--m-tap);margin:0;padding:0 12px;
+  border:1px solid var(--line);border-radius:var(--m-r);background:var(--panel);color:var(--tx2);font-size:14px;font-weight:600;text-decoration:none}
+.m-morebtn:active{background:var(--panel2)}
+.m-morebtn span{color:var(--tx3)}
+/* 등락률: .m-pill(목록 오른쪽 채운 칩) · .m-updn(글 안의 옅은 칩). 색은 dirCls(up/down/flat) — 등락 색 설정을 따른다 */
+.m-pill{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:68px;min-height:30px;padding:0 6px;border-radius:6px;
+  font-size:var(--m-fs2);font-weight:700;color:#fff;background:var(--panel2);font-variant-numeric:tabular-nums}
+.m-pill.up{background:var(--up-bg);color:#fff}
+.m-pill.down{background:var(--down-bg);color:#fff}
+.m-pill.flat{color:var(--tx2)}
+.m-updn{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:12px;font-size:var(--m-fs2);font-weight:600;
+  background:var(--panel2);color:var(--tx2);font-variant-numeric:tabular-nums}
+.m-updn.up{background:color-mix(in srgb, var(--up) 16%, transparent);color:var(--up)}
+.m-updn.down{background:color-mix(in srgb, var(--down) 16%, transparent);color:var(--down)}
+/* 투자의견 배지 (모든 화면 같은 크기) */
+body.mapp .rbadge{flex:none;display:inline-block;min-width:40px;padding:0 5px;border-radius:4px;font-size:11px;line-height:18px;text-align:center}
 
 /* 종목 검색 시트 */
 .m-srch{position:relative;min-width:0;max-width:none}
@@ -163,7 +215,7 @@ body.mapp .tlegend{font-size:12px}
 body.mapp .statgrid td{font-size:13px}
 body.mapp .rcard{padding:10px 10px 9px;font-size:14px}
 body.mapp .rcard .l3,body.mapp .rind,body.mapp .rsub{font-size:12px}
-body.mapp .rbadge,body.mapp .rmini{font-size:12px}
+body.mapp .rmini{font-size:12px}
 body.mapp .sumline,body.mapp .sccap,body.mapp .tgtsum{font-size:12px}
 body.mapp .malegend button{font-size:12px;padding:4px 8px}
 body.mapp .fcell .fk{font-size:12px}
@@ -179,12 +231,17 @@ body.mapp .tbw{-webkit-overflow-scrolling:touch}
 body.mapp .rpload{font-size:13px}
 
 /* PC 모달(설정·잔고 가져오기) → 아래에서 올라오는 시트 모양 */
-body.mapp .mask{align-items:flex-end;padding:0;z-index:240}
-body.mapp .modal{max-width:none !important;width:100%;border-radius:16px 16px 0 0;max-height:90vh;max-height:90dvh;overflow-y:auto;
+body.mapp .mask{align-items:flex-end;padding:0 0 var(--m-kb, 0px);z-index:240}
+body.mapp .modal{max-width:none !important;width:100%;border-radius:16px 16px 0 0;max-height:90vh;max-height:calc(var(--m-vvh, 100dvh) * .9);overflow-y:auto;
   padding-bottom:var(--m-sab)}
 body.mapp .modal h3{font-size:16px;padding:6px 4px 6px 16px;min-height:52px}
 body.mapp .modal h3 button{width:var(--m-tap);height:var(--m-tap);font-size:24px}
-body.mapp .modal .ft .btn{min-height:42px;padding:0 18px;font-size:14px}
+body.mapp .modal .ft .btn{min-height:44px;padding:0 18px;font-size:14px}
+/* 저장·취소 줄은 모달 아래에 붙여 둔다 (화상 키보드가 올라와도 보이게) */
+body.mapp .modal .ft{position:sticky;bottom:0;z-index:2;background:var(--panel);border-top:1px solid var(--line)}
+/* 시트·모달 안 입력: 스크롤로 드러낼 때 아래 동작 줄 높이만큼 띄운다 */
+.msheet input,.msheet select,.msheet textarea,body.mapp .modal input,body.mapp .modal select,body.mapp .modal textarea{
+  scroll-margin-top:12px;scroll-margin-bottom:84px}
 
 /* 토스트는 탭 바 위 가운데 */
 body.mapp #toasts{left:calc(12px + var(--m-sal));right:calc(12px + var(--m-sar));bottom:calc(var(--m-tab) + var(--m-sab) + 10px);

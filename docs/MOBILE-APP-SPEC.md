@@ -112,6 +112,23 @@ mScreen("home", {
 ```
 
 - `mount` 는 init 전에 돌기 때문에 **공유 렌더 함수를 부르지 말고 DOM 배치만** 한다. 렌더는 `show` 에서.
+- 공유 렌더 함수를 감싸 폰 화면을 다시 그릴 때는 **그 화면이 보일 때만** 그린다(`M.cur === "<화면>"`, 아니면 표시만 해 두고
+  `show` 에서 그린다). 시세 갱신(`refreshAll`)은 1분마다 `renderWatchlist`·`renderPortfolio`·`renderAccounts`·`renderMarket`·
+  `renderAnalysisHead` 를 부르므로, 숨은 화면이 캔버스·큰 DOM 을 다시 그리면 그 비용이 매번 든다.
+- 여러 모듈이 같은 전역을 감싼다. 각 감싸기는 mount 때의 값을 잡아 두고 한 번만 부르므로 순서와 관계없이 사슬이 이어진다
+  (아래 바깥 → 안):
+
+  | 전역 | 사슬 |
+  |---|---|
+  | `renderWatchlist` | 11 `mrInit`(→ `mrRender`) → 내 자산 → 종목 → 04 원본 |
+  | `rpRenderAnal` | 05 목표가 오버레이 → 종목 → 09 원본 |
+  | `rpRender` | 07 `rpLazyHook`(리포트 탭이 아니면 보류) → 리포트 → 09 원본 |
+  | `applyTheme` | 코어(상태 줄 색) → 홈 → 07 원본 |
+  | `renderIndex` | 코어(마지막 지수 저장) → 홈 → 04 원본 |
+  | `refreshAll` | 코어(성공 시 마지막 시세 저장) → 04 원본 |
+  | `mrRender` | 홈(같은 틱 호출을 하나로 묶음) → 11 원본 — `renderWatchlist`·`renderPortfolio` 가 한 갱신에 한 번씩 부른다 |
+  | `showTab`, `selectStock` | 코어 → 07 / 05 원본 |
+  | 그 밖(`renderMarket`·`renderGauge`·`renderSignals`·`rpRenderToday`·`renderAccounts`·`renderAlerts`·`evalAlerts` …) | 감싸는 모듈 하나 |
 - `show` 안에서 반드시 `mDesk(id)` 로 PC 탭 상태를 맞춘다. 공유 코드는 `curTab` 으로 지연 렌더·갱신 범위를 정한다
   (`"rep"` 이면 리포트 표를 그리고, `"scr"` 이면 스크리너 표를, `"dash"` 면 트리맵 갱신·내 종목 리포트 읽음 처리).
   PC 에 없는 이름(`"wl"`, `"more"`)을 주면 `curTab` 만 바뀐다.
@@ -133,6 +150,11 @@ mScreen("home", {
   그래서 PC 코드의 `selectStock(it); showTab("anal")`(관심종목·시그널·스크리너·리포트 행 클릭)이 그대로 종목 화면을 연다.
   PC 원본은 `mDeskShowTab` 에 있고 `mDesk(id)` 로 부른다.
 - `selectStock` 도 감싸져 있어 고른 종목이 "최근 본 종목"(`mRecent()`, localStorage `gongdo-m-recent`)에 쌓인다.
+- 탭 바로 더보기에 돌아갈 때 마지막 하위 화면(스크리너·알림)이면 메뉴 항목을 밑에 깔고 하위 화면을 쌓는다 → 뒤로 = 메뉴.
+- 탭 바에서 지금 탭을 다시 누르면 `mScrollTop(root)` 로 맨 위로 간다(관성 스크롤을 끊고, 먼 거리는 한 화면 위치로 옮긴 뒤 부드럽게,
+  끝나고도 남으면 0). 화면의 `reselect` 도 이 함수를 쓴다.
+- 숨긴 화면(`display:none`)은 스크롤 위치를 잃는다. 다른 화면에서 돌아올 때 위치를 되살리는 것은 각 화면의 `hide`/`show` 몫이다
+  (홈·리포트·내 자산·더보기가 한다).
 
 ### 7.4 공용 부품
 
@@ -146,6 +168,10 @@ mScreen("home", {
 | `mSegBar([[값, 라벨], …], onPick)` → 요소 | 꽉 찬 세그먼트(`.m-seg`). `el.mSet(값)` 으로 선택 표시 |
 | `mPanelOf(selector, up)` | 그 요소를 품은 `.panel`(또는 `up` 선택자) — PC 패널을 옮길 때 |
 | `mRoot(screen)` | 화면 뿌리 요소 (`.mscr` — 이 요소가 스크롤 컨테이너다) |
+| `mScrollTop(el)` | 화면 맨 위로 (탭 바 다시 누름) |
+| 화상 키보드 | 코어 `mKeyboard()` 가 모든 시트·PC 모달에 적용한다. viewport 의 `interactive-widget=resizes-content` + `visualViewport` 로 가려진 높이를 `--m-kb`·`--m-vvh` 에 넣어 시트를 키보드 위로 올리고, 시트 안 입력에 초점이 가면 그 칸을 보이게 스크롤한다. 저장·취소 줄은 `.m-actbar`(sticky) |
+| 오프라인 | 시세 갱신이 성공할 때마다 추적 종목 시세·지수를 localStorage `gongdo-m-quotes` 에 저장한다. 오프라인으로 열리면 그 값을 "갱신 실패"(`ok:false`)로 되살리고 앱 바에 "오프라인"(`#mOffline`)을 켠다. 리포트 데이터는 서비스 워커 캐시에서 열린다 |
+| 상태 줄 색 | `<meta name="theme-color">` 는 앱 바 색(다크 `#353945`, 라이트 `#FFFFFF`). 머리의 작은 스크립트가 첫 그리기 전에 저장된 테마를 적용하고, `applyTheme` 감싸기가 바꿀 때마다 맞춘다 |
 
 ### 7.5 CSS 토큰과 공용 클래스 (`m_head.html`)
 
@@ -154,6 +180,16 @@ mScreen("home", {
   `--m-r`(10px 모서리) `--m-fs/--m-fs2/--m-fs3`(15/13/12px) `--m-tap`(44px).
 - 클래스: `.m-off`(숨김) `.m-seg` `.m-chips`(가로로 미는 칩 줄) `.m-card` `.m-h`(소제목) `.m-list` + `.m-row`
   (`.m-row-t` 제목, `.m-row-s` 보조줄, `.m-row-v` 오른쪽 값, `.m-chev` 화살표) `.m-empty` `.m-num`(고정폭 숫자).
+- 공용 부품 클래스(M3 통합 때 화면별 중복을 모았다 — 새 화면 코드는 이것을 쓴다):
+  - `input.m-sw` 스위치(`<input type=checkbox class="m-sw" role="switch">`, 누르는 영역은 감싼 label 행)
+  - `.m-btn` 버튼 (`.pri` 주 동작, `.danger` 삭제 — 등락 색과 무관한 빨강, `.sm` 줄 안 40px, `.m-wide` 꽉 찬 폭). 높이 44px
+  - `.m-actbar` 시트 아래에 붙는 동작 줄(sticky, 안의 `.m-btn` 48px, `.pri` 가 2배 폭)
+  - `.m-morebtn` 목록 끝 "더 보기"·"전체 보기"
+  - `.m-pill` 목록 오른쪽 등락률 칩(채움) · `.m-updn` 글 안 등락 칩(옅은 배경). 둘 다 `dirCls()` 의 `up/down/flat` — 등락 색 설정을 따른다
+  - 투자의견 `.rbadge` 는 모든 화면 같은 크기(11px, 높이 18px, 최소 폭 40px)
+  - `.m-chips` 칩과 `.m-seg` 세그먼트 버튼은 높이 40px. 선택은 `--link` 채움 + 흰 글자
+- 글자 크기: 본문 15px(`--m-fs`) · 보조 13px(`--m-fs2`) · 최소 12px(`--m-fs3`). 화면 소제목은 17px 700(홈 `.mh-hd`), 목록 머리는 `.m-h`(12px 700).
+- PC CSS 가 모바일 요소에 새는 곳이 있다: 예) `.chk input{width:auto}` 가 스위치 폭을 없앴다 → 공용 규칙은 `input.m-sw` 처럼 요소까지 적어 이긴다.
 - 골격: `.mbar`(앱 바) `#mScreens` > `.mscr.act`(지금 화면, 세로 스크롤) `.mtabs`(탭 바) `.msheet`(시트) `.mptr`(당김 표시).
   화면 스크롤은 문서가 아니라 `.mscr` 가 한다(화면마다 스크롤 위치 유지).
 - PC 요소 보정: `body.mapp …` 규칙으로 글자 크기(본문 13~15px, 입력 16px)·버튼 높이를 키웠다.
@@ -167,7 +203,7 @@ mScreen("home", {
 | `#myRepPanel`, 오늘의 리포트(`#rpToday`), `#sigPanels`, 업종(`#secPerf`), 뉴스·공시(`#mktNews`·`#dcBody` 의 `.grid2`) | 홈 |
 | 시가총액 지도(`#tmap` 패널, 접힘)·경제 캘린더(`#calWrap`, 접힘) | 홈 |
 | `#tab-rep` 전체 | 리포트 |
-| `#tab-anal`, `#tab-cmp` (세그먼트 종목분석 / 기업분석) | 종목 |
+| `#tab-anal`, `#tab-cmp` (세그먼트 종목분석 / 기업분석) | 종목 — 컨센서스는 `#mStCons` 카드 하나(증권사별 최신 목표가 90일 평균, 차트 계단선과 같은 정의). PC 의 `#anRepCons`(3개월 단순 평균)와 `#anTgtSum` 숫자 줄은 숨김, 차트 아래에는 점 범례만 |
 | 관심종목(`#wlBody` 패널) | 내 자산 › 관심종목 (`#mAsWl`) |
 | `#tab-acct` + 보유 종목(`#pfBody` 패널) | 내 자산 › 계좌 (`#mAsAcct`) |
 | `#tab-scr`, `#tab-alr` | 더보기 › 스크리너 / 알림 (하위 화면) |
@@ -191,3 +227,9 @@ python -m http.server 8765              # 저장소 루트에서
 - 확인 항목: `document.documentElement.scrollWidth === innerWidth` 와 지금 화면 `.mscr` 의 `scrollWidth <= clientWidth`
   (화면 스크롤이 `.mscr` 라 둘 다 봐야 한다), 콘솔 오류 0, 뒤로가기(시트 → 이전 화면 → 홈에서 나가기).
 - 서비스 워커: 앱 페이지는 `m/sw.js`(범위 `/m/`, 캐시 접두어 `gongdo-app-`)가 제어해야 한다 — `navigator.serviceWorker.controller.scriptURL`.
+  소스가 바뀌어 다시 빌드하면 `m/sw.js` 의 빌드 ID 가 바뀌어 새 캐시로 갈아타고 이전 `gongdo-app-*` 캐시는 지운다.
+- 오프라인: 한 번 연 뒤 CDP `Network.emulateNetworkConditions {offline:true}` 로 다시 열면 리포트 목록이 보이고, 시세는 마지막 값 +
+  앱 바 "오프라인".
+- 누름 대상: 화면·열린 시트의 `button, a[href], [role=button], input, select` 가운데 40px 미만을 나열해 본다. 남는 것은 글 안의
+  링크(리포트 제목·뉴스 제목 — 카드나 행 전체도 눌린다)와 label 행 안의 스위치(행 높이 44px 이상)다.
+- 스토어 스크린샷: `m/shots/*.png`(540×1170, 390×844 화면을 배율 3으로 찍어 줄인 것) — 매니페스트 `screenshots`.

@@ -26,6 +26,8 @@ var MH = {
 var MH_ROWS = 5;
 
 function mhSafe(fn){ try{ fn(); }catch(e){ console.error("[m-home]", e); } }
+/* 공유 렌더 감싸기에서 부른다: 홈이 보일 때만 그린다 (숨어 있으면 show() 의 mhRenderAll 이 그린다) */
+function mhLive(fn){ if(M.cur === "home") mhSafe(fn); }
 function mhSkel(n, two){
   var s = "";
   for(var i=0;i<n;i++) s += '<div class="mh-skrow"><i class="mh-sk" style="width:' + (38 + (i * 17) % 30) + '%"></i>' +
@@ -34,12 +36,12 @@ function mhSkel(n, two){
 }
 function mhEmpty(msg, btn, act){
   return '<div class="mh-empty"><p>' + msg + "</p>" +
-    (btn ? '<button class="mh-btn" data-act="' + act + '">' + btn + "</button>" : "") + "</div>";
+    (btn ? '<button class="m-btn pri mh-btn" data-act="' + act + '">' + btn + "</button>" : "") + "</div>";
 }
 function mhMoreBtn(key, total, shown){
   if(total <= MH_ROWS) return "";
   var on = !!MH.open[key];
-  return '<button class="mh-more" data-more="' + key + '" aria-expanded="' + on + '">' +
+  return '<button class="m-morebtn mh-more" data-more="' + key + '" aria-expanded="' + on + '">' +
     (on ? "접기" : "더 보기 <span class=\"m-num\">" + fmt(total - shown) + "</span>") + "</button>";
 }
 function mhSec(id, title, extra){
@@ -98,7 +100,8 @@ function mhMarket(){
   /* 시세 갱신 시각: #upd 문구가 바뀐 순간을 잰다 (refreshAll 끝 → renderMarket) */
   var upd = ($("#upd") || {}).textContent || "";
   if(/^갱신 /.test(upd) && upd !== MH.updTxt){ MH.updTxt = upd; MH.updAt = Date.now(); }
-  var right = (MH.justAt && Date.now() - MH.justAt < 60000) ? "방금 갱신"
+  var right = navigator.onLine === false ? "오프라인 · 마지막 시세"
+    : (MH.justAt && Date.now() - MH.justAt < 60000) ? "방금 갱신"
     : (MH.updAt ? "시세 " + mhTime(MH.updAt).split(" ")[1] : "");
   E.note.innerHTML = '<span class="l">' + esc(note) + '</span><span class="r m-num">' + esc(right) + "</span>";
 }
@@ -213,7 +216,7 @@ function mhSignals(){
       '<span class="m-row-t"><span class="nm">' + esc(q.name) + "</span>" +
       '<span class="m-row-s m-num">' + (amt ? "거래대금 " + fmtBig(q.amt) : "거래량 " + fmtBig(q.vol)) + "</span></span>" +
       '<span class="pr m-num">' + fmt(q.price) + "</span>" +
-      '<span class="mh-chip m-num ' + dirCls(q.pct) + '">' + fmtPct(q.pct) + "</span></button>";
+      '<span class="m-pill m-num ' + dirCls(q.pct) + '">' + fmtPct(q.pct) + "</span></button>";
   }).join("") + "</div>" + mhMoreBtn("sig", total, shown);
 }
 
@@ -251,7 +254,7 @@ function mhSectors(){
       '<span class="mh-bar" aria-hidden="true">' + bar + "<b></b></span>" +
       '<span class="pv m-num ' + dirCls(r.pct) + '">' + fmtPct(r.pct) + "</span></button>";
   }).join("") + "</div>" +
-    (rows.length > 8 ? '<button class="mh-more" data-more="sec" aria-expanded="' + !!MH.open.sec + '">' +
+    (rows.length > 8 ? '<button class="m-morebtn mh-more" data-more="sec" aria-expanded="' + !!MH.open.sec + '">' +
       (MH.open.sec ? "접기" : "전체 업종 보기 <span class=\"m-num\">" + rows.length + "</span>") + "</button>" : "");
 }
 function mhOpenSector(s){
@@ -281,7 +284,7 @@ function mhNews(r){
 function mhNewsErr(e){
   MH.el.newsSub.innerHTML = '<span class="stalebadge">불러오기 실패</span>';
   MH.el.newsBody.innerHTML = mhEmpty("뉴스를 불러오지 못했습니다 (" + esc(e && e.message || e) + ").") +
-    '<a class="mh-more" href="' + gnewsLink(MKT_Q) + '" target="_blank" rel="noopener">구글 뉴스에서 보기 ↗</a>';
+    '<a class="m-morebtn mh-more" href="' + gnewsLink(MKT_Q) + '" target="_blank" rel="noopener">구글 뉴스에서 보기 ↗</a>';
 }
 function mhDart(r){
   var E = MH.el, mine = $("#dcMine").checked, names = myNames();
@@ -306,7 +309,7 @@ function mhDart(r){
 function mhDartErr(e){
   MH.el.dcSub.innerHTML = '<span class="stalebadge">불러오기 실패</span>';
   MH.el.dcBody.innerHTML = mhEmpty("공시를 불러오지 못했습니다 (" + esc(e && e.message || e) + ").") +
-    '<a class="mh-more" href="https://dart.fss.or.kr" target="_blank" rel="noopener">DART 바로가기 ↗</a>';
+    '<a class="m-morebtn mh-more" href="https://dart.fss.or.kr" target="_blank" rel="noopener">DART 바로가기 ↗</a>';
 }
 function mhNewsLoad(force){
   if(!RSS.cache.mkt) MH.el.newsBody.innerHTML = mhSkel(MH_ROWS, true);
@@ -330,7 +333,7 @@ function mhTileSheet(code){
     (tmapPeriod !== "1d" ? row(tmapPeriod === "1w" ? "1주 등락" : "1개월 등락", fmtPct(tmapPct(code))) : "") +
     (q ? row("거래대금", fmtBig(q.amt)) : row("시세", "없음")) +
     row("시가총액", fmtBig(u.cap * 1e8)) +
-    '<button class="mh-btn wide" data-tcode="' + esc(u.code) + '">종목 보기</button></div>';
+    '<button class="m-btn pri m-wide" data-tcode="' + esc(u.code) + '">종목 보기</button></div>';
   var sh = mSheet({ id:"tmapTile", title:"시가총액 지도", content:html, cls:"mh-sheet" });
   $("[data-tcode]", sh.el).onclick = function(){ mOpenStock({ mk:"KR", code:u.code, name:u.name }); };
 }
@@ -436,7 +439,11 @@ mScreen("home", {
     dcBar.className = "mh-dcbar";
     var types = $("#dcTypes"), mineLb = $("#dcMine") && $("#dcMine").closest("label");
     if(types){ types.classList.add("m-chips"); dcBar.appendChild(types); }
-    if(mineLb){ mineLb.classList.add("mh-mine"); dcBar.appendChild(mineLb); }
+    if(mineLb){
+      mineLb.classList.add("mh-mine"); dcBar.appendChild(mineLb);
+      var mineIn = $("input", mineLb); mineIn.classList.add("m-sw"); mineIn.setAttribute("role", "switch");
+      mineLb.insertBefore(mineIn, null);                 // 글자 다음에 스위치
+    }
     dc.appendChild(dcBar);
     E.dcBody = document.createElement("div");
     dc.appendChild(E.dcBody);
@@ -493,26 +500,37 @@ mScreen("home", {
       }
     });
 
-    /* PC 렌더 함수 감싸기 — 같은 시점에 폰 렌더러도 다시 그린다 */
+    /* PC 렌더 함수 감싸기 — 같은 시점에 폰 렌더러도 다시 그린다.
+       홈이 숨어 있으면 폰 렌더는 건너뛴다(mhLive) — show() 가 mhRenderAll 로 모두 다시 그린다 */
     var w_ri = renderIndex;
     renderIndex = function(idx){
       var r = w_ri.apply(this, arguments);
       if(idx) MH.idx = Object.assign({}, MH.idx || {}, idx);
-      mhSafe(mhMarket);
+      mhLive(mhMarket);
       return r;
     };
     var w_rm = renderMarket;
-    renderMarket = function(){ var r = w_rm.apply(this, arguments); mhSafe(mhMarket); return r; };
+    renderMarket = function(){ var r = w_rm.apply(this, arguments); mhLive(mhMarket); return r; };
     var w_rg = renderGauge;
-    renderGauge = function(){ var r = w_rg.apply(this, arguments); mhSafe(mhMarket); return r; };
+    renderGauge = function(){ var r = w_rg.apply(this, arguments); mhLive(mhMarket); return r; };
     var w_rs = renderSignals;
-    renderSignals = function(){ var r = w_rs.apply(this, arguments); mhSafe(mhSignals); return r; };
+    renderSignals = function(){ var r = w_rs.apply(this, arguments); mhLive(mhSignals); return r; };
     var w_sp = renderSectorPerf;
-    renderSectorPerf = function(){ var r = w_sp.apply(this, arguments); mhSafe(mhSectors); return r; };
+    renderSectorPerf = function(){ var r = w_sp.apply(this, arguments); mhLive(mhSectors); return r; };
     var w_td = rpRenderToday;
-    rpRenderToday = function(){ var r = w_td.apply(this, arguments); mhSafe(mhToday); return r; };
-    var w_mr = mrRender;
-    mrRender = function(){ var r = w_mr.apply(this, arguments); mhSafe(mhMyRep); return r; };
+    rpRenderToday = function(){ var r = w_td.apply(this, arguments); mhLive(mhToday); return r; };
+    /* mrRender 는 한 번의 시세 갱신에서 두 번 불린다(11 의 renderWatchlist·renderPortfolio 감싸기).
+       같은 틱의 호출을 하나로 묶는다 — PC 표(#myRep, 앱에서는 숨김)와 mrSync 상태 갱신은 그대로 한 번 돈다 */
+    var w_mr = mrRender, mrQ = false;
+    mrRender = function(){
+      if(mrQ) return;
+      mrQ = true;
+      Promise.resolve().then(function(){
+        mrQ = false;
+        try{ w_mr(); }catch(e){ console.error("[m-home] mrRender", e); }
+        mhLive(mhMyRep);
+      });
+    };
     var w_mb = mrBadges;
     mrBadges = function(){ var r = w_mb.apply(this, arguments); var n = mrLoadSeen().unread.length;
       if(E.myBadge){ E.myBadge.textContent = n > 99 ? "99+" : String(n); E.myBadge.classList.toggle("m-off", !n); } return r; };
@@ -520,15 +538,15 @@ mScreen("home", {
     rpShowNotice = function(html){
       var r = w_sn.apply(this, arguments);
       MH.rpErr = !!html && !RP_READY;
-      if(MH.rpErr){ mhSafe(mhToday); mhSafe(mhMyRep); }
+      if(MH.rpErr){ mhLive(mhToday); mhLive(mhMyRep); }
       return r;
     };
     var w_mn = renderMarketNews;
-    renderMarketNews = function(force){ var r = w_mn.apply(this, arguments); mhNewsLoad(force); return r; };
+    renderMarketNews = function(force){ var r = w_mn.apply(this, arguments); if(M.cur === "home") mhNewsLoad(force); return r; };
     var w_dc = renderDisclosures;
-    renderDisclosures = function(force){ var r = w_dc.apply(this, arguments); mhDartLoad(force); return r; };
+    renderDisclosures = function(force){ var r = w_dc.apply(this, arguments); if(M.cur === "home") mhDartLoad(force); return r; };
     var w_th = applyTheme;
-    applyTheme = function(){ var r = w_th.apply(this, arguments); mhRenderAll(); return r; };
+    applyTheme = function(){ var r = w_th.apply(this, arguments); if(M.cur === "home") mhRenderAll(); return r; };
     /* 경제 캘린더: 07 init 이 부르는 초기화(iframe src 지정)를 펼칠 때로 미룬다 */
     var w_cal = initCalendar;
     initCalendar = function(){};

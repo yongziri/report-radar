@@ -11,7 +11,7 @@
    빌드 ID 가 바뀌면 캐시 이름이 바뀌고, activate 에서 이전 캐시를 모두 지운다.
    앱 버전(m/sw.js)도 이 파일로 만든다: 캐시 접두어·프리캐시 목록·루트 자원 경로(ASSET_BASE)만 다르다. */
 "use strict";
-const BUILD_ID = "c77772e7fb78";
+const BUILD_ID = "46b0cf6d756c";
 const CACHE = "gongdo-app-" + BUILD_ID;
 const CACHE_PREFIX = "gongdo-app-";
 const PRECACHE = [

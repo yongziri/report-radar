@@ -32,18 +32,12 @@
 #m-assets .mas-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px 18px 22px;text-align:center}
 #m-assets .mas-empty b{font-size:var(--m-fs);color:var(--tx)}
 #m-assets .mas-empty span{font-size:var(--m-fs2);color:var(--tx3);line-height:1.55}
-#m-assets .mas-empty .mas-btn{margin-top:10px;min-width:160px}
+#m-assets .mas-empty .m-btn{margin-top:10px;min-width:160px}
 #m-assets .mas-empty-ic{width:48px;height:48px;border-radius:50%;background:var(--panel2);color:var(--link);
   display:flex;align-items:center;justify-content:center;margin-bottom:4px}
 #m-assets .mas-empty-ic svg{width:24px;height:24px}
 
 /* 버튼 (화면·시트 공용) */
-#m-assets .mas-btn,.mas-sheet .mas-btn{flex:1;min-width:0;min-height:48px;padding:0 14px;border:1px solid var(--line2);border-radius:var(--m-r);
-  background:var(--panel2);color:var(--tx);font-size:var(--m-fs);font-weight:700}
-#m-assets .mas-btn.pri,.mas-sheet .mas-btn.pri{background:var(--link);border-color:var(--link);color:#fff}
-.mas-sheet .mas-btn.danger{color:var(--down-bg);border-color:var(--down-bg);background:none}
-#m-assets .mas-btn:active,.mas-sheet .mas-btn:active{filter:brightness(.92)}
-.mas-sheet .mas-btn:disabled{opacity:.4}
 
 /* ---------- 관심종목 ---------- */
 #m-assets .mas-sum{font-size:var(--m-fs2);color:var(--tx2);margin:2px 4px 2px;line-height:1.4}
@@ -63,11 +57,7 @@
 #m-assets .mas-wl{flex:1;min-width:0}
 #m-assets .mas-spk{flex:none;width:56px;height:26px}
 #m-assets .mas-wr{flex:none;min-width:64px;text-align:right}
-#m-assets .mas-pct{flex:none;width:72px;min-height:32px;display:flex;align-items:center;justify-content:center;border-radius:7px;
-  font-size:14px;font-weight:700;color:#fff;background:var(--panel2)}
-#m-assets .mas-pct.u{background:var(--up-bg)}
-#m-assets .mas-pct.d{background:var(--down-bg)}
-#m-assets .mas-pct.f{color:var(--tx2)}
+#m-assets .mas-pct{width:72px}
 #m-assets .editing .mas-wrow{cursor:default}
 #m-assets .mas-del{flex:none;width:var(--m-tap);height:var(--m-tap);margin-right:-6px;border:0;border-radius:50%;background:none;
   display:flex;align-items:center;justify-content:center;color:var(--down-bg)}
@@ -75,7 +65,7 @@
 #m-assets .mas-del:active{background:var(--panel2)}
 @media (max-width:374px){
   #m-assets .mas-spk{display:none}
-  #m-assets .mas-pct{width:68px;font-size:13px}
+  #m-assets .mas-pct{width:68px}
 }
 
 /* ---------- 계좌 ---------- */
@@ -130,6 +120,8 @@
 .mas-sheet .mas-pk span{color:var(--tx3);font-size:var(--m-fs3);margin-left:4px}
 .mas-sheet .m-srch .sug.open{border-top:1px solid var(--line)}
 .mas-sheet .mas-acts{display:flex;gap:8px;margin:14px 0 4px}
+.mas-sheet .mas-acts .m-btn{flex:1;min-height:48px}
+.mas-sheet .mas-acts.m-actbar{margin:16px -16px -16px}
 .mas-sheet .mas-acts.col{flex-direction:column}
 .mas-sheet .mas-hint{font-size:var(--m-fs3);color:var(--tx3);margin:6px 2px 0}
 .mas-sheet .m-h{margin:18px 2px 6px}
@@ -161,5 +153,4 @@
 .mas-sheet .mas-dl dd{margin:2px 0 0;font-size:var(--m-fs);font-weight:700;overflow-wrap:anywhere}
 .mas-sheet .mas-dl .wide dd{font-weight:400;font-size:var(--m-fs2)}
 /* 저장·취소 줄은 시트 아래에 붙여 둔다 (낮은 화면·화상 키보드에서도 보이게) */
-.mas-sheet .mas-form>.mas-acts:last-child:has([data-fok],[data-ok]){position:sticky;bottom:-16px;z-index:2;margin:14px 0 -16px;padding:10px 0 16px;background:var(--panel)}
 .mas-sheet .mas-calc:empty{display:none}

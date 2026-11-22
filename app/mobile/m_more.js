@@ -53,7 +53,7 @@ window.addEventListener("beforeinstallprompt", function(e){
 });
 window.addEventListener("appinstalled", function(){ MM.install = null; if(MM.menu) mmMenuSync(); });
 
-function mmSw(attrs){ return '<input type="checkbox" class="mm-sw" role="switch" ' + (attrs || "") + '>'; }
+function mmSw(attrs){ return '<input type="checkbox" class="m-sw" role="switch" ' + (attrs || "") + '>'; }
 function mmIco(name, tone){ return '<span class="mm-ic' + (tone ? " " + tone : "") + '">' + MM_ICON[name] + '</span>'; }
 
 /* =================== 메뉴 =================== */
@@ -206,9 +206,9 @@ function mmOpenAdv(){
     '<label class="mm-lb" for="mmProxy">커스텀 프록시 URL <span class="mm-opt">(선택)</span></label>' +
     '<input type="text" id="mmProxy" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://stock-proxy.내계정.workers.dev">' +
     '<p class="mm-note">비워 두면 rss2json 방식. Cloudflare Worker 주소를 넣으면 뉴스·공시를 원본에서 직접 받아 공시가 10건에서 50건으로 늘어난다. 현재 모드: <b id="mmProxyMode"></b></p>' +
-    '<button class="mm-btn pri" id="mmProxySave">저장</button>' +
+    '<button class="m-btn pri" id="mmProxySave">저장</button>' +
     '<div class="mm-lb mm-gap">위험 구역</div>' +
-    '<button class="mm-btn danger" id="mmReset">전체 초기화</button>' +
+    '<button class="m-btn danger" id="mmReset">전체 초기화</button>' +
     '<p class="mm-note">관심종목 · 계좌 · 알림 · 설정 · 저장한 스크린을 모두 지운다. 먼저 백업하세요.</p>';
   $("#mmProxy", box).value = S.settings.proxy || "";
   $("#mmProxyMode", box).textContent = RSS.mode() === "proxy" ? "커스텀 프록시" : "rss2json (기본)";
@@ -293,7 +293,7 @@ function mmScrRowHtml(q){
   return '<button class="mscr-row" data-cd="' + esc(q.code) + '">' +
     '<span class="mscr-l"><span class="mscr-nm">' + esc(q.name || q.code) + '</span><span class="mscr-sub">' + sub + '</span></span>' +
     '<span class="mscr-r"><span class="mscr-px m-num">' + (q.price ? fmt(Math.round(q.price)) : "-") + '</span>' +
-      '<span class="mscr-pct m-num ' + dirCls(q.pct) + '">' + fmtPct(q.pct) + '</span></span>' +
+      '<span class="m-pill mscr-pct m-num ' + dirCls(q.pct) + '">' + fmtPct(q.pct) + '</span></span>' +
     '<span class="mscr-mt">' + mets + '</span></button>';
 }
 
@@ -309,8 +309,8 @@ function mmScrRender(list){
   if(!list.length){
     st.n = 0;
     box.innerHTML = '<div class="m-empty">' + (SCREEN.length
-      ? '조건에 맞는 종목이 없습니다.<br><button class="mm-btn" data-scr="reset">조건 초기화</button>'
-      : (scanning ? "스캔 중입니다… 결과가 들어오는 대로 보입니다." : '스캔 결과가 없습니다.<br><button class="mm-btn pri" data-scr="scan">지금 스캔</button>')) + '</div>';
+      ? '조건에 맞는 종목이 없습니다.<br><button class="m-btn" data-scr="reset">조건 초기화</button>'
+      : (scanning ? "스캔 중입니다… 결과가 들어오는 대로 보입니다." : '스캔 결과가 없습니다.<br><button class="m-btn pri" data-scr="scan">지금 스캔</button>')) + '</div>';
   }else{
     box.innerHTML = list.slice(0, n).map(mmScrRowHtml).join("");
     st.n = n;
@@ -409,7 +409,7 @@ function mmScrMount(){
   list.id = "mScrList"; list.className = "m-list mscr-list";
   panel.appendChild(list);
   var more = document.createElement("button");
-  more.id = "mScrMore"; more.className = "mm-btn mscr-more m-off";
+  more.id = "mScrMore"; more.className = "m-morebtn mscr-more m-off";
   panel.appendChild(more);
   more.onclick = mmScrAppend;
   if("IntersectionObserver" in window){
@@ -436,11 +436,11 @@ function mmScrMount(){
     '<div class="mm-lb">내 스크린</div>' +
     '<div id="mScSlotSaved"></div><div class="mm-row2" id="mScSlotSave"></div>' +
     '<div class="mm-row2" id="mScSlotCsv"></div>' +
-    '<div class="mscr-done-wrap"><button class="mm-btn pri mscr-done" id="mScrDone">결과 보기</button></div>';
+    '<div class="m-actbar"><button class="m-btn pri mscr-done" id="mScrDone">결과 보기</button></div>';
   MM.hold.appendChild(cond);                   // 먼저 문서에 붙인다 — 옮긴 노드를 id 로 다시 찾을 수 있게
   $("#mScSlotScope", cond).appendChild($("#segScope"));
   [["#autoScan", "#mScSlotAuto"], ["#inclEtf", "#mScSlotEtf"]].forEach(function(p){
-    var inp = $(p[0]); inp.classList.add("mm-sw"); inp.setAttribute("role", "switch"); inp.removeAttribute("style");
+    var inp = $(p[0]); inp.classList.add("m-sw"); inp.setAttribute("role", "switch"); inp.removeAttribute("style");
     $(p[1], cond).appendChild(inp);
   });
   $("#mScSlotReset", cond).appendChild($("#scrReset"));
@@ -590,9 +590,9 @@ function mmAlMount(){
     '<div class="mal-pane" data-pane="price">' +
       '<p class="mm-note mm-notice">' + MM_ICON.info + '<span>알림은 <b>앱이 열려 있는 동안</b>에만 시세 갱신 때마다 확인한다. 발동한 규칙은 반복을 막으려고 자동으로 꺼진다.</span></p>' +
       '<div class="m-list" id="mAlRules"></div>' +
-      '<button class="mm-btn pri mal-add" id="mAlAddBtn">' + MM_ICON.plus + '알림 추가</button>' +
+      '<button class="m-btn pri mal-add" id="mAlAddBtn">' + MM_ICON.plus + '알림 추가</button>' +
       '<div class="m-h">알림 방식</div><div class="m-list">' +
-        '<div class="m-row"><span class="m-row-t">휴대폰 알림<span class="m-row-s" id="mAlPerm"></span></span><button class="mm-btn sm" id="mAlPermBtn">권한 요청</button></div>' +
+        '<div class="m-row"><span class="m-row-t">휴대폰 알림<span class="m-row-s" id="mAlPerm"></span></span><button class="m-btn sm" id="mAlPermBtn">권한 요청</button></div>' +
         '<label class="m-row"><span class="m-row-t">소리<span class="m-row-s">가격 알림이 울릴 때 짧은 신호음</span></span>' + mmSw('id="mAlBeep" aria-label="가격 알림 소리"') + '</label>' +
         '<button class="m-row" id="mAlBeepTest"><span class="m-row-t">소리 테스트</span>' + MM_ICON.chev + '</button>' +
       '</div>' +
@@ -610,7 +610,7 @@ function mmAlMount(){
       '<p class="mm-note">관심종목(모든 그룹)과 보유 종목(모든 계좌)에 증권사 리포트가 새로 올라오면 알린다. 5분마다 확인하며 앱이 열려 있는 동안에만 동작한다. 처음 켰을 때와 종목을 새로 추가했을 때는 그때까지의 리포트를 기준으로만 기록한다.</p>' +
     '</div>' +
     '<div class="mal-pane" data-pane="log">' +
-      '<div class="mal-loghd"><span id="mAlLogN" class="m-num"></span><button class="mm-btn sm" id="mAlLogClr">기록 지우기</button></div>' +
+      '<div class="mal-loghd"><span id="mAlLogN" class="m-num"></span><button class="m-btn sm" id="mAlLogClr">기록 지우기</button></div>' +
       '<div class="m-list" id="mAlLog"></div>' +
     '</div>';
   while(body.firstChild) wrap.appendChild(body.firstChild);
@@ -633,7 +633,7 @@ function mmAlMount(){
     '<div class="mm-lb">메모 <span class="mm-opt">(선택)</span></div>' +
     '<input type="text" id="mAlMemo" maxlength="40" placeholder="예: 1차 매수가" autocomplete="off">' +
     '<div class="mal-err" id="mAlErr" role="alert"></div>' +
-    '<button class="mm-btn pri mal-save" id="mAlSave">알림 추가</button>';
+    '<div class="m-actbar"><button class="m-btn pri mal-save" id="mAlSave">알림 추가</button></div>';
   MM.hold.appendChild(form);
   MM.alr.formEl = form;
 
@@ -726,7 +726,7 @@ function mmAlRules(){
         '<span class="mal-cur m-num">현재 <span class="' + (q ? dirCls(q.pct) : "") + '">' + curTxt + '</span>' +
           (a.memo ? ' · ' + esc(a.memo) : "") + '</span>' +
       '</button>' +
-      mmSw('data-tg="' + i + '"' + (a.on ? " checked" : "") + ' aria-label="' + esc(a.name) + ' 알림 켜기"') +
+      '<label class="mal-swlb">' + mmSw('data-tg="' + i + '"' + (a.on ? " checked" : "") + ' aria-label="' + esc(a.name) + ' 알림 켜기"') + '</label>' +
       '<button class="mal-del" data-del="' + i + '" aria-label="' + esc(a.name) + ' 규칙 삭제">' + MM_ICON.trash + '</button>' +
     '</div>';
   }).join("");
@@ -863,13 +863,6 @@ mScreen("more", {
 
     var updNow = rpUpdated;
     rpUpdated = function(){ var r = updNow.apply(this, arguments); if(M.cur === "more" && !MM.sub) mmInfoSync(); return r; };
-    /* 앱 빌드 식별자: m/sw.js 의 BUILD_ID */
-    if(location.protocol !== "file:" && window.fetch){
-      fetch("sw.js", { cache:"no-store" }).then(function(r){ return r.ok ? r.text() : ""; }).then(function(t){
-        var m = /BUILD_ID\s*=\s*"([0-9a-f]+)"/.exec(t || "");
-        if(m){ MM.build = m[1]; mmInfoSync(); }
-      }).catch(function(){});
-    }
   },
   show: function(p, prev){
     var root = mRoot("more");
@@ -896,6 +889,14 @@ mScreen("more", {
       mDesk("more");
       mmMenuSync();
       mmInfoSync();
+      /* 앱 빌드 식별자: m/sw.js 의 BUILD_ID — 메뉴를 처음 열 때 한 번 (부팅 때 요청하지 않는다) */
+      if(!MM.buildAsked && location.protocol !== "file:" && window.fetch){
+        MM.buildAsked = true;
+        fetch("sw.js", { cache:"no-store" }).then(function(r){ return r.ok ? r.text() : ""; }).then(function(t){
+          var m = /BUILD_ID\s*=\s*"([0-9a-f]+)"/.exec(t || "");
+          if(m){ MM.build = m[1]; mmInfoSync(); }
+        }).catch(function(){});
+      }
       /* 리포트 메타를 아직 못 받았으면 받을 때까지 가볍게 다시 본다 */
       if(!RMETA && !MM.infoT) MM.infoT = setInterval(function(){
         if(!RMETA) return;

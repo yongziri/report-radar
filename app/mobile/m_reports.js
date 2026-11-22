@@ -138,9 +138,9 @@ function mrpSheetClick(e){
 }
 function mrpFooter(){
   var f = document.createElement("div");
-  f.className = "mrp-fs-ft";
-  f.innerHTML = '<button type="button" class="mrp-b2" data-mrp="reset">초기화</button>' +
-                '<button type="button" class="mrp-b1" data-mrp="apply"><span class="mrp-res">결과 보기</span></button>';
+  f.className = "m-actbar";
+  f.innerHTML = '<button type="button" class="m-btn" data-mrp="reset">초기화</button>' +
+                '<button type="button" class="m-btn pri" data-mrp="apply"><span class="mrp-res">결과 보기</span></button>';
   return f;
 }
 
@@ -190,6 +190,16 @@ function mrpAfter(keep){
   if(!keep) MRP.stLim = MRP_ST_PAGE;
   mrpTopSync();
   mrpWatchMore();
+  if(v === "heat") requestAnimationFrame(mrpHeatFit);
+}
+/* 히트맵: 이름이 들어가지 않는 작은 타일은 글자를 숨긴다 (타일을 누르면 시트가 이름을 보여 준다) */
+function mrpHeatFit(){
+  $$("#rpTmap .tile").forEach(function(t){
+    var w = t.offsetWidth, h = t.offsetHeight, tn = $(".tn", t);
+    var fits = tn && tn.scrollWidth <= w - 2;
+    t.classList.toggle("mrp-t0", w < 34 || h < 22 || (tn && !fits));
+    t.classList.toggle("mrp-t1", h < 36);
+  });
 }
 
 /* ---------- "더 보기" 자동 ---------- */
@@ -308,7 +318,7 @@ function mrpStocks(rows){
     }
     html.push("</div>");
     if(list.length > lim)
-      html.push('<button type="button" class="mrp-more" id="mrpStMore">더 보기 · 남은 ' + fmt(list.length - lim) + "종목</button>");
+      html.push('<button type="button" class="m-morebtn mrp-more" id="mrpStMore">더 보기 · 남은 ' + fmt(list.length - lim) + "종목</button>");
     html.push('<p class="mrp-foot">오른쪽: 평균 목표가 · 현재가 대비 괴리율. 행을 누르면 그 종목 리포트, 이름을 누르면 종목 화면.</p>');
   }
   $("#mrpAlt").innerHTML = html.join("");
@@ -384,7 +394,7 @@ function mrpScore(){
         '<div class="kv"><span>도달까지 (중앙값)</span><b>' + (g.medDays === null ? "-" : fmt(g.medDays) + "일") + "</b></div>" +
         '<div class="kv"><span>최대 상승 실현 (중앙값)</span><b>' + scPct(g.medMx, true) + "</b></div>" +
         '<div class="kv"><span>수익률 계산 표본</span><b>' + fmt(g.ret.length) + "건</b></div>" +
-        '<button type="button" class="mrp-b2 mrp-scgo" data-scgo="1">이 ' + (analyst ? "애널리스트" : "증권사") + " 리포트 보기</button></div>" : "") +
+        '<button type="button" class="m-btn m-wide mrp-scgo" data-scgo="1">이 ' + (analyst ? "애널리스트" : "증권사") + " 리포트 보기</button></div>" : "") +
       "</div>");
   });
   html.push("</div>");
@@ -421,8 +431,8 @@ function mrpHeatSheet(code){
       kv("현재가", nd.price ? fmt(nd.price) + "원" + (typeof nd.pct === "number" ? ' <span class="' + dirCls(nd.pct) + '">' + fmtPct(nd.pct) + "</span>" : "") : "-") +
       kv("평균 목표가 괴리율", mrpGapHtml(nd.gap)) +
     "</div>" +
-    '<div class="mrp-fs-ft"><button type="button" class="mrp-b2" data-hgo="rep">리포트 보기</button>' +
-      '<button type="button" class="mrp-b1" data-hgo="stock">종목 화면 열기</button></div></div>';
+    '<div class="m-actbar"><button type="button" class="m-btn" data-hgo="rep">리포트 보기</button>' +
+      '<button type="button" class="m-btn pri" data-hgo="stock">종목 화면 열기</button></div></div>';
   var sh = mSheet({ id:"rpheat", title:"히트맵 종목", cls:"mrp-sheet", content:html });
   sh.body.addEventListener("click", function(e){
     var b = e.target.closest("[data-hgo]");
@@ -629,7 +639,8 @@ mScreen("reports", {
     if(typeof rpCheckUpdate === "function") return rpCheckUpdate();
   },
   reselect: function(){
-    MRP.root.scrollTo({ top:0, behavior:"smooth" });
+    MRP.restoreY = null;                       // 돌아올 때 복원할 위치가 남아 있으면 다음 rpRender 가 아래로 되돌린다
+    mScrollTop(MRP.root);
     return true;
   }
 });

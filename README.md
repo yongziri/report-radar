@@ -240,6 +240,24 @@ python -m http.server 3491
 # http://localhost:3491
 ```
 
+## 앱 버전 (폰)
+
+폰 전용 화면을 가진 같은 앱. 하단 탭 5개(홈 · 리포트 · 종목 · 내 자산 · 더보기)와 바텀 시트로 다시 배치했고,
+시세·리포트 로더·계산 코드는 PC 버전과 같은 것(`app/parts/03~11_*.js`)을 쓴다. 설치형 웹앱(PWA)이며
+PWABuilder 로 안드로이드 APK(TWA)를 만든다. 설계와 화면 개발 안내: [docs/MOBILE-APP-SPEC.md](docs/MOBILE-APP-SPEC.md).
+
+- 주소: <https://yongziri.github.io/report-radar/m/> (저장소의 `m/` 폴더). 로컬에서는 `http://localhost:3491/m/`.
+- 빌드: `python app/build.py` 한 번에 PC(`index.html`·`sw.js`)와 앱(`m/index.html`·`m/sw.js`·`m/manifest.webmanifest`)이 같이 나온다.
+  앱 전용 소스는 `app/mobile/` (공용 골격 `m_core.js`·`m_shell.html`·`m_head.html` + 화면별 `m_<화면>.js/.css`).
+  스토어용 스크린샷은 `m/shots/` 에 있고 매니페스트가 가리킨다.
+- 데이터(`data/`)·폰트(`fonts.css`)·아이콘(`icons/`)은 루트의 것을 `../` 로 같이 쓴다. 앱의 서비스 워커(`m/sw.js`, 범위 `/m/`,
+  캐시 이름 `gongdo-app-…`)는 PC 워커와 캐시가 겹치지 않으며, 한 번 연 뒤에는 오프라인에서도 마지막 리포트 데이터와
+  마지막 시세(앱 바에 "오프라인" 표시)로 열린다.
+- 저장 공간: 같은 출처(`yongziri.github.io`)라 PC 버전과 앱 버전은 **같은 기기·같은 브라우저 안에서** localStorage 를 함께 쓴다 —
+  관심종목·계좌·알림·설정(`stockHelper.v1`), 리포트 화면 상태 등. 앱에서 바꾸면 PC 버전에도 보인다.
+  앱만 쓰는 값은 `gongdo-m-` 로 시작하는 키(최근 본 종목·화면 선택·마지막 시세)다. 다른 기기로 옮길 때는
+  더보기 › 설정 값 백업/복원(JSON)을 쓴다. 설치한 APK(TWA)는 기기의 크롬과 저장 공간을 공유한다.
+
 ## 레코드 스키마
 
 데이터 형식은 v2다(규약: `docs/DATA-FORMAT-v2.md`). 리포트는 작성월별로
