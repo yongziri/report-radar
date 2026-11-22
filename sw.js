@@ -10,7 +10,7 @@
    - 다른 출처(네이버 JSONP·rss2json·TradingView 등)는 가로채지 않는다
    빌드 ID 가 바뀌면 캐시 이름이 바뀌고, activate 에서 이전 캐시를 모두 지운다. */
 "use strict";
-const BUILD_ID = "76e6ee6b30a5";
+const BUILD_ID = "d2ecec790fd5";
 const CACHE = "gongdo-radar-" + BUILD_ID;
 const CACHE_PREFIX = "gongdo-radar-";
 const PRECACHE = [
@@ -18,7 +18,8 @@ const PRECACHE = [
   "./fonts.css?v=defe5f8b95",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
+  "./icons/mark-64.png"
 ];
 
 self.addEventListener("install", function(e){

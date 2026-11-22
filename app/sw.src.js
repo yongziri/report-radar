@@ -18,7 +18,8 @@ const PRECACHE = [
   "./__FONTS_HREF__",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
+  "./icons/mark-64.png"
 ];
 
 self.addEventListener("install", function(e){
