@@ -1,0 +1,4 @@
+/* 내 자산 화면 — 모든 규칙은 #m-assets 아래로 한정한다 */
+#m-assets .ovw{gap:10px 16px}
+#m-assets .ovi{min-width:120px}
+#m-assets .ptitle .sp{width:100%;margin-left:0}

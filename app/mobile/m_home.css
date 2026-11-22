@@ -1,0 +1,9 @@
+/* 홈 화면 — 모든 규칙은 #m-home 아래로 한정한다 */
+#m-home .m-fold>:not(.ptitle){display:none !important}
+#m-home .m-fold .ptitle .sp>:not(.m-foldbtn){display:none}
+#m-home .ovw{gap:12px 18px}
+#m-home .ovi{min-width:120px}
+#m-home #mkKr{margin-left:auto;font-size:12px;padding:2px 8px}
+#m-home .tmap{height:380px}
+#m-home #calFrame{height:460px !important}
+#m-home .newsbox,#m-home .dcbox{max-height:none}

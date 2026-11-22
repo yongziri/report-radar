@@ -1,0 +1,30 @@
+<!-- ============ 앱 골격 (app/mobile/m_shell.html) ============
+     앱 바 · 화면 틀 5개 · 탭 바 · 시트 자리. 화면 내용은 각 m_<화면>.js 의 mount() 가 채운다.
+     아래에 이어지는 PC 본문(02_body.html)의 패널은 mount() 가 화면으로 옮긴다. -->
+<div id="mApp">
+  <header class="mbar" id="mBar">
+    <button class="mbar-btn m-off" id="mBack" aria-label="뒤로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <img class="mbar-mark" src="../icons/mark-64.png" srcset="../icons/mark-64.png 1x, ../icons/mark-128.png 2x" width="28" height="28" alt="" decoding="async">
+    <h1 class="mbar-title" id="mTitle">홈</h1>
+    <button class="mbar-btn" id="mSearchBtn" aria-label="종목 검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg></button>
+    <button class="mbar-btn" id="mRefreshBtn" aria-label="새로고침"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button>
+  </header>
+
+  <div id="mScreens">
+    <div class="mptr" id="mPtr" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></div>
+    <section class="mscr m-home" id="m-home" data-screen="home" aria-label="홈"></section>
+    <section class="mscr m-reports" id="m-reports" data-screen="reports" aria-label="리포트"></section>
+    <section class="mscr m-stock" id="m-stock" data-screen="stock" aria-label="종목"></section>
+    <section class="mscr m-assets" id="m-assets" data-screen="assets" aria-label="내 자산"></section>
+    <section class="mscr m-more" id="m-more" data-screen="more" aria-label="더보기"></section>
+  </div>
+
+  <nav class="mtabs" id="mTabs" aria-label="화면 전환">
+    <button data-screen="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3.5 10.5L12 4l8.5 6.5V20a1 1 0 0 1-1 1H15v-6H9v6H4.5a1 1 0 0 1-1-1z"/></svg><span>홈</span></button>
+    <button data-screen="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12.5h7M9 16.5h7"/></svg><span>리포트</span></button>
+    <button data-screen="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5h17"/><path d="M5 16l4.5-5.5 4 3L20 6"/></svg><span>종목</span></button>
+    <button data-screen="assets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10.5h18M15.5 15h2.5"/><path d="M7 6l9-3 1 3"/></svg><span>내 자산</span></button>
+    <button data-screen="more"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg><span>더보기</span></button>
+  </nav>
+</div>
+<div id="mSheetHost"></div>

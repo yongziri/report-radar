@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark" data-cc="global">
+<head>
+<meta charset="UTF-8">
+<!-- 앱 버전(폰 전용) — app/mobile/m_head.html. 설계: docs/MOBILE-APP-SPEC.md -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>공도 투자 연구소</title>
+<meta name="theme-color" content="#22262F">
+<meta name="color-scheme" content="dark light">
+<script>/* PWA 매니페스트(m/manifest.webmanifest) — file:// 에서는 CORS 오류만 내므로 http(s)에서만 연결 */
+(function(){ if(location.protocol === "file:") return;
+  var l = document.createElement("link"); l.rel = "manifest"; l.href = "manifest.webmanifest"; document.head.appendChild(l); })();</script>
+<link rel="icon" type="image/png" sizes="48x48" href="../icons/favicon-48.png">
+<link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<!-- 우리다움체: 루트 fonts.css 를 같이 쓴다 (내용 해시 — build.py 가 채운다) -->
+<link rel="stylesheet" href="../__FONTS_HREF__">
+<style>
+/* ===== PC 버전 CSS (app/parts/01_head.html 의 <style> 본문, 빌드가 넣는다) ===== */
+__DESKTOP_CSS__
+</style>
+<style>
+/* =========================================================================
+   앱 공통 CSS — 토큰 · 골격(앱 바/화면/탭 바) · 공용 컴포넌트 · PC 요소 폰 보정
+   색 토큰은 PC 것(--bg --panel --panel2 --line --line2 --tx --tx2 --tx3 --link --up --down …)을 그대로 쓴다.
+   ========================================================================= */
+:root{
+  --m-bar:52px;                                   /* 앱 바 높이 (안전 영역 제외) */
+  --m-tab:56px;                                   /* 탭 바 높이 (안전 영역 제외) */
+  --m-sat:env(safe-area-inset-top, 0px);
+  --m-sab:env(safe-area-inset-bottom, 0px);
+  --m-sal:env(safe-area-inset-left, 0px);
+  --m-sar:env(safe-area-inset-right, 0px);
+  --m-gut:12px;                                   /* 화면 좌우 여백 */
+  --m-r:10px;                                     /* 카드 모서리 */
+  --m-fs:15px; --m-fs2:13px; --m-fs3:12px;        /* 본문 · 보조 · 최소 */
+  --m-tap:44px;                                   /* 최소 터치 크기 */
+}
+
+/* ---------- 골격 ---------- */
+html{height:100%;overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body.mapp{height:100%;height:100dvh;overflow:hidden;overscroll-behavior:none;font-size:var(--m-fs);line-height:1.5;
+  -webkit-tap-highlight-color:transparent}
+body.mapp>header,body.mapp>main,body.mapp>footer{display:none}   /* PC 머리·본문 틀 (패널은 화면으로 옮겨진다) */
+#mApp{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg)}
+
+.mbar{flex:none;display:flex;align-items:center;gap:2px;height:calc(var(--m-bar) + var(--m-sat));
+  padding:var(--m-sat) calc(4px + var(--m-sar)) 0 calc(6px + var(--m-sal));
+  background:var(--panel);border-bottom:1px solid var(--line);position:relative;z-index:60}
+.mbar-mark{width:28px;height:28px;border-radius:50%;flex:none;margin:0 8px 0 6px}
+.mbar-title{flex:1;min-width:0;margin:0;font-size:17px;font-weight:700;letter-spacing:-.3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mbar-btn{flex:none;width:var(--m-tap);height:var(--m-tap);display:flex;align-items:center;justify-content:center;
+  background:none;border:0;border-radius:50%;color:var(--tx2);padding:0}
+.mbar-btn:active{background:var(--panel2)}
+.mbar-btn svg{width:22px;height:22px}
+.mbar-btn.busy svg{animation:sp .8s linear infinite}
+.mbar .qstat{margin-right:2px}
+.mbar.has-back .mbar-mark{display:none}
+
+#mScreens{flex:1;position:relative;min-height:0}
+.mscr{position:absolute;inset:0;display:none;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;
+  padding:10px calc(var(--m-gut) + var(--m-sar)) 24px calc(var(--m-gut) + var(--m-sal))}
+.mscr.act{display:block}
+
+.mtabs{flex:none;display:flex;height:calc(var(--m-tab) + var(--m-sab));padding:0 var(--m-sar) var(--m-sab) var(--m-sal);
+  background:var(--panel);border-top:1px solid var(--line);z-index:60}
+.mtabs button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:none;border:0;padding:0;color:var(--tx3);font-size:12px;font-weight:600;min-height:var(--m-tap)}
+.mtabs button svg{width:24px;height:24px}
+.mtabs button.act{color:var(--link)}
+.mtabs button:active{background:var(--panel2)}
+
+/* 당겨서 새로고침 표시 */
+.mptr{position:absolute;top:0;left:50%;z-index:30;width:38px;height:38px;margin-left:-19px;border-radius:50%;
+  background:var(--panel);border:1px solid var(--line2);box-shadow:0 4px 14px rgba(0,0,0,.4);color:var(--tx2);
+  display:flex;align-items:center;justify-content:center;transform:translateY(-48px);opacity:0;pointer-events:none}
+.mptr svg{width:20px;height:20px}
+.mptr.show{opacity:1}
+.mptr.ready{color:var(--link)}
+.mptr.busy{transform:translateY(12px) !important;opacity:1;transition:transform .15s}
+.mptr.busy svg{animation:sp .8s linear infinite}
+
+/* ---------- 바텀 시트 ---------- */
+.msheet-back{position:fixed;inset:0;z-index:250;background:rgba(0,0,0,.55);opacity:0;transition:opacity .2s}
+.msheet-back.open{opacity:1}
+.msheet{position:fixed;left:0;right:0;bottom:0;z-index:251;display:flex;flex-direction:column;
+  max-height:88vh;max-height:88dvh;background:var(--panel);border-top:1px solid var(--line2);
+  border-radius:16px 16px 0 0;padding:0 var(--m-sar) var(--m-sab) var(--m-sal);
+  transform:translateY(100%);transition:transform .22s ease;box-shadow:0 -8px 28px rgba(0,0,0,.45)}
+.msheet.open{transform:none}
+.msheet-grab{flex:none;width:38px;height:4px;border-radius:2px;background:var(--line2);margin:8px auto 0}
+.msheet-hd{flex:none;display:flex;align-items:center;min-height:48px;padding:0 4px 0 16px;font-size:16px;font-weight:700}
+.msheet-hd .mbar-btn{margin-left:auto}
+.msheet-bd{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 16px 16px}
+
+/* ---------- 공용 클래스 (화면 모듈이 쓴다) ---------- */
+.m-off{display:none !important}
+.m-seg{display:flex;gap:0;margin:0 0 10px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--m-r);padding:3px}
+.m-seg button{flex:1;min-width:0;min-height:38px;border:0;border-radius:8px;background:none;color:var(--tx2);
+  font-size:14px;font-weight:700;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m-seg button.act{background:var(--link);color:#fff}
+.m-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0 8px;margin:0 0 4px}
+.m-chips::-webkit-scrollbar{display:none}
+.m-chips button{flex:none;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--tx2);font-size:14px;font-weight:600;white-space:nowrap}
+.m-chips button.act{background:var(--link);border-color:var(--link);color:#fff}
+.m-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);margin:0 0 10px;overflow:hidden}
+.m-h{font-size:var(--m-fs3);font-weight:700;color:var(--tx3);letter-spacing:.3px;margin:16px 4px 6px}
+.m-list{background:var(--panel);border:1px solid var(--line);border-radius:var(--m-r);overflow:hidden;margin:0 0 10px}
+.m-row{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;padding:8px 14px;border:0;border-bottom:1px solid var(--line);
+  background:none;color:var(--tx);font-size:var(--m-fs);line-height:1.35;text-align:left;text-decoration:none}
+.m-row:last-child{border-bottom:0}
+.m-row:active{background:var(--panel2)}
+a.m-row:hover{text-decoration:none;color:var(--tx)}
+.m-row .m-row-t{flex:1;min-width:0}
+.m-row .m-row-s{display:block;margin-top:3px;font-size:var(--m-fs3);line-height:1.35;color:var(--tx3);font-weight:400}
+.m-row .m-row-v{flex:none;color:var(--tx2);font-size:var(--m-fs2);text-align:right}
+.m-row .m-chev{flex:none;color:var(--tx3);width:18px;height:18px}
+.m-empty{padding:28px 12px;text-align:center;color:var(--tx3);font-size:var(--m-fs2)}
+.m-num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* 종목 검색 시트 */
+.m-srch{position:relative;min-width:0;max-width:none}
+.m-srch input{width:100%;min-height:46px;font-size:16px !important;border-radius:10px !important;padding:8px 12px !important}
+.m-srch .sug{position:static;max-height:none;box-shadow:none;border:0;margin-top:6px;background:none}
+.m-srch .sug div{min-height:48px;font-size:15px;padding:8px 6px;border-bottom:1px solid var(--line)}
+.m-recent{margin-top:10px}
+
+/* ---------- PC 요소 폰 보정 (읽기 크기 · 넘침 방지) — 화면별 세부 조정은 m_<화면>.css ---------- */
+body.mapp .tab{display:block}                      /* 탭 전환은 앱 화면이 맡는다 */
+body.mapp .panel{border-radius:var(--m-r)}          /* overflow:hidden 금지 — 검색 제안(.sug)·증권사 드롭다운(.dd-panel)이 잘린다 */
+body.mapp .ptitle{font-size:13px;padding:9px 10px;text-transform:none;letter-spacing:0}
+body.mapp .ptitle .sub{font-size:12px}
+body.mapp .ptitle .sp{gap:6px}
+body.mapp .ptitle .sp .srch{flex:1 1 100%;min-width:0;max-width:none}
+body.mapp .pbody{padding:8px 10px}
+body.mapp th,body.mapp td{font-size:13px;padding:6px 7px}
+body.mapp th{font-size:12px}
+body.mapp .btn{font-size:13px;padding:6px 10px;min-height:34px;border-radius:6px}
+body.mapp .btn.xs{font-size:12px;padding:4px 9px;min-height:30px}
+body.mapp .chip{font-size:13px;padding:6px 11px;border-radius:16px}
+body.mapp .seg{border-radius:6px}
+body.mapp .seg button{font-size:13px;padding:6px 10px;min-height:32px}
+body.mapp .presets button{font-size:13px;padding:5px 10px;min-height:32px}
+body.mapp input[type=text],body.mapp input[type=number],body.mapp input[type=password],body.mapp select,body.mapp textarea{
+  font-size:16px;padding:6px 9px;border-radius:6px}           /* 16px 미만이면 iOS 가 확대한다 */
+body.mapp input.cell{width:96px}
+body.mapp label.fl{font-size:12px}
+body.mapp .chk{font-size:13px;min-height:32px}
+body.mapp .note{font-size:13px}
+body.mapp .empty{font-size:13px}
+body.mapp .news li{font-size:14px;padding:9px 0}
+body.mapp .news .dt{font-size:12px}
+body.mapp .ovi .k{font-size:12px}
+body.mapp .ovi .v{font-size:20px}
+body.mapp .ovi .c{font-size:13px}
+body.mapp .glab{font-size:12px}
+body.mapp .gauge{min-width:0;flex:1 1 100%}
+body.mapp .secrow{font-size:13px;padding:5px 0;grid-template-columns:84px minmax(0,1fr) 58px 62px}
+body.mapp .secrow .sr{font-size:12px}
+body.mapp .tlegend{font-size:12px}
+body.mapp .statgrid td{font-size:13px}
+body.mapp .rcard{padding:10px 10px 9px;font-size:14px}
+body.mapp .rcard .l3,body.mapp .rind,body.mapp .rsub{font-size:12px}
+body.mapp .rbadge,body.mapp .rmini{font-size:12px}
+body.mapp .sumline,body.mapp .sccap,body.mapp .tgtsum{font-size:12px}
+body.mapp .malegend button{font-size:12px;padding:4px 8px}
+body.mapp .fcell .fk{font-size:12px}
+body.mapp .fcell select{font-size:15px}
+body.mapp .log .it{font-size:13px}
+body.mapp .log .t{font-size:12px}
+body.mapp .sug div{font-size:14px;padding:9px 8px}
+body.mapp .dd-panel{width:min(260px, calc(100vw - 40px))}
+body.mapp .dd-panel label{font-size:14px;padding:7px 4px}
+body.mapp .fld label{font-size:13px}
+body.mapp .fld .hint{font-size:12px}
+body.mapp .tbw{-webkit-overflow-scrolling:touch}
+body.mapp .rpload{font-size:13px}
+
+/* PC 모달(설정·잔고 가져오기) → 아래에서 올라오는 시트 모양 */
+body.mapp .mask{align-items:flex-end;padding:0;z-index:240}
+body.mapp .modal{max-width:none !important;width:100%;border-radius:16px 16px 0 0;max-height:90vh;max-height:90dvh;overflow-y:auto;
+  padding-bottom:var(--m-sab)}
+body.mapp .modal h3{font-size:16px;padding:6px 4px 6px 16px;min-height:52px}
+body.mapp .modal h3 button{width:var(--m-tap);height:var(--m-tap);font-size:24px}
+body.mapp .modal .ft .btn{min-height:42px;padding:0 18px;font-size:14px}
+
+/* 토스트는 탭 바 위 가운데 */
+body.mapp #toasts{left:calc(12px + var(--m-sal));right:calc(12px + var(--m-sar));bottom:calc(var(--m-tab) + var(--m-sab) + 10px);
+  max-width:none;align-items:center}
+body.mapp .toast{width:100%;max-width:480px;font-size:14px;padding:10px 12px;border-radius:8px}
+</style>
+<style>
+/* ===== 화면별 CSS (app/mobile/m_<화면>.css, 빌드가 넣는다) ===== */
+__SCREEN_CSS__
+</style>
+</head>

@@ -1,0 +1,4 @@
+/* 리포트 화면 — 모든 규칙은 #m-reports 아래로 한정한다 */
+#m-reports .ptitle .sp{margin-left:0}
+#m-reports #rpTablePanel>.ptitle .seg,#m-reports .rpvseg{width:100%}
+#m-reports .tmap{height:420px}

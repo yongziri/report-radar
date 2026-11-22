@@ -170,7 +170,7 @@ function rpQuoteCodes(){
 /* noStore: meta.json·v1 reports.json 처럼 주소가 같은 채 내용이 바뀌는 파일에만 쓴다.
    ?v= 가 붙은 파일은 브라우저·서비스 워커 캐시를 그대로 쓴다. */
 function rpFetchJson(path, noStore){
-  return fetch(path, noStore ? { cache:"no-store" } : undefined).then(function(r){
+  return fetch(APP_BASE + path, noStore ? { cache:"no-store" } : undefined).then(function(r){   // APP_BASE: 앱 버전(m/)은 "../"
     if(!r.ok) throw new Error(path + " " + r.status);
     return r.json();
   });

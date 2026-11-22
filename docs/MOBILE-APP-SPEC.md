@@ -81,3 +81,113 @@
 - 헤드리스 크롬으로 360×800, 390×844, 412×915 에서 5개 탭과 주요 하위 화면의 스크린샷을 남긴다.
 - 콘솔 오류 0, 가로 넘침 0. 뒤로가기 동작 확인.
 - PC 빌드 회귀: `node app/test_parsers.mjs` 통과, PC 화면 7개 탭이 이전과 같이 열린다.
+
+## 7. 화면 개발 안내
+
+M1(기초) 구현 기준. 화면 다듬기(폴리시)는 화면 하나에 한 사람(에이전트)씩 나눠 맡는다.
+
+### 7.1 파일과 규칙
+
+- **화면 하나 = `app/mobile/m_<화면>.js` + `m_<화면>.css` 한 쌍.** 맡은 쌍만 고친다.
+  화면 이름: `home`, `reports`, `stock`, `assets`, `more` (뿌리 요소 `#m-home` … `#m-more`).
+- `m_core.js` · `m_shell.html` · `m_head.html` 은 공용이다. 고쳐야 하면 무엇을 왜 고쳤는지 보고에 적는다.
+  공유 파트(`app/parts/*`)는 원칙 1 그대로 — 최소 변경, 보고 필수.
+- 화면 CSS 규칙은 모두 자기 뿌리 선택자(`#m-home …`) 아래로 한정한다. 다른 화면에 새지 않게.
+- 각 `m_<화면>.js` 머리 주석의 `TODO(폴리시 단계)` 가 그 화면의 할 일 목록이다.
+- 빌드 순서: 공유 JS(03~11, 07) → `m_core.js` → `m_home` `m_reports` `m_stock` `m_assets` `m_more` → `mBoot()`.
+  모두 한 `<script>` 안이라 공유 전역(`S`, `AN`, `CMP`, `QUOTES`, `RPT`, `curTab`, `$`, `$$`, `esc`, `toast` …)을 그대로 쓴다.
+- 빌드 상수: `IS_APP`(앱 `true`), `APP_BASE`(앱 `"../"`). 공유 코드에서 루트 자원을 읽는 곳은 `rpFetchJson()` 하나뿐이다.
+
+### 7.2 화면 등록 (`m_core.js`)
+
+```js
+mScreen("home", {
+  title: "홈",                      // 또는 function(params){ return "…"; }
+  mount: function(root){ … },       // 부팅 때 한 번 — 07 init() 보다 먼저. PC 패널을 root 로 옮긴다
+  show: function(params, prev){ … },// 화면이 보일 때·파라미터가 바뀔 때마다
+  hide: function(){ … },            // (선택) 다른 화면으로 떠날 때
+  refresh: function(){ return promise; }, // (선택) 앱 바 새로고침·당겨서 새로고침 때 시세 갱신과 함께
+  reselect: function(){ return true; }    // (선택) 탭 바에서 지금 탭을 다시 눌렀을 때. true 면 기본 동작(맨 위로) 생략
+});
+```
+
+- `mount` 는 init 전에 돌기 때문에 **공유 렌더 함수를 부르지 말고 DOM 배치만** 한다. 렌더는 `show` 에서.
+- `show` 안에서 반드시 `mDesk(id)` 로 PC 탭 상태를 맞춘다. 공유 코드는 `curTab` 으로 지연 렌더·갱신 범위를 정한다
+  (`"rep"` 이면 리포트 표를 그리고, `"scr"` 이면 스크리너 표를, `"dash"` 면 트리맵 갱신·내 종목 리포트 읽음 처리).
+  PC 에 없는 이름(`"wl"`, `"more"`)을 주면 `curTab` 만 바뀐다.
+
+### 7.3 이동 · 히스토리
+
+| 함수 | 하는 일 |
+|---|---|
+| `mGo(screen, params, opts)` | 화면 이동. 다른 화면은 push, 같은 화면은 replace. `opts.push` 로 강제 push, `opts.replace` 로 강제 replace. 홈으로 갈 때는 뿌리 항목까지 되감는다(홈에서 뒤로 = 앱 나가기). 시트가 열려 있으면 닫고 그 항목을 새 화면으로 바꾼다 |
+| `mBack()` | `history.back()` |
+| `mOpenStock(it, seg)` | 종목 화면을 그 종목으로 (`it = {code, mk, name}`) — 화면 어디서든 종목 이름을 누를 때 |
+| `M.cur`, `M.params`, `M.last[screen]` | 지금 화면·파라미터, 화면별 마지막 파라미터(탭 바로 돌아올 때 복원) |
+| `mSetTitle(text)`, `mSetBack(bool)` | 앱 바 제목, 앱 바 뒤로 버튼(하위 화면에서) |
+| `mRefresh()` | 시세 갱신(`refreshAll`) + 지금 화면 `refresh()`. 앱 바 새로고침 버튼과 같다 |
+
+- 히스토리 항목: `{m:1, screen, params, depth, sheet?}`, 주소 해시 `#<screen>`. `./#reports` 처럼 열면 홈 위에 그 화면이 쌓인다(매니페스트 바로가기).
+- 공유 코드의 `showTab(id)` 는 앱에서 감싸져 있다: `dash→home`, `rep→reports`, `acct→assets{seg:"acct"}`,
+  `anal→stock{seg:"anal", code…}`, `cmp→stock{seg:"cmp"}`, `scr→more{sub:"scr"}`, `alr→more{sub:"alr"}`.
+  그래서 PC 코드의 `selectStock(it); showTab("anal")`(관심종목·시그널·스크리너·리포트 행 클릭)이 그대로 종목 화면을 연다.
+  PC 원본은 `mDeskShowTab` 에 있고 `mDesk(id)` 로 부른다.
+- `selectStock` 도 감싸져 있어 고른 종목이 "최근 본 종목"(`mRecent()`, localStorage `gongdo-m-recent`)에 쌓인다.
+
+### 7.4 공용 부품
+
+| API | 설명 |
+|---|---|
+| `mSheet({id, title, content, cls, onClose})` → `{el, body, close()}` | 바텀 시트. `content` 는 노드 또는 HTML 문자열. 열면 히스토리 항목이 쌓여 뒤로가기가 시트를 닫는다. 노드를 넘기면 닫힐 때 떼어 두므로 다시 쓸 수 있다 |
+| PC 모달(`#mask` 설정, `#impMask` 잔고 가져오기) | CSS 로 시트 모양. `mWatchMasks()` 가 열림을 감지해 같은 뒤로가기 규칙을 건다 — 화면 코드는 `openSettings()`·`openImport()` 를 그냥 부르면 된다 |
+| `mOpenSearch()` | 앱 바 검색 시트 (PC `setupSearch` 재사용 + 최근 본 종목) |
+| `toast(msg, kind)` | PC 토스트. 앱에서는 탭 바 위 가운데에 뜬다. `kind`: `"ok"`, `"err"` |
+| `mPullToRefresh(scrollEl, fn)` | 당겨서 새로고침. `fn` 은 Promise 를 돌려준다(생략하면 `mRefresh`). 홈·내 자산에 걸려 있다 |
+| `mSegBar([[값, 라벨], …], onPick)` → 요소 | 꽉 찬 세그먼트(`.m-seg`). `el.mSet(값)` 으로 선택 표시 |
+| `mPanelOf(selector, up)` | 그 요소를 품은 `.panel`(또는 `up` 선택자) — PC 패널을 옮길 때 |
+| `mRoot(screen)` | 화면 뿌리 요소 (`.mscr` — 이 요소가 스크롤 컨테이너다) |
+
+### 7.5 CSS 토큰과 공용 클래스 (`m_head.html`)
+
+- 색: PC 토큰 그대로(`--bg --panel --panel2 --line --line2 --tx --tx2 --tx3 --link --up --down --up-bg --down-bg`). 테마·등락 색 설정을 자동으로 따른다.
+- 앱 토큰: `--m-bar`(52px) `--m-tab`(56px) `--m-sat/--m-sab/--m-sal/--m-sar`(안전 영역) `--m-gut`(12px 좌우 여백)
+  `--m-r`(10px 모서리) `--m-fs/--m-fs2/--m-fs3`(15/13/12px) `--m-tap`(44px).
+- 클래스: `.m-off`(숨김) `.m-seg` `.m-chips`(가로로 미는 칩 줄) `.m-card` `.m-h`(소제목) `.m-list` + `.m-row`
+  (`.m-row-t` 제목, `.m-row-s` 보조줄, `.m-row-v` 오른쪽 값, `.m-chev` 화살표) `.m-empty` `.m-num`(고정폭 숫자).
+- 골격: `.mbar`(앱 바) `#mScreens` > `.mscr.act`(지금 화면, 세로 스크롤) `.mtabs`(탭 바) `.msheet`(시트) `.mptr`(당김 표시).
+  화면 스크롤은 문서가 아니라 `.mscr` 가 한다(화면마다 스크롤 위치 유지).
+- PC 요소 보정: `body.mapp …` 규칙으로 글자 크기(본문 13~15px, 입력 16px)·버튼 높이를 키웠다.
+  넓은 표는 PC 의 `.tbw`(가로 스크롤 상자) 안에서 민다. 리포트 목록은 ≤768px 에서 PC 의 카드 레이아웃(`#rpCards`)이 나온다.
+
+### 7.6 PC 패널 → 앱 화면 배치 (M1)
+
+| PC 요소 (id 유지) | 앱 화면 |
+|---|---|
+| 시장 개요(`#ovKospi` 패널, PC 머리의 `#mkKr` 를 제목으로) | 홈 |
+| `#myRepPanel`, 오늘의 리포트(`#rpToday`), `#sigPanels`, 업종(`#secPerf`), 뉴스·공시(`#mktNews`·`#dcBody` 의 `.grid2`) | 홈 |
+| 시가총액 지도(`#tmap` 패널, 접힘)·경제 캘린더(`#calWrap`, 접힘) | 홈 |
+| `#tab-rep` 전체 | 리포트 |
+| `#tab-anal`, `#tab-cmp` (세그먼트 종목분석 / 기업분석) | 종목 |
+| 관심종목(`#wlBody` 패널) | 내 자산 › 관심종목 (`#mAsWl`) |
+| `#tab-acct` + 보유 종목(`#pfBody` 패널) | 내 자산 › 계좌 (`#mAsAcct`) |
+| `#tab-scr`, `#tab-alr` | 더보기 › 스크리너 / 알림 (하위 화면) |
+| `#btnTheme`, `#btnAuto`, `#upd`, `#scanInd`, `footer` | 더보기 메뉴 (설정·정보) |
+| `#qStat`(시세 지연 표시) | 앱 바 |
+| PC 머리(`header`: 로고·지수·탭·`#btnRefresh`·`#btnSet`), `main`·빈 `#tab-dash` | 숨김 (기능은 앱 바·더보기가 대신 부른다) |
+| `#mask`(설정), `#impMask`(잔고 가져오기), `#toasts`, `#ttip`, `#mpop` | 그대로 (CSS 로 시트·위치 보정) |
+
+### 7.7 실행 · 확인
+
+```
+python app/build.py                     # index.html·sw.js + m/index.html·m/sw.js·m/manifest.webmanifest
+node app/test_parsers.mjs
+python -m http.server 8765              # 저장소 루트에서
+# 앱: http://localhost:8765/m/   PC: http://localhost:8765/
+```
+
+- 크롬 개발자 도구의 기기 모드(360×800, 390×844, 412×915)로 보거나, 헤드리스 크롬을 CDP 로 몰아서
+  `Emulation.setDeviceMetricsOverride {width, height, deviceScaleFactor:3, mobile:true}` +
+  `Emulation.setTouchEmulationEnabled` 뒤 `Page.captureScreenshot` 으로 찍는다.
+- 확인 항목: `document.documentElement.scrollWidth === innerWidth` 와 지금 화면 `.mscr` 의 `scrollWidth <= clientWidth`
+  (화면 스크롤이 `.mscr` 라 둘 다 봐야 한다), 콘솔 오류 0, 뒤로가기(시트 → 이전 화면 → 홈에서 나가기).
+- 서비스 워커: 앱 페이지는 `m/sw.js`(범위 `/m/`, 캐시 접두어 `gongdo-app-`)가 제어해야 한다 — `navigator.serviceWorker.controller.scriptURL`.

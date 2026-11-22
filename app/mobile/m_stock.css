@@ -1,0 +1,7 @@
+/* 종목 화면 — 모든 규칙은 #m-stock 아래로 한정한다 */
+#m-stock #chart{height:320px}
+#m-stock .chw{padding:2px}
+#m-stock .ptitle .sp{width:100%;margin-left:0}
+#m-stock #cmpOpen{min-height:40px}
+#m-stock #cmpFrame{min-height:900px}
+#m-stock .newsbox,#m-stock .dcbox{max-height:none}

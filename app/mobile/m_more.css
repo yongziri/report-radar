@@ -1,0 +1,7 @@
+/* 더보기 화면 — 모든 규칙은 #m-more 아래로 한정한다 */
+#m-more .m-row .btn{min-height:38px;min-width:64px}
+#m-more #btnTheme{font-size:16px}
+#m-more #upd{display:inline;font-size:13px;color:var(--tx2)}
+#m-more .m-info .m-row-v{max-width:65%;white-space:normal}
+#m-more .m-foot footer{display:block;border-top:0;padding:4px 4px 8px;font-size:12px}
+#m-more .ptitle .sp{width:100%;margin-left:0}

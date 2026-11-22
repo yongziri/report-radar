@@ -8,9 +8,10 @@
    - data/meta.json · data/*.json : network-first, 실패 시 캐시 (오프라인이면 마지막 데이터로 열린다)
    - 그 밖의 같은 출처 정적 파일    : stale-while-revalidate (manifest·아이콘)
    - 다른 출처(네이버 JSONP·rss2json·TradingView 등)는 가로채지 않는다
-   빌드 ID 가 바뀌면 캐시 이름이 바뀌고, activate 에서 이전 캐시를 모두 지운다. */
+   빌드 ID 가 바뀌면 캐시 이름이 바뀌고, activate 에서 이전 캐시를 모두 지운다.
+   앱 버전(m/sw.js)도 이 파일로 만든다: 캐시 접두어·프리캐시 목록·루트 자원 경로(ASSET_BASE)만 다르다. */
 "use strict";
-const BUILD_ID = "d2ecec790fd5";
+const BUILD_ID = "0df2d446bfca";
 const CACHE = "gongdo-radar-" + BUILD_ID;
 const CACHE_PREFIX = "gongdo-radar-";
 const PRECACHE = [
@@ -21,6 +22,8 @@ const PRECACHE = [
   "./icons/icon-512.png",
   "./icons/mark-64.png"
 ];
+/* data/ 가 있는 저장소 루트 — 워커 범위 기준 상대 경로 (PC "./", 앱 "../") */
+const ASSET_BASE = "./";
 
 self.addEventListener("install", function(e){
   e.waitUntil(caches.open(CACHE).then(function(c){
@@ -118,7 +121,9 @@ self.addEventListener("fetch", function(e){
   }
   var scopePath = new URL(self.registration.scope).pathname;
   var rel = url.pathname.indexOf(scopePath) === 0 ? url.pathname.slice(scopePath.length) : url.pathname;
-  if(/^data\/[^/]+\.json$/.test(rel)){
+  var basePath = new URL(ASSET_BASE, self.registration.scope).pathname;
+  var drel = url.pathname.indexOf(basePath) === 0 ? url.pathname.slice(basePath.length) : url.pathname;
+  if(/^data\/[^/]+\.json$/.test(drel)){
     e.respondWith(networkFirst(e, pageKey(req.url)));
     return;
   }
