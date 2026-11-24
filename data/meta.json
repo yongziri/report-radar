@@ -1,6 +1,6 @@
 {
-"updated_at": "2026-11-24T14:42:36+09:00",
-"count": 7339,
+"updated_at": "2026-11-24T16:44:40+09:00",
+"count": 7403,
 "latest_date": "2026-11-24",
 "brokers": [
 "BNK투자증권",
@@ -39,13 +39,13 @@
 "source_status": {
 "naver": {
 "last_date": "2026-11-24",
-"new_run": 33,
+"new_run": 0,
 "total": 3932
 },
 "hankyung": {
 "last_date": "2026-11-24",
-"new_run": 0,
-"total": 540,
+"new_run": 6,
+"total": 546,
 "fetched_last_date": "2026-11-24"
 },
 "kb": {
@@ -55,37 +55,36 @@
 },
 "nh": {
 "last_date": "2026-11-24",
-"new_run": 1,
+"new_run": 0,
 "total": 377
 },
 "kis": {
 "last_date": "2026-11-24",
-"new_run": 1,
+"new_run": 0,
 "total": 327
 },
 "thinkpool": {
-"last_date": "2026-11-23",
-"new_run": 0,
-"total": 1377,
-"fetched_at": "2026-11-23T13:56:40+09:00",
-"fetched_last_date": "2026-11-23",
-"fetched_last_id": 569314,
-"tried_at": "2026-11-24T14:42:36+09:00",
-"error": "ConnectTimeout"
+"last_date": "2026-11-24",
+"new_run": 58,
+"total": 1435,
+"fetched_at": "2026-11-24T16:44:40+09:00",
+"fetched_last_date": "2026-11-24",
+"fetched_last_id": 569409,
+"tried_at": "2026-11-24T16:44:40+09:00"
 },
 "im": {
 "last_date": "2026-11-24",
-"new_run": 6,
+"new_run": 0,
 "total": 20,
 "fetched_last_date": "2026-11-24",
-"tried_at": "2026-11-24T14:42:36+09:00"
+"tried_at": "2026-11-24T16:44:40+09:00"
 },
 "bnk": {
 "last_date": "2026-11-20",
 "new_run": 0,
 "total": 137,
 "fetched_last_date": "2026-11-20",
-"tried_at": "2026-11-24T14:42:36+09:00",
+"tried_at": "2026-11-24T16:44:40+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -93,16 +92,16 @@
 "new_run": 0,
 "total": 123,
 "fetched_last_date": "2026-11-20",
-"tried_at": "2026-11-24T14:42:36+09:00"
+"tried_at": "2026-11-24T16:44:40+09:00"
 }
 },
 "data_version": 2,
 "months": [
 {
 "month": "2026-11",
-"count": 2659,
-"v": "2e9df5b903",
-"sv": "1a8505d342"
+"count": 2723,
+"v": "f243068647",
+"sv": "09d2058592"
 },
 {
 "month": "2026-10",
@@ -129,8 +128,8 @@
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "7ed9818a24",
-"perf_v": "189c048209",
+"prices_v": "53812d8d9d",
+"perf_v": "72ae6be0a8",
 "industry_months": [
 {
 "month": "2026-11",
