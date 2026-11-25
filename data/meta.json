@@ -1,5 +1,5 @@
 {
-"updated_at": "2026-11-25T13:44:08+09:00",
+"updated_at": "2026-11-25T15:17:04+09:00",
 "count": 7488,
 "latest_date": "2026-11-25",
 "brokers": [
@@ -39,12 +39,12 @@
 "source_status": {
 "naver": {
 "last_date": "2026-11-25",
-"new_run": 37,
+"new_run": 0,
 "total": 3969
 },
 "hankyung": {
 "last_date": "2026-11-25",
-"new_run": 3,
+"new_run": 0,
 "total": 549,
 "fetched_last_date": "2026-11-25"
 },
@@ -60,12 +60,12 @@
 },
 "kis": {
 "last_date": "2026-11-25",
-"new_run": 1,
+"new_run": 0,
 "total": 329
 },
 "thinkpool": {
 "last_date": "2026-11-25",
-"new_run": 34,
+"new_run": 0,
 "total": 1469,
 "fetched_at": "2026-11-25T13:44:08+09:00",
 "fetched_last_date": "2026-11-25",
@@ -74,17 +74,17 @@
 },
 "im": {
 "last_date": "2026-11-25",
-"new_run": 5,
+"new_run": 0,
 "total": 25,
 "fetched_last_date": "2026-11-25",
-"tried_at": "2026-11-25T13:44:08+09:00"
+"tried_at": "2026-11-25T15:17:04+09:00"
 },
 "bnk": {
 "last_date": "2026-11-24",
 "new_run": 0,
 "total": 139,
 "fetched_last_date": "2026-11-24",
-"tried_at": "2026-11-25T13:44:08+09:00",
+"tried_at": "2026-11-25T15:17:04+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -92,7 +92,7 @@
 "new_run": 0,
 "total": 124,
 "fetched_last_date": "2026-11-24",
-"tried_at": "2026-11-25T13:44:08+09:00"
+"tried_at": "2026-11-25T15:17:04+09:00"
 }
 },
 "data_version": 2,
@@ -100,7 +100,7 @@
 {
 "month": "2026-11",
 "count": 2808,
-"v": "8da74ba475",
+"v": "38afa93911",
 "sv": "e621b85cb7"
 },
 {
@@ -128,7 +128,7 @@
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "ee6aeacadf",
+"prices_v": "f02f155d7a",
 "perf_v": "a465ba2988",
 "industry_months": [
 {
