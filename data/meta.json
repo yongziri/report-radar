@@ -1,7 +1,7 @@
 {
-"updated_at": "2026-11-24T22:30:56+09:00",
-"count": 7408,
-"latest_date": "2026-11-24",
+"updated_at": "2026-11-25T13:44:08+09:00",
+"count": 7488,
+"latest_date": "2026-11-25",
 "brokers": [
 "BNK투자증권",
 "DB증권",
@@ -38,15 +38,15 @@
 ],
 "source_status": {
 "naver": {
-"last_date": "2026-11-24",
-"new_run": 0,
-"total": 3932
+"last_date": "2026-11-25",
+"new_run": 37,
+"total": 3969
 },
 "hankyung": {
-"last_date": "2026-11-24",
-"new_run": 0,
-"total": 546,
-"fetched_last_date": "2026-11-24"
+"last_date": "2026-11-25",
+"new_run": 3,
+"total": 549,
+"fetched_last_date": "2026-11-25"
 },
 "kb": {
 "last_date": "2026-11-24",
@@ -59,32 +59,32 @@
 "total": 377
 },
 "kis": {
-"last_date": "2026-11-24",
-"new_run": 0,
-"total": 328
+"last_date": "2026-11-25",
+"new_run": 1,
+"total": 329
 },
 "thinkpool": {
-"last_date": "2026-11-24",
-"new_run": 0,
-"total": 1435,
-"fetched_at": "2026-11-24T22:30:10+09:00",
-"fetched_last_date": "2026-11-24",
-"fetched_last_id": 569415,
-"tried_at": "2026-11-24T22:30:10+09:00"
+"last_date": "2026-11-25",
+"new_run": 34,
+"total": 1469,
+"fetched_at": "2026-11-25T13:44:08+09:00",
+"fetched_last_date": "2026-11-25",
+"fetched_last_id": 570023,
+"tried_at": "2026-11-25T13:44:08+09:00"
 },
 "im": {
-"last_date": "2026-11-24",
-"new_run": 0,
-"total": 20,
-"fetched_last_date": "2026-11-24",
-"tried_at": "2026-11-24T22:30:56+09:00"
+"last_date": "2026-11-25",
+"new_run": 5,
+"total": 25,
+"fetched_last_date": "2026-11-25",
+"tried_at": "2026-11-25T13:44:08+09:00"
 },
 "bnk": {
 "last_date": "2026-11-24",
 "new_run": 0,
 "total": 139,
 "fetched_last_date": "2026-11-24",
-"tried_at": "2026-11-24T22:30:56+09:00",
+"tried_at": "2026-11-25T13:44:08+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -92,16 +92,16 @@
 "new_run": 0,
 "total": 124,
 "fetched_last_date": "2026-11-24",
-"tried_at": "2026-11-24T22:30:56+09:00"
+"tried_at": "2026-11-25T13:44:08+09:00"
 }
 },
 "data_version": 2,
 "months": [
 {
 "month": "2026-11",
-"count": 2728,
-"v": "f4973f4812",
-"sv": "e369f18ff8"
+"count": 2808,
+"v": "8da74ba475",
+"sv": "e621b85cb7"
 },
 {
 "month": "2026-10",
@@ -128,13 +128,13 @@
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "4cffdb5788",
-"perf_v": "72ae6be0a8",
+"prices_v": "ee6aeacadf",
+"perf_v": "a465ba2988",
 "industry_months": [
 {
 "month": "2026-11",
-"count": 743,
-"v": "5817a61f7e"
+"count": 790,
+"v": "669a83fdae"
 },
 {
 "month": "2026-10",
