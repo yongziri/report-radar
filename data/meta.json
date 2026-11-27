@@ -1,7 +1,7 @@
 {
-"updated_at": "2026-11-27T04:25:10+09:00",
-"count": 7539,
-"latest_date": "2026-11-26",
+"updated_at": "2026-11-27T12:53:40+09:00",
+"count": 7616,
+"latest_date": "2026-11-27",
 "brokers": [
 "BNK투자증권",
 "DB증권",
@@ -38,53 +38,53 @@
 ],
 "source_status": {
 "naver": {
-"last_date": "2026-11-26",
-"new_run": 0,
-"total": 3991
+"last_date": "2026-11-27",
+"new_run": 48,
+"total": 4039
 },
 "hankyung": {
-"last_date": "2026-11-26",
-"new_run": 0,
-"total": 552,
-"fetched_last_date": "2026-11-26"
+"last_date": "2026-11-27",
+"new_run": 2,
+"total": 554,
+"fetched_last_date": "2026-11-27"
 },
 "kb": {
-"last_date": "2026-11-26",
-"new_run": 0,
-"total": 510
+"last_date": "2026-11-27",
+"new_run": 1,
+"total": 511
 },
 "nh": {
-"last_date": "2026-11-26",
-"new_run": 0,
-"total": 379
+"last_date": "2026-11-27",
+"new_run": 1,
+"total": 380
 },
 "kis": {
-"last_date": "2026-11-26",
-"new_run": 0,
-"total": 331
+"last_date": "2026-11-27",
+"new_run": 1,
+"total": 332
 },
 "thinkpool": {
-"last_date": "2026-11-26",
-"new_run": 0,
-"total": 1484,
-"fetched_at": "2026-11-27T04:25:10+09:00",
-"fetched_last_date": "2026-11-26",
-"fetched_last_id": 570085,
-"tried_at": "2026-11-27T04:25:10+09:00"
+"last_date": "2026-11-27",
+"new_run": 19,
+"total": 1503,
+"fetched_at": "2026-11-27T12:53:40+09:00",
+"fetched_last_date": "2026-11-27",
+"fetched_last_id": 570141,
+"tried_at": "2026-11-27T12:53:40+09:00"
 },
 "im": {
-"last_date": "2026-11-25",
-"new_run": 0,
-"total": 25,
-"fetched_last_date": "2026-11-25",
-"tried_at": "2026-11-27T04:25:10+09:00"
+"last_date": "2026-11-27",
+"new_run": 5,
+"total": 30,
+"fetched_last_date": "2026-11-27",
+"tried_at": "2026-11-27T12:53:40+09:00"
 },
 "bnk": {
 "last_date": "2026-11-26",
 "new_run": 0,
 "total": 142,
 "fetched_last_date": "2026-11-26",
-"tried_at": "2026-11-27T04:25:10+09:00",
+"tried_at": "2026-11-27T12:53:40+09:00",
 "error": "ConnectTimeout"
 },
 "sangsangin": {
@@ -92,16 +92,16 @@
 "new_run": 0,
 "total": 125,
 "fetched_last_date": "2026-11-26",
-"tried_at": "2026-11-27T04:25:10+09:00"
+"tried_at": "2026-11-27T12:53:40+09:00"
 }
 },
 "data_version": 2,
 "months": [
 {
 "month": "2026-11",
-"count": 2859,
-"v": "3f3e27b136",
-"sv": "6d1f53b455"
+"count": 2936,
+"v": "061e5d582c",
+"sv": "9e6fb3e7e2"
 },
 {
 "month": "2026-10",
@@ -128,13 +128,13 @@
 "sv": "8169ca76ca"
 }
 ],
-"prices_v": "238095e4ee",
+"prices_v": "0ff992cf7e",
 "perf_v": "3232879880",
 "industry_months": [
 {
 "month": "2026-11",
-"count": 822,
-"v": "3fbb845cd7"
+"count": 861,
+"v": "71e301511d"
 },
 {
 "month": "2026-10",
